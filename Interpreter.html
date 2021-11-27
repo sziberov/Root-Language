@@ -142,24 +142,28 @@ deallocate(instance)
 
 		static rules = [
 			['/*', () => {
-				if(this.lastToken.type !== 'commentLine') {
-					if(this.commentLevel == 0) {
-						this.createToken('commentBlock', '');
-					}
+				if(this.commentLevel > 0) {
+					this.lastToken.value += '/*';
+				} else {
+					this.createToken('commentBlock', '');
+				}
+				if(this.lastToken.type === 'commentBlock') {
 					this.commentLevel++;
 				}
 			}],
 			['*/', () => {
+				if(this.commentLevel > 0) {
+					this.lastToken.value += '*/';
+				}
 				if(this.lastToken.type === 'commentBlock') {
 					this.commentLevel--;
 				}
 			}],
 			['//', () => {
-				if(this.lastToken.type !== 'commentBlock') {
-					if(this.commentLevel == 0) {
-						this.createToken('commentLine', '');
-					}
-
+				if(this.commentLevel > 0) {
+					this.lastToken.value += '//';
+				} else {
+					this.createToken('commentLine', '');
 					this.commentLevel++;
 				}
 			}],
