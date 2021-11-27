@@ -123,9 +123,6 @@ var instance = Class(with: 12, and: '2')
 print(instance.variable_)
 deallocate(instance)
 </textarea>
-<textarea id="test">
-a01234
-</textarea>
 <script>
 	let code = document.getElementById('code').value;
 
@@ -166,26 +163,7 @@ a01234
 					this.commentLevel++;
 				}
 			}],
-			[/\s|[:;.,]/, () => {
-				let character = this.code[this.position]
-
-				if(this.stringOpen || this.commentLevel > 0) {
-					if(character !== '\n' || this.lastToken.type !== 'commentLine') {
-						this.lastToken.value += character;
-					}
-					if(character === '\n' && this.lastToken.type === 'commentLine') {
-						this.createToken('delimiter');
-						this.commentLevel--;
-					}
-				} else {
-					if(character === '.' && this.lastToken.type === 'numberInteger') {
-						return true;
-					} else {
-						this.createToken('delimiter');
-					}
-				}
-			}],
-			[['!', '%', '&', '&&', '||', '=', '==', '<', '<=', '>', '>=', '-', '->', '+', '/', '*'], (v) => {
+			[['!', '%', '&', '&&', '?', '??', '?.', '||', '=', '==', '<', '<=', '>', '>=', '-', '->', '+', '/', '*', ':', '.', ','], (v) => {
 				if(this.stringOpen || this.commentLevel > 0) {
 					this.lastToken.value += this.code[this.position]
 				} else {
@@ -196,6 +174,9 @@ a01234
 						case '%':	title = 'Remainder';		break;
 						case '&':	title = 'Ampersand';		break;
 						case '&&':	title = 'And';				break;
+						case '?':	title = 'Question';			break;
+						case '??':	title = 'NullCoalescing';	break;
+						case '?.':	title = 'OptionalChain';	break;
 						case '||':	title = 'Or';				break;
 						case '=':	title = 'Assign';			break;
 						case '==':	title = 'Equals';			break;
@@ -208,6 +189,15 @@ a01234
 						case '+':	title = 'Plus';				break;
 						case '/':	title = 'Divide';			break;
 						case '*':	title = 'Multiply';			break;
+						case ':':	title = 'Colon';			break;
+						case '.':
+							if(this.lastToken.type === 'numberInteger') {
+								return true;
+							} else {
+								title = 'Chain';
+							}
+						break;
+						case ',':	title = 'Also';				break;
 					}
 
 					this.createToken('operator'+title, v);
@@ -240,6 +230,21 @@ a01234
 					this.stringOpen = true;
 				} else {
 					this.stringOpen = false;
+				}
+			}],
+			[/\s|;/, () => {
+				let character = this.code[this.position]
+
+				if(this.stringOpen || this.commentLevel > 0) {
+					if(character !== '\n' || this.lastToken.type !== 'commentLine') {
+						this.lastToken.value += character;
+					}
+					if(character === '\n' && this.lastToken.type === 'commentLine') {
+						this.createToken('delimiter');
+						this.commentLevel--;
+					}
+				} else {
+					this.createToken('delimiter');
 				}
 			}],
 			[/[0-9\.]/, () => {
