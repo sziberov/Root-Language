@@ -1,2 +1,1 @@
-# Root Language
- 
+![This is an image](./Resources/Logo.png)
