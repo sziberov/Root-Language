@@ -1,0 +1,366 @@
+<html>
+<body>
+<style>
+	textarea {
+		width: 768px;
+		height: 512px;
+	}
+</style>
+<textarea id="code">
+/* Comment
+Block */
+
+// Comment Line
+
+struct CoreFoundation {
+	class Boolean {
+		const value
+
+		func initialize(value: bool) {
+			self.value = value
+		}
+
+		func ==(rhs: bool & Boolean) -> Boolean {
+			return rhs !is String ? value == rhs : value == rhs.value
+		}
+	}
+
+	class Number {
+		static const Pi = 3.14
+
+		const value
+
+		func initialize(value: int & decimal) {
+			self.value = value
+		}
+
+		func ==(rhs: int & decimal & Number) -> Boolean {
+			return rhs !is Number ? value == rhs : value == rhs.value
+		}
+	}
+
+	class Decimal: Number {
+		func initialize(value: int & decimal) {
+			if var v = value%2 && (v == 0 || v == 1) {
+				throw 'Value can\'t be integer'
+			}
+
+			self.value = value
+		}
+	}
+
+	class Integer: Number {
+		func initialize(value: int & decimal) {
+			if var v = value%2 && v > 0 && v < 1 {
+				throw 'Value can\'t be decimal'
+			}
+
+			self.value = value
+		}
+	}
+
+	class String {
+		const value
+
+		func initialize(value: string) {
+			self.value = value
+		}
+
+		func ==(rhs: string & String) -> Boolean {
+			return rhs !is String ? value == rhs : value == rhs.value
+		}
+	}
+}
+
+alias Boolean = CoreFoundation.Boolean,
+	  Number = CoreFoundation.Number,
+	  Decimal = CoreFoundation.Decimal,
+	  Integer = CoreFoundation.Integer,
+	  String = CoreFoundation.String
+
+// ----
+
+const constant = Number.Pi
+
+var variable
+
+if constant > 0 {
+	variable = 1
+}
+
+class Class {
+	const private constant: Number = 0.5
+
+	var protected variable: Integer = 1
+
+	var variable_01a = 'String'
+
+	var private anotherVariableStorage
+
+	var anotherVariable {
+		set(newValue) {
+			anotherVariableStorage = newValue
+		}
+		get {
+			return anotherVariableStorage
+		}
+	}
+
+	func initialize(with parameter: Integer, and parameter_: String): Class {
+		print('Intitializing with \(parameter) and \(parameter_)')
+
+		variable = parameter
+		variable_ = parameter_
+	}
+
+	func deinitialize {
+		print('Deinitializing!')
+	}
+}
+
+var instance = Class(with: 12, and: '2')
+
+print(instance.variable_)
+deallocate(instance)
+</textarea>
+<textarea id="test">
+a01234
+</textarea>
+<script>
+	let code = document.getElementById('code').value;
+
+	class Lexer {
+		static code;
+		static position;
+		static tokens;
+		static commentLevel;
+		static stringOpen;
+
+		static get lastToken() {
+			return this.tokens.at(-1) ?? {
+				type: '',
+				value: ''
+			}
+		}
+
+		static rules = [
+			['/*', () => {
+				if(this.lastToken.type !== 'commentLine') {
+					if(this.commentLevel == 0) {
+						this.createToken('commentBlock', '');
+					}
+					this.commentLevel++;
+				}
+			}],
+			['*/', () => {
+				if(this.lastToken.type === 'commentBlock') {
+					this.commentLevel--;
+				}
+			}],
+			['//', () => {
+				if(this.lastToken.type !== 'commentBlock') {
+					if(this.commentLevel == 0) {
+						this.createToken('commentLine', '');
+					}
+
+					this.commentLevel++;
+				}
+			}],
+			[/\s|[:;.,]/, () => {
+				let character = this.code[this.position]
+
+				if(this.stringOpen || this.commentLevel > 0) {
+					if(character !== '\n' || this.lastToken.type !== 'commentLine') {
+						this.lastToken.value += character;
+					}
+					if(character === '\n' && this.lastToken.type === 'commentLine') {
+						this.createToken('delimiter');
+						this.commentLevel--;
+					}
+				} else {
+					if(character === '.' && this.lastToken.type === 'numberInteger') {
+						return true;
+					} else {
+						this.createToken('delimiter');
+					}
+				}
+			}],
+			[['!', '%', '&', '&&', '||', '=', '==', '<', '<=', '>', '>=', '-', '->', '+', '/', '*'], (v) => {
+				if(this.stringOpen || this.commentLevel > 0) {
+					this.lastToken.value += this.code[this.position]
+				} else {
+					let title;
+
+					switch(v) {
+						case '!':	title = 'Not';				break;
+						case '%':	title = 'Remainder';		break;
+						case '&':	title = 'Ampersand';		break;
+						case '&&':	title = 'And';				break;
+						case '||':	title = 'Or';				break;
+						case '=':	title = 'Assign';			break;
+						case '==':	title = 'Equals';			break;
+						case '<':	title = 'Smaller';			break;
+						case '<=':	title = 'SmallerEquals';	break;
+						case '>':	title = 'Bigger';			break;
+						case '>=':	title = 'BiggerEquals';		break;
+						case '-':	title = 'Minus';			break;
+						case '->':	title = 'Returns';			break;
+						case '+':	title = 'Plus';				break;
+						case '/':	title = 'Divide';			break;
+						case '*':	title = 'Multiply';			break;
+					}
+
+					this.createToken('operator'+title, v);
+				}
+			}],
+			[['(', ')', '{', '}', '[', ']'], (v) => {
+				if(this.stringOpen || this.commentLevel > 0) {
+					this.lastToken.value += this.code[this.position]
+				} else {
+					let title;
+
+					switch(v) {
+						case '(':	title = 'parenthesisOpen';		break;
+						case ')':	title = 'parenthesisClosed';	break;
+						case '{':	title = 'braceOpen';			break;
+						case '}':	title = 'braceClosed';			break;
+						case '[':	title = 'bracketOpen';			break;
+						case ']':	title = 'bracketClosed';		break;
+					}
+
+					this.createToken(title, v);
+				}
+			}],
+			['\'', () => {
+				if(this.commentLevel > 0 || this.code[this.position-1] == '\\') {
+					return true;
+				}
+				if(!this.stringOpen) {
+					this.createToken('string', '');
+					this.stringOpen = true;
+				} else {
+					this.stringOpen = false;
+				}
+			}],
+			[/[0-9\.]/, () => {
+				let character = this.code[this.position]
+
+				if(this.stringOpen || this.commentLevel > 0 || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && character !== '.') {
+					if(this.lastToken.type === 'numberInteger' && character === '.') {
+						this.lastToken.type = 'numberFloat';
+					}
+					this.lastToken.value += character;
+				} else
+				if(character !== '.') {
+					this.createToken('numberInteger');
+				}
+			}],
+			[/[a-z$_]/i, () => {
+				if(this.stringOpen || this.commentLevel > 0) {
+					return true;
+				}
+				if(this.lastToken.type !== 'identifier' && !this.lastToken.type.startsWith('keyword')) {
+					this.createToken('identifier', '');
+				}
+				this.lastToken.value += this.code[this.position]
+				if([
+					'alias',
+					'class',
+					'const',
+					'else',
+					'false',
+					'for',
+					'func',
+					'if',
+					'is',
+					'private',
+					'protected',
+					'self',
+					'struct',
+					'throw',
+					'true',
+					'var',
+					'while'
+				].includes(this.lastToken.value)) {
+					this.lastToken.type = 'keyword'+this.lastToken.value[0].toUpperCase()+this.lastToken.value.slice(1);
+				} else {
+					this.lastToken.type = 'identifier';
+				}
+			}],
+			[/.|\n/i, () => {
+				let character = this.code[this.position]
+
+				if(this.stringOpen || this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && character !== '\n') {
+					this.lastToken.value += character;
+				} else {
+					console.warn('No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+character+'", skipping...');
+				}
+			}]
+		]
+
+		static createToken(type, value) {
+			this.tokens.push({
+				type: type,
+				value: value !== undefined ? value : this.code[this.position]
+			});
+		}
+
+		static reset() {
+			this.code = undefined;
+			this.position = undefined;
+			this.tokens = []
+			this.commentLevel = 0;
+			this.stringOpen = false;
+		}
+
+		static atPosition(substring) {
+			return this.code.indexOf(substring, this.position) === this.position;
+		}
+
+		static tokenize(code, parameters) {
+			this.reset();
+
+			for(this.position = 0; this.position < (this.code = code).length; this.position++) {
+				for(let rule of this.rules) {
+					let k = rule[0],
+						v = rule[1],
+						plain = typeof k === 'string',
+						array = Array.isArray(k),
+						arrayValue,
+						regex = k instanceof RegExp;
+
+					if(array) {
+						for(let v of k) {
+							if(this.atPosition(v)) {
+								arrayValue = v;
+							}
+						}
+					}
+					if(plain ? this.atPosition(k) : arrayValue != null ? true : regex ? k.test(this.code[this.position]) : false) {
+						let continue_ = v(arrayValue);
+
+						this.position += plain ? k.length-1 : array ? arrayValue.length-1 : 0;
+
+						if(!continue_) {
+							break;
+						}
+					}
+				}
+			}
+
+			let tokens = [...this.tokens]
+
+			if(parameters.excludeEmptyDelimiters) {
+				tokens = tokens.filter(v => v.type === 'delimiter' && [' ', '\t', '\n'].includes(v.value) ? false : true);
+			}
+
+			this.reset();
+
+			return tokens;
+		}
+	}
+
+	console.log(Lexer.tokenize(code, { excludeEmptyDelimiters: true }));
+</script>
+</body>
+</html>
