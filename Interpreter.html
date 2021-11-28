@@ -1,12 +1,19 @@
 <html>
 <body>
 <style>
-	textarea {
+	#input {
 		width: 768px;
 		height: 512px;
+
+		border: none;
+		border-radius: 2px;
+		background: white;
+		box-shadow: 0 2px 4px gray;
+
+		color: black;
 	}
 </style>
-<textarea id="code">
+<textarea id="input">
 /* Comment
 Block */
 
@@ -98,19 +105,23 @@ class Class {
 	var private anotherVariableStorage
 
 	var anotherVariable {
+		willSet(newValue) {}
 		set(newValue) {
 			anotherVariableStorage = newValue
 		}
+		didSet(newValue) {}
+		willGet {}
 		get {
 			return anotherVariableStorage
 		}
+		didGet {}
 	}
 
-	func initialize(with parameter: Integer, and parameter_: String): Class {
-		print('Intitializing with \(parameter) and \(parameter_)')
+	func initialize(with parameter: Integer, and parameter_: String) {
+		print('Intitializing with \(parameter+'123') and \(parameter_)')
 
 		variable = parameter
-		variable_ = parameter_
+		variable_01a = parameter_
 	}
 
 	func deinitialize {
@@ -120,11 +131,12 @@ class Class {
 
 var instance = Class(with: 12, and: '2')
 
-print(instance.variable_)
-deallocate(instance)
+print(instance.variable)
+
+instance = nil
 </textarea>
 <script>
-	let code = document.getElementById('code').value;
+	let code = document.getElementById('input').value;
 
 	class Lexer {
 		static code;
@@ -132,9 +144,11 @@ deallocate(instance)
 		static tokens;
 		static commentLevel;
 		static stringOpen;
+		static stringExpressionOpen;
 
 		static get lastToken() {
 			return this.tokens.at(-1) ?? {
+				position: undefined,
 				type: '',
 				value: ''
 			}
@@ -152,7 +166,7 @@ deallocate(instance)
 				}
 			}],
 			['*/', () => {
-				if(this.commentLevel > 0) {
+				if(this.commentLevel > 0 && this.lastToken.type === 'commentLine' || this.commentLevel > 1) {
 					this.lastToken.value += '*/';
 				}
 				if(this.lastToken.type === 'commentBlock') {
@@ -167,7 +181,20 @@ deallocate(instance)
 					this.commentLevel++;
 				}
 			}],
-			[['!', '%', '&', '&&', '?', '??', '?.', '||', '=', '==', '<', '<=', '>', '>=', '-', '->', '+', '/', '*', ':', '.', ','], (v) => {
+			[['\\(', ')'], (v) => {
+				if(this.stringOpen && v === '\\(') {
+					this.stringOpen = false;
+					this.createToken('stringExpression', v);
+					this.stringExpressionOpen = true;
+				}
+				if(this.stringExpressionOpen && v === ')') {
+					this.createToken('stringExpression');
+					this.stringExpressionOpen = false;
+					this.createToken('string', '');
+					this.stringOpen = true;
+				}
+			}],
+			[['!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '->', '-', '+', '/', '*', ':', '.', ','], (v) => {
 				if(this.stringOpen || this.commentLevel > 0) {
 					this.lastToken.value += this.code[this.position]
 				} else {
@@ -176,20 +203,20 @@ deallocate(instance)
 					switch(v) {
 						case '!':	title = 'Not';				break;
 						case '%':	title = 'Remainder';		break;
-						case '&':	title = 'Ampersand';		break;
 						case '&&':	title = 'And';				break;
-						case '?':	title = 'Question';			break;
+						case '&':	title = 'Ampersand';		break;
 						case '??':	title = 'NullCoalescing';	break;
 						case '?.':	title = 'OptionalChain';	break;
+						case '?':	title = 'Question';			break;
 						case '||':	title = 'Or';				break;
-						case '=':	title = 'Assign';			break;
 						case '==':	title = 'Equals';			break;
-						case '<':	title = 'Smaller';			break;
+						case '=':	title = 'Assign';			break;
 						case '<=':	title = 'SmallerEquals';	break;
-						case '>':	title = 'Bigger';			break;
+						case '<':	title = 'Smaller';			break;
 						case '>=':	title = 'BiggerEquals';		break;
-						case '-':	title = 'Minus';			break;
+						case '>':	title = 'Bigger';			break;
 						case '->':	title = 'Returns';			break;
+						case '-':	title = 'Minus';			break;
 						case '+':	title = 'Plus';				break;
 						case '/':	title = 'Divide';			break;
 						case '*':	title = 'Multiply';			break;
@@ -264,7 +291,7 @@ deallocate(instance)
 					this.createToken('numberInteger');
 				}
 			}],
-			[/[a-z$_]/i, () => {
+			[/[a-z_]/i, () => {
 				if(this.stringOpen || this.commentLevel > 0) {
 					return true;
 				}
@@ -287,6 +314,7 @@ deallocate(instance)
 					'if',
 					'import',
 					'is',
+					'nil',
 					'private',
 					'protected',
 					'return',
@@ -317,6 +345,7 @@ deallocate(instance)
 
 		static createToken(type, value) {
 			this.tokens.push({
+				position: this.position,
 				type: type,
 				value: value !== undefined ? value : this.code[this.position]
 			});
@@ -328,6 +357,7 @@ deallocate(instance)
 			this.tokens = []
 			this.commentLevel = 0;
 			this.stringOpen = false;
+			this.stringExpressionOpen = false;
 		}
 
 		static atPosition(substring) {
@@ -350,6 +380,8 @@ deallocate(instance)
 						for(let v of k) {
 							if(this.atPosition(v)) {
 								arrayValue = v;
+
+								break;
 							}
 						}
 					}
