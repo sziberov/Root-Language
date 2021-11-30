@@ -117,8 +117,13 @@ class Class {
 		didGet {}
 	}
 
+	subscript(index: Integer) {
+		get {}
+		set(newValue) {}
+	}
+
 	func initialize(with parameter: Integer, and parameter_: String) {
-		print('Intitializing with \(parameter+'123') and \(parameter_)')
+		print('Intitializing with \(parameter) and \(parameter_)')
 
 		variable = parameter
 		variable_01a = parameter_
@@ -131,7 +136,7 @@ class Class {
 
 var instance = Class(with: 12, and: '2')
 
-print(instance.variable)
+print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
 
 instance = nil
 </textarea>
@@ -143,8 +148,9 @@ instance = nil
 		static position;
 		static tokens;
 		static commentLevel;
-		static stringOpen;
-		static stringExpressionOpen;
+		static stringLevel;
+		static stringExpressionLevel;
+		static stringExpressionParenthesisLevel;
 
 		static get lastToken() {
 			return this.tokens.at(-1) ?? {
@@ -181,22 +187,37 @@ instance = nil
 					this.commentLevel++;
 				}
 			}],
-			[['\\(', ')'], (v) => {
-				if(this.stringOpen && v === '\\(') {
-					this.stringOpen = false;
-					this.createToken('stringExpression', v);
-					this.stringExpressionOpen = true;
-				}
-				if(this.stringExpressionOpen && v === ')') {
-					this.createToken('stringExpression');
-					this.stringExpressionOpen = false;
-					this.createToken('string', '');
-					this.stringOpen = true;
+			[['\\(', '\\)', ')'], (v) => {
+				if(this.commentLevel > 0) {
+					this.lastToken.value += v;
+				} else {
+					switch(v) {
+						case '\\(':
+							if(this.stringLevel > this.stringExpressionLevel) {
+								this.lastToken.type = 'stringPart';
+								this.createToken('stringExpressionOpen', v);
+								this.stringExpressionLevel++;
+							}
+						break;
+						case '\\)':
+							if(this.stringLevel > this.stringExpressionLevel) {
+								this.lastToken.value += v;
+							}
+						break;
+						case ')':
+							if(this.stringLevel > this.stringExpressionLevel || this.stringExpressionLevel === 0 || this.stringExpressionParenthesisLevel > 0) {
+								return true;
+							}
+							this.createToken('stringExpressionClosed', v);
+							this.stringExpressionLevel--;
+							this.createToken('stringPart', '');
+						break;
+					}
 				}
 			}],
 			[['!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '->', '-', '+', '/', '*', ':', '.', ','], (v) => {
-				if(this.stringOpen || this.commentLevel > 0) {
-					this.lastToken.value += this.code[this.position]
+				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
+					this.lastToken.value += v;
 				} else {
 					let title;
 
@@ -235,14 +256,24 @@ instance = nil
 				}
 			}],
 			[['(', ')', '{', '}', '[', ']'], (v) => {
-				if(this.stringOpen || this.commentLevel > 0) {
-					this.lastToken.value += this.code[this.position]
+				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
+					this.lastToken.value += v;
 				} else {
 					let title;
 
 					switch(v) {
-						case '(':	title = 'parenthesisOpen';		break;
-						case ')':	title = 'parenthesisClosed';	break;
+						case '(':
+							if(this.stringExpressionLevel > 0) {
+								this.stringExpressionParenthesisLevel++;
+							}
+							title = 'parenthesisOpen';
+						break;
+						case ')':
+							if(this.stringExpressionLevel > 0) {
+								this.stringExpressionParenthesisLevel--;
+							}
+							title = 'parenthesisClosed';
+						break;
 						case '{':	title = 'braceOpen';			break;
 						case '}':	title = 'braceClosed';			break;
 						case '[':	title = 'bracketOpen';			break;
@@ -256,17 +287,18 @@ instance = nil
 				if(this.commentLevel > 0 || this.code[this.position-1] == '\\') {
 					return true;
 				}
-				if(!this.stringOpen) {
+				if(this.stringLevel === this.stringExpressionLevel) {
 					this.createToken('string', '');
-					this.stringOpen = true;
-				} else {
-					this.stringOpen = false;
+					this.stringLevel++;
+				} else
+				if(this.stringLevel > this.stringExpressionLevel) {
+					this.stringLevel--;
 				}
 			}],
 			[/\s|;/, () => {
 				let character = this.code[this.position]
 
-				if(this.stringOpen || this.commentLevel > 0) {
+				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
 					if(character !== '\n' || this.lastToken.type !== 'commentLine') {
 						this.lastToken.value += character;
 					}
@@ -281,7 +313,7 @@ instance = nil
 			[/[0-9\.]/, () => {
 				let character = this.code[this.position]
 
-				if(this.stringOpen || this.commentLevel > 0 || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && character !== '.') {
+				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && character !== '.') {
 					if(this.lastToken.type === 'numberInteger' && character === '.') {
 						this.lastToken.type = 'numberFloat';
 					}
@@ -292,7 +324,7 @@ instance = nil
 				}
 			}],
 			[/[a-z_]/i, () => {
-				if(this.stringOpen || this.commentLevel > 0) {
+				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
 					return true;
 				}
 				if(this.lastToken.type !== 'identifier' && !this.lastToken.type.startsWith('keyword')) {
@@ -320,6 +352,7 @@ instance = nil
 					'return',
 					'self',
 					'struct',
+					'subscript',
 					'super',
 					'switch',
 					'throw',
@@ -335,7 +368,7 @@ instance = nil
 			[/.|\n/i, () => {
 				let character = this.code[this.position]
 
-				if(this.stringOpen || this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && character !== '\n') {
+				if(this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && character !== '\n' || this.stringLevel > this.stringExpressionLevel) {
 					this.lastToken.value += character;
 				} else {
 					console.warn('No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+character+'", skipping...');
@@ -356,8 +389,9 @@ instance = nil
 			this.position = undefined;
 			this.tokens = []
 			this.commentLevel = 0;
-			this.stringOpen = false;
-			this.stringExpressionOpen = false;
+			this.stringLevel = 0;
+			this.stringExpressionLevel = 0;
+			this.stringExpressionParenthesisLevel = 0;
 		}
 
 		static atPosition(substring) {
@@ -368,6 +402,8 @@ instance = nil
 			this.reset();
 
 			for(this.position = 0; this.position < (this.code = code).length; this.position++) {
+			//	console.log(this.stringLevel+', '+this.stringExpressionLevel+', '+this.stringExpressionParenthesisLevel);
+			//	console.log(this.lastToken);
 				for(let rule of this.rules) {
 					let k = rule[0],
 						v = rule[1],
