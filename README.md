@@ -1,1 +1,7 @@
-![This is an image](./Resources/Logo.png)
+![Logo](./Resources/Logo.png)
+
+## RoadMap
+
+- Lexer -> Done (?)
+- Parser -> Not started
+- Interpreter -> Not started
