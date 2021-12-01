@@ -322,6 +322,9 @@ instance = nil
 						this.createToken('delimiter');
 						this.commentLevel--;
 					}
+				} else
+				if(this.lastToken.type === 'delimiter') {
+					this.lastToken.value += character;
 				} else {
 					this.createToken('delimiter');
 				}
@@ -445,11 +448,7 @@ instance = nil
 				}
 			}
 
-			let tokens = [...this.tokens]
-
-			if(parameters.excludeEmptyDelimiters) {
-				tokens = tokens.filter(v => v.type === 'delimiter' && [' ', '\t', '\n'].includes(v.value) ? false : true);
-			}
+			let tokens = this.tokens.filter(v => v.type === 'delimiter' && (parameters.excludeDelimiters || !v.value.includes('\n') && !v.value.includes(';')) ? false : true);
 
 			this.reset();
 
@@ -457,7 +456,7 @@ instance = nil
 		}
 	}
 
-	console.log(Lexer.tokenize(code, { excludeEmptyDelimiters: true }));
+	console.log(Lexer.tokenize(code, { excludeDelimiters: true }));
 </script>
 </body>
 </html>
