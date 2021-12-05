@@ -122,7 +122,7 @@ class Class {
 		set(newValue) {}
 	}
 
-	func initialize(with parameter: Integer, and parameter_: String) {
+	func initialize(with parameter: Integer = 0, and parameter_: String) {
 		print('Intitializing with \(parameter) and \(parameter_)')
 
 		variable = parameter
@@ -146,52 +146,41 @@ instance = nil
 	class Lexer {
 		static code;
 		static position;
+		static location;
 		static tokens;
-		static commentLevel;
-		static stringLevel;
-		static stringExpressionLevel;
-		static stringExpressionParenthesisLevel;
-
-		static get lastToken() {
-			return this.tokens.at(-1) ?? {
-				position: undefined,
-				type: '',
-				value: ''
-			}
-		}
-
+		static levels;
 		static rules = [
-			['/*', () => {
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
-					this.lastToken.value += '/*';
+			['/*', (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
+					this.lastToken.value += v;
 				} else {
 					this.createToken('commentBlock', '');
 				}
 				if(this.lastToken.type === 'commentBlock') {
-					this.commentLevel++;
+					this.levels.comment++;
 				}
 			}],
-			['*/', () => {
-				if(this.commentLevel > 0 && this.lastToken.type === 'commentLine' || this.commentLevel > 1 || this.stringLevel > this.stringExpressionLevel) {
-					this.lastToken.value += '*/';
+			['*/', (v) => {
+				if(this.levels.comment > 0 && this.lastToken.type === 'commentLine' || this.levels.comment > 1 || this.levels.string > this.levels.stringExpression) {
+					this.lastToken.value += v;
 				}
 				if(this.lastToken.type === 'commentBlock') {
-					this.commentLevel--;
+					this.levels.comment--;
 				}
 			}],
-			['//', () => {
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
-					this.lastToken.value += '//';
+			['//', (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
+					this.lastToken.value += v;
 				} else {
 					this.createToken('commentLine', '');
-					this.commentLevel++;
+					this.levels.comment++;
 				}
 			}],
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
-				if(this.commentLevel > 0) {
+				if(this.levels.comment > 0) {
 					this.lastToken.value += v;
 				} else
-				if(this.stringLevel > this.stringExpressionLevel) {
+				if(this.levels.string > this.levels.stringExpression) {
 					switch(v) {
 						case '\\\\':	v = '\\';		break;
 						case '\\\'':	v = '\'';		break;
@@ -209,30 +198,30 @@ instance = nil
 				}
 			}],
 			[['\\(', ')'], (v) => {
-				if(this.commentLevel > 0) {
+				if(this.levels.comment > 0) {
 					this.lastToken.value += v;
 				} else {
 					switch(v) {
 						case '\\(':
-							if(this.stringLevel > this.stringExpressionLevel) {
+							if(this.levels.string > this.levels.stringExpression) {
 								this.lastToken.type = 'stringPart';
 								this.createToken('stringExpressionOpen', v);
-								this.stringExpressionLevel++;
+								this.levels.stringExpression++;
 							}
 						break;
 						case ')':
-							if(this.stringLevel > this.stringExpressionLevel || this.stringExpressionLevel === 0 || this.stringExpressionParenthesisLevel > 0) {
+							if(this.levels.string > this.levels.stringExpression || this.levels.stringExpression === 0 || this.levels.stringExpressionParenthesis > 0) {
 								return true;
 							}
 							this.createToken('stringExpressionClosed', v);
-							this.stringExpressionLevel--;
+							this.levels.stringExpression--;
 							this.createToken('stringPart', '');
 						break;
 					}
 				}
 			}],
-			[['!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '->', '-', '+', '/', '*', ':', '.', ','], (v) => {
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
+			[['!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					this.lastToken.value += v;
 				} else {
 					let title;
@@ -252,10 +241,16 @@ instance = nil
 						case '<':	title = 'Smaller';			break;
 						case '>=':	title = 'BiggerEquals';		break;
 						case '>':	title = 'Bigger';			break;
+						case '--':	title = 'Decrement';		break;
+						case '-=':	title = 'MinusAssign';		break;
 						case '->':	title = 'Returns';			break;
 						case '-':	title = 'Minus';			break;
+						case '++':	title = 'Increment';		break;
+						case '+=':	title = 'PlusAssign';		break;
 						case '+':	title = 'Plus';				break;
+						case '/=':	title = 'DivideAssign';		break;
 						case '/':	title = 'Divide';			break;
+						case '*=':	title = 'MultiplyAssign';	break;
 						case '*':	title = 'Multiply';			break;
 						case ':':	title = 'Colon';			break;
 						case '.':
@@ -272,21 +267,21 @@ instance = nil
 				}
 			}],
 			[['(', ')', '{', '}', '[', ']'], (v) => {
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					this.lastToken.value += v;
 				} else {
 					let title;
 
 					switch(v) {
 						case '(':
-							if(this.stringExpressionLevel > 0) {
-								this.stringExpressionParenthesisLevel++;
+							if(this.levels.stringExpression > 0) {
+								this.levels.stringExpressionParenthesis++;
 							}
 							title = 'parenthesisOpen';
 						break;
 						case ')':
-							if(this.stringExpressionLevel > 0) {
-								this.stringExpressionParenthesisLevel--;
+							if(this.levels.stringExpression > 0) {
+								this.levels.stringExpressionParenthesis--;
 							}
 							title = 'parenthesisClosed';
 						break;
@@ -300,56 +295,51 @@ instance = nil
 				}
 			}],
 			['\'', () => {
-				if(this.commentLevel > 0) {
+				if(this.levels.comment > 0) {
 					return true;
 				}
-				if(this.stringLevel === this.stringExpressionLevel) {
+				if(this.levels.string === this.levels.stringExpression) {
 					this.createToken('string', '');
-					this.stringLevel++;
+					this.levels.string++;
 				} else
-				if(this.stringLevel > this.stringExpressionLevel) {
-					this.stringLevel--;
+				if(this.levels.string > this.levels.stringExpression) {
+					this.levels.string--;
 				}
 			}],
-			[/\s|;/, () => {
-				let character = this.code[this.position]
-
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
-					if(character !== '\n' || this.lastToken.type !== 'commentLine') {
-						this.lastToken.value += character;
-					}
-					if(character === '\n' && this.lastToken.type === 'commentLine') {
+			[/\s|;/, (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
+					if(v === '\n' && this.lastToken.type === 'commentLine') {
 						this.createToken('delimiter');
-						this.commentLevel--;
+						this.levels.comment--;
+					} else {
+						this.lastToken.value += v;
 					}
 				} else
 				if(this.lastToken.type === 'delimiter') {
-					this.lastToken.value += character;
+					this.lastToken.value += v;
 				} else {
 					this.createToken('delimiter');
 				}
 			}],
-			[/[0-9\.]/, () => {
-				let character = this.code[this.position]
-
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && character !== '.') {
-					if(this.lastToken.type === 'numberInteger' && character === '.') {
+			[/[0-9\.]/, (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && v !== '.') {
+					if(this.lastToken.type === 'numberInteger' && v === '.') {
 						this.lastToken.type = 'numberFloat';
 					}
-					this.lastToken.value += character;
+					this.lastToken.value += v;
 				} else
-				if(character !== '.') {
+				if(v !== '.') {
 					this.createToken('numberInteger');
 				}
 			}],
-			[/[a-z_]/i, () => {
-				if(this.commentLevel > 0 || this.stringLevel > this.stringExpressionLevel) {
+			[/[a-z_]/i, (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					return true;
 				}
 				if(this.lastToken.type !== 'identifier' && !this.lastToken.type.startsWith('keyword')) {
 					this.createToken('identifier', '');
 				}
-				this.lastToken.value += this.code[this.position]
+				this.lastToken.value += v;
 				if([
 					'alias',
 					'break',
@@ -384,40 +374,58 @@ instance = nil
 					this.lastToken.type = 'identifier';
 				}
 			}],
-			[/.|\n/i, () => {
-				let character = this.code[this.position]
-
-				if(this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && character !== '\n' || this.stringLevel > this.stringExpressionLevel) {
-					this.lastToken.value += character;
+			[/.|\n/i, (v) => {
+				if(this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && v !== '\n' || this.levels.string > this.levels.stringExpression) {
+					this.lastToken.value += v;
 				} else {
-					console.warn('No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+character+'", skipping...');
+					this.report('Warning: No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 				}
 			}]
 		]
 
+		static get lastToken() {
+			return this.tokens.at(-1) ?? {
+				position: undefined,
+				location: undefined,
+				type: '',
+				value: ''
+			}
+		}
+
 		static createToken(type, value) {
 			this.tokens.push({
 				position: this.position,
+				location: {...this.location},
 				type: type,
-				value: value !== undefined ? value : this.code[this.position]
+				value: value != null ? value : this.code[this.position]
 			});
+		}
+
+		static report(string) {
+			console.log(this.location.x+':'+this.location.y+': '+string);
 		}
 
 		static reset() {
 			this.code = undefined;
 			this.position = undefined;
+			this.location = {
+				x: 0,
+				y: 0
+			}
 			this.tokens = []
-			this.commentLevel = 0;
-			this.stringLevel = 0;
-			this.stringExpressionLevel = 0;
-			this.stringExpressionParenthesisLevel = 0;
+			this.levels = {
+				comment: 0,
+				string: 0,
+				stringExpression: 0,
+				stringExpressionParenthesis: 0
+			}
 		}
 
 		static atPosition(substring) {
 			return this.code.indexOf(substring, this.position) === this.position;
 		}
 
-		static tokenize(code, parameters) {
+		static tokenize(code) {
 			this.reset();
 
 			for(this.position = 0; this.position < (this.code = code).length; this.position++) {
@@ -426,29 +434,41 @@ instance = nil
 						v = rule[1],
 						plain = typeof k === 'string',
 						array = Array.isArray(k),
-						arrayValue,
-						regex = k instanceof RegExp;
+						regex = k instanceof RegExp,
+						value;
 
+					if(plain && this.atPosition(k)) {
+						value = k;
+					}
 					if(array) {
 						for(let v of k) {
 							if(this.atPosition(v)) {
-								arrayValue = v;
+								value = v;
 
 								break;
 							}
 						}
 					}
-					if(plain ? this.atPosition(k) : arrayValue != null ? true : regex ? k.test(this.code[this.position]) : false) {
-						if(!v(arrayValue)) {
-							this.position += plain ? k.length-1 : array ? arrayValue.length-1 : 0;
-
-							break;
+					if(regex && k.test(this.code[this.position])) {
+						value = this.code[this.position]
+					}
+					if(value !== undefined && !v(value)) {
+						this.position += value.length-1;
+						for(let character of value) {
+							if(character === '\n') {
+								this.location.x = 0;
+								this.location.y++;
+							} else {
+								this.location.x++;
+							}
 						}
+
+						break;
 					}
 				}
 			}
 
-			let tokens = this.tokens.filter(v => v.type === 'delimiter' && (parameters.excludeDelimiters || !v.value.includes('\n') && !v.value.includes(';')) ? false : true);
+			let tokens = this.tokens.filter(v => !(v.type === 'delimiter' && !v.value.includes('\n') && !v.value.includes(';')));
 
 			this.reset();
 
@@ -456,7 +476,51 @@ instance = nil
 		}
 	}
 
-	console.log(Lexer.tokenize(code, { excludeDelimiters: true }));
+	class Parser {
+		static tokens;
+		static position;
+		static tree;
+		static rules = {
+			keywordVar: () => {
+				console.log(1);
+			}
+		}
+
+		static createNode(parent = this.tree, type) {
+			parent.children ??= []
+
+			parent.children.push({
+				type: type ?? 'node',
+				parent: parent
+			});
+		}
+
+		static reset() {
+			this.tokens = []
+			this.position = 0;
+			this.tree = {
+				type: 'Application'
+			}
+		}
+
+		static parse(tokens) {
+			this.reset();
+
+			for(this.position; this.position < (this.tokens = tokens).length; this.position++) {
+				this.rules[this.tokens[this.position].type]?.();
+			}
+
+			this.reset();
+
+			return this.tree;
+		}
+	}
+
+	let tokens = Lexer.tokenize(code);//,
+	//	tree = Parser.parse(tokens);
+
+	console.log(tokens);
+	//console.log(tree);
 </script>
 </body>
 </html>
