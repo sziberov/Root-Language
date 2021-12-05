@@ -2,6 +2,6 @@
 
 ## RoadMap
 
-- Lexer -> Done (?)
-- Parser -> Not started
+- Lexer -> Done
+- Parser -> Started
 - Interpreter -> Not started
