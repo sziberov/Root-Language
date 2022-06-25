@@ -14,78 +14,80 @@
 	}
 </style>
 <textarea id="input">
+// Foundation Source
+
+struct Boolean {
+	const value
+
+	func initialize(value: bool) {
+		self.value = value
+	}
+
+	func ==(rhs: bool & Boolean) -> Boolean {
+		return rhs !is Boolean ? value == rhs : value == rhs.value
+	}
+}
+
+struct Number {
+	static const Pi = 3.14
+
+	const value
+
+	func initialize(value: int & decimal) {
+		self.value = value
+	}
+
+	func ==(rhs: int & decimal & Number) -> Boolean {
+		return rhs !is Number ? value == rhs : value == rhs.value
+	}
+}
+
+struct Decimal: Number {
+	func initialize(value: int & decimal) {
+		if var v = value%2 && (v == 0 || v == 1) {
+			throw 'Value can\'t be integer'
+		}
+
+		self.value = value
+	}
+}
+
+struct Integer: Number {
+	func initialize(value: int & decimal) {
+		if var v = value%2 && v > 0 && v < 1 {
+			throw 'Value can\'t be decimal'
+		}
+
+		self.value = value
+	}
+}
+
+struct String {
+	const value
+
+	func initialize(value: string) {
+		self.value = value
+	}
+
+	func ==(rhs: string & String) -> Boolean {
+		return rhs !is String ? value == rhs : value == rhs.value
+	}
+}
+
+// ---- ---- ---- ----
+
 /* Comment
 Block */
 
 // Comment Line
 
-struct CoreFoundation {
-	class Boolean {
-		const value
+import Foundation
 
-		func initialize(value: bool) {
-			self.value = value
-		}
-
-		func ==(rhs: bool & Boolean) -> Boolean {
-			return rhs !is String ? value == rhs : value == rhs.value
-		}
-	}
-
-	class Number {
-		static const Pi = 3.14
-
-		const value
-
-		func initialize(value: int & decimal) {
-			self.value = value
-		}
-
-		func ==(rhs: int & decimal & Number) -> Boolean {
-			return rhs !is Number ? value == rhs : value == rhs.value
-		}
-	}
-
-	class Decimal: Number {
-		func initialize(value: int & decimal) {
-			if var v = value%2 && (v == 0 || v == 1) {
-				throw 'Value can\'t be integer'
-			}
-
-			self.value = value
-		}
-	}
-
-	class Integer: Number {
-		func initialize(value: int & decimal) {
-			if var v = value%2 && v > 0 && v < 1 {
-				throw 'Value can\'t be decimal'
-			}
-
-			self.value = value
-		}
-	}
-
-	class String {
-		const value
-
-		func initialize(value: string) {
-			self.value = value
-		}
-
-		func ==(rhs: string & String) -> Boolean {
-			return rhs !is String ? value == rhs : value == rhs.value
-		}
-	}
-}
-
-alias Boolean = CoreFoundation.Boolean,
-	  Number = CoreFoundation.Number,
-	  Decimal = CoreFoundation.Decimal,
-	  Integer = CoreFoundation.Integer,
-	  String = CoreFoundation.String
-
-// ----
+alias Boolean = Foundation.Boolean,
+	  Number = Foundation.Number,
+	  Decimal = Foundation.Decimal,
+	  Integer = Foundation.Integer,
+	  String = Foundation.String
 
 const constant = Number.Pi
 
@@ -220,13 +222,14 @@ instance = nil
 					}
 				}
 			}],
-			[['!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
+			[['!=', '!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					this.lastToken.value += v;
 				} else {
 					let title;
 
 					switch(v) {
+						case '!=':	title = 'NotEquals';		break;
 						case '!':	title = 'Not';				break;
 						case '%':	title = 'Remainder';		break;
 						case '&&':	title = 'And';				break;
@@ -430,31 +433,25 @@ instance = nil
 
 			for(this.position = 0; this.position < (this.code = code).length; this.position++) {
 				for(let rule of this.rules) {
-					let k = rule[0],
-						v = rule[1],
-						plain = typeof k === 'string',
-						array = Array.isArray(k),
-						regex = k instanceof RegExp,
-						value;
+					let triggers = rule[0],
+						actions = rule[1],
+						plain = typeof triggers === 'string',
+						array = Array.isArray(triggers),
+						regex = triggers instanceof RegExp,
+						trigger;
 
-					if(plain && this.atPosition(k)) {
-						value = k;
+					if(plain && this.atPosition(triggers)) {
+						trigger = triggers;
 					}
 					if(array) {
-						for(let v of k) {
-							if(this.atPosition(v)) {
-								value = v;
-
-								break;
-							}
-						}
+						trigger = triggers.find(v => this.atPosition(v));
 					}
-					if(regex && k.test(this.code[this.position])) {
-						value = this.code[this.position]
+					if(regex && triggers.test(this.code[this.position])) {
+						trigger = this.code[this.position]
 					}
-					if(value !== undefined && !v(value)) {
-						this.position += value.length-1;
-						for(let character of value) {
+					if(trigger != null && !actions(trigger)) {
+						this.position += trigger.length-1;
+						for(let character of trigger) {
 							if(character === '\n') {
 								this.location.x = 0;
 								this.location.y++;
@@ -480,10 +477,69 @@ instance = nil
 		static tokens;
 		static position;
 		static tree;
+		static grammar = {
+			binaryExpression: 'binaryExpressionSide binaryExpressionOperator binaryExpressionSide',
+			binaryExpressionOperator: [
+				'operatorBigger',
+				'operatorBiggerEquals',
+				'operatorEquals',
+				'operatorNotEquals',
+				'operatorSmaller',
+				'operatorSmallerEquals'
+			],
+			binaryExpressionSide: [
+				'identifier',
+				'keywordFalse',
+				'keywordNil',
+				'keywordTrue',
+				'numberFloat',
+				'numberInteger',
+				'string'
+			],
+			classDeclaration: 'keywordClass memberDeclarationBlock',
+			codeBlock: 'braceOpen codeBlockItemList braceClosed',
+			codeBlockItemList: [
+				'aliasDeclaration',
+				'classDeclaration',
+				'delimiter',
+				'functionCallExpression',
+				'functionDeclaration',
+				'ifStatement',
+				'importDeclaration',
+				'structureDeclaration',
+				'variableAssignment',
+				'variableDeclaration'
+			],
+			condition: [
+				'conditionalExpression',
+				'parenthesisOpen condition parenthesisClosed'
+			],
+			conditionalExpression: [
+				'binaryExpression',
+				'logicalExpression'
+			],
+			functionDeclaration: [
+				'keywordFunc identifier codeBlock',
+				'keywordFunc identifier operatorReturns identifier codeBlock'
+			],
+			ifStatement: 'keywordIf condition codeBlock',
+			logicalExpression: 'condition logicalExpressionOperator condition',
+			logicalExpressionOperator: [
+				'operatorAnd',
+				'operatorOr'
+			],
+			memberDeclarationBlock: 'braceOpen memberDeclarationList braceClosed',
+			memberDeclarationList: [
+				'classDeclaration',
+				'functionDeclaration',
+				'structureDeclaration',
+				'variableDeclaration'
+			],
+			module: 'codeBlockItemList',
+			structureDeclaration: 'keywordStruct memberDeclarationBlock'
+		}
 		static rules = {
-			keywordVar: () => {
-				console.log(1);
-			}
+			logicalExpression: () => {}
 		}
 
 		static createNode(parent = this.tree, type) {
@@ -499,12 +555,14 @@ instance = nil
 			this.tokens = []
 			this.position = 0;
 			this.tree = {
-				type: 'Application'
+				type: 'module'
 			}
 		}
 
 		static parse(tokens) {
 			this.reset();
+
+			tokens = tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
 
 			for(this.position; this.position < (this.tokens = tokens).length; this.position++) {
 				this.rules[this.tokens[this.position].type]?.();
