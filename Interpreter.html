@@ -555,14 +555,9 @@ instance = nil
 					children: []
 				}
 
-				if(this.currentToken.type === 'keywordClass') {
+				if(this.currentToken.type === 'keywordClass' && this.getToken(1).type === 'braceOpen') {
 					node.range.start = this.currentToken.position;
-					this.position++;
-				} else {
-					return;
-				}
-				if(this.currentToken.type === 'braceOpen') {
-					this.position++;
+					this.position = this.position+2;
 				} else {
 					return;
 				}
@@ -679,7 +674,11 @@ instance = nil
 		}
 
 		static get currentToken() {
-			return this.tokens[this.position] ?? {
+			return this.getToken();
+		}
+
+		static getToken(offset = 0) {
+			return this.tokens[this.position+offset] ?? {
 				position: undefined,
 				location: undefined,
 				type: '',
