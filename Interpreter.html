@@ -431,7 +431,9 @@ instance = nil
 		static tokenize(code) {
 			this.reset();
 
-			for(this.position = 0; this.position < (this.code = code).length; this.position++) {
+			this.code = code;
+
+			for(this.position = 0; this.position < this.code.length; this.position++) {
 				for(let rule of this.rules) {
 					let triggers = rule[0],
 						actions = rule[1],
@@ -449,8 +451,10 @@ instance = nil
 					if(regex && triggers.test(this.code[this.position])) {
 						trigger = this.code[this.position]
 					}
+
 					if(trigger != null && !actions(trigger)) {
 						this.position += trigger.length-1;
+
 						for(let character of trigger) {
 							if(character === '\n') {
 								this.location.x = 0;
@@ -477,6 +481,7 @@ instance = nil
 		static tokens;
 		static position;
 		static tree;
+
 		static grammar = {
 			binaryExpression: 'binaryExpressionSide binaryExpressionOperator binaryExpressionSide',
 			binaryExpressionOperator: [
@@ -497,11 +502,13 @@ instance = nil
 				'string'
 			],
 			classDeclaration: 'keywordClass memberDeclarationBlock',
-			codeBlock: 'braceOpen codeBlockItemList braceClosed',
+			codeBlock: [
+				'braceOpen braceClosed',
+				'braceOpen codeBlockItemList braceClosed'
+			],
 			codeBlockItemList: [
 				'aliasDeclaration',
 				'classDeclaration',
-				'delimiter',
 				'functionCallExpression',
 				'functionDeclaration',
 				'ifStatement',
@@ -538,47 +545,166 @@ instance = nil
 			module: 'codeBlockItemList',
 			structureDeclaration: 'keywordStruct memberDeclarationBlock'
 		}
+
 		static rules = {
-			logicalExpression: () => {}
+			aliasDeclaration: () => {},
+			classDeclaration: () => {},
+			codeBlock: () => {
+				let node = {
+					type: 'codeBlockItemList',
+					range: {},
+					children: []
+				}
+
+				if(this.currentToken.type === 'braceOpen') {
+					node.range.start = this.currentToken.position;
+					this.position++;
+				} else {
+					return;
+				}
+
+				node.children = [
+					this.rules.codeBlockItemList()
+				].filter(v => v);
+
+				if(this.currentToken.type === 'braceClosed') {
+					node.range.end = this.currentToken.position;
+					this.position++;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			codeBlockItemList: () => {
+				let node = {
+					type: 'codeBlockItemList',
+					range: {},
+					children: [
+						this.rules.aliasDeclaration(),
+						this.rules.classDeclaration(),
+						this.rules.functionCallExpression(),
+						this.rules.functionDeclaration(),
+						this.rules.ifStatement(),
+						this.rules.importDeclaration(),
+						this.rules.structureDeclaration(),
+						this.rules.variableAssignment(),
+						this.rules.variableDeclaration()
+					].filter(v => v)
+				}
+
+				if(node.children.length > 0) {
+					node.range.start = node.children[0].range.start;
+					node.range.end = node.children.at(-1).range.end;
+				} else {
+					return;
+				}
+
+				return node;
+			},
+			functionCallExpression: () => {},
+			functionDeclaration: () => {},
+			ifStatement: () => {},
+			importDeclaration: () => {},
+			logicalExpression: () => {},
+			module: () => {
+				let node = {
+					type: 'module',
+					range: {
+						start: 0,
+						end: 0
+					},
+					children: [
+						this.rules.codeBlockItemList()
+					].filter(v => v)
+				}
+
+				if(node.children.length > 0) {
+					node.range.start = node.children[0].range.start;
+					node.range.end = node.children[0].range.end;
+				}
+
+				return node;
+			},
+			structureDeclaration: () => {},
+			variableAssignment: () => {},
+			variableDeclaration: () => {}
 		}
 
-		static createNode(parent = this.tree, type) {
-			parent.children ??= []
+		static get currentToken() {
+			return this.tokens[this.position] ?? {
+				position: undefined,
+				location: undefined,
+				type: '',
+				value: ''
+			}
+		}
 
-			parent.children.push({
-				type: type ?? 'node',
-				parent: parent
-			});
+		static report(string) {
+			console.log(this.position+': '+string);
 		}
 
 		static reset() {
 			this.tokens = []
 			this.position = 0;
-			this.tree = {
-				type: 'module'
+			this.tree = []
+		}
+
+		static multipleAtPosition(...tokenTypes) {
+			let status = false,
+				start = this.position,
+				end = this.position;
+
+			for(let position = this.position; position < tokens.length; position++) {
+				let localStatus = false;
+
+				for(let type of tokenTypes) {
+					localStatus = this.tokens[position].type === type;
+
+					if(localStatus) {
+						break;
+					}
+				}
+
+				if(localStatus) {
+					status = true;
+					end = position;
+				} else {
+					break;
+				}
+			}
+
+			return {
+				status: status,
+				start: start,
+				end: end
 			}
 		}
 
 		static parse(tokens) {
 			this.reset();
 
-			tokens = tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
+			this.tokens = tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
 
-			for(this.position; this.position < (this.tokens = tokens).length; this.position++) {
-				this.rules[this.tokens[this.position].type]?.();
-			}
+			this.tree = [
+				this.rules.module()
+			].filter(v => v);
+
+			let tree = this.tree;
 
 			this.reset();
 
-			return this.tree;
+			return tree;
 		}
 	}
 
-	let tokens = Lexer.tokenize(code);//,
-	//	tree = Parser.parse(tokens);
+	let tokens = Lexer.tokenize(code),
+		tree = Parser.parse(tokens);
 
 	console.log(tokens);
-	//console.log(tree);
+	console.log(tree);
 </script>
 </body>
 </html>
