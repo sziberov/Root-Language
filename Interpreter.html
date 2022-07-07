@@ -548,7 +548,36 @@ instance = nil
 
 		static rules = {
 			aliasDeclaration: () => {},
-			classDeclaration: () => {},
+			classDeclaration: () => {
+				let node = {
+					type: 'classDeclaration',
+					range: {},
+					children: []
+				}
+
+				if(this.currentToken.type === 'keywordClass') {
+					node.range.start = this.currentToken.position;
+					this.position++;
+				} else {
+					return;
+				}
+				if(this.currentToken.type === 'braceOpen') {
+					this.position++;
+				} else {
+					return;
+				}
+
+				if(this.currentToken.type === 'braceClosed') {
+					node.range.end = this.currentToken.position;
+					this.position++;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
 			codeBlock: () => {
 				let node = {
 					type: 'codeBlockItemList',
@@ -580,19 +609,35 @@ instance = nil
 			},
 			codeBlockItemList: () => {
 				let node = {
-					type: 'codeBlockItemList',
-					range: {},
-					children: [
-						this.rules.aliasDeclaration(),
-						this.rules.classDeclaration(),
-						this.rules.functionCallExpression(),
-						this.rules.functionDeclaration(),
-						this.rules.ifStatement(),
-						this.rules.importDeclaration(),
-						this.rules.structureDeclaration(),
-						this.rules.variableAssignment(),
-						this.rules.variableDeclaration()
-					].filter(v => v)
+						type: 'codeBlockItemList',
+						range: {},
+						children: []
+					},
+					childrenTypes = [
+						'aliasDeclaration',
+						'classDeclaration',
+						'functionCallExpression',
+						'functionDeclaration',
+						'ifStatement',
+						'importDeclaration',
+						'structureDeclaration',
+						'variableAssignment',
+						'variableDeclaration'
+					],
+					lastChild = '';
+
+				while(lastChild != null) {
+					if(lastChild.type != null) {
+						node.children.push(lastChild);
+					}
+
+					for(let type of childrenTypes) {
+						lastChild = this.rules[type]();
+
+						if(lastChild != null) {
+							break;
+						}
+					}
 				}
 
 				if(node.children.length > 0) {
