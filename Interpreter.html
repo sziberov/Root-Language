@@ -14,6 +14,9 @@
 	}
 </style>
 <textarea id="input">
+class A {}
+class B: A {}
+
 // Foundation Source
 
 struct Boolean {
@@ -482,69 +485,74 @@ instance = nil
 		static position;
 		static tree;
 
-		static grammar = {
-			binaryExpression: 'binaryExpressionSide binaryExpressionOperator binaryExpressionSide',
-			binaryExpressionOperator: [
-				'operatorBigger',
-				'operatorBiggerEquals',
-				'operatorEquals',
-				'operatorNotEquals',
-				'operatorSmaller',
-				'operatorSmallerEquals'
-			],
-			binaryExpressionSide: [
-				'identifier',
-				'keywordFalse',
-				'keywordNil',
-				'keywordTrue',
-				'numberFloat',
-				'numberInteger',
-				'string'
-			],
-			classDeclaration: 'keywordClass memberDeclarationBlock',
-			codeBlock: [
-				'braceOpen braceClosed',
-				'braceOpen codeBlockItemList braceClosed'
-			],
-			codeBlockItemList: [
-				'aliasDeclaration',
-				'classDeclaration',
-				'functionCallExpression',
-				'functionDeclaration',
-				'ifStatement',
-				'importDeclaration',
-				'structureDeclaration',
-				'variableAssignment',
-				'variableDeclaration'
-			],
-			condition: [
-				'conditionalExpression',
-				'parenthesisOpen condition parenthesisClosed'
-			],
-			conditionalExpression: [
-				'binaryExpression',
-				'logicalExpression'
-			],
-			functionDeclaration: [
-				'keywordFunc identifier codeBlock',
-				'keywordFunc identifier operatorReturns identifier codeBlock'
-			],
-			ifStatement: 'keywordIf condition codeBlock',
-			logicalExpression: 'condition logicalExpressionOperator condition',
-			logicalExpressionOperator: [
-				'operatorAnd',
-				'operatorOr'
-			],
-			memberDeclarationBlock: 'braceOpen memberDeclarationList braceClosed',
-			memberDeclarationList: [
-				'classDeclaration',
-				'functionDeclaration',
-				'structureDeclaration',
-				'variableDeclaration'
-			],
-			module: 'codeBlockItemList',
-			structureDeclaration: 'keywordStruct memberDeclarationBlock'
-		}
+		/*
+		binaryExpression -> binaryExpressionSide binaryExpressionOperator binaryExpressionSide
+		binaryExpressionOperator -> [
+			operatorBigger
+			operatorBiggerEquals
+			operatorEquals
+			operatorNotEquals
+			operatorSmaller
+			operatorSmallerEquals
+		]
+		binaryExpressionSide -> [
+			identifier
+			keywordFalse
+			keywordNil
+			keywordTrue
+			numberFloat
+			numberInteger
+			string
+		]
+		classBody -> braceOpen classMembers braceClosed
+		classDeclaration -> [
+			keywordClass identifier typeInheritanceClause classBody
+			keywordClass identifier classBody
+		]
+		classMembers -> [
+			classDeclaration
+			functionDeclaration
+			structureDeclaration
+			variableDeclaration
+		]
+		codeBody -> [
+			braceOpen braceClosed
+			braceOpen codeMembers braceClosed
+		]
+		codeMembers -> [
+			aliasDeclaration
+			classDeclaration
+			functionCallExpression
+			functionDeclaration
+			ifStatement
+			importDeclaration
+			structureDeclaration
+			variableAssignment
+			variableDeclaration
+			codeMembers
+		]
+		condition -> [
+			conditionalExpression
+			parenthesisOpen condition parenthesisClosed
+		]
+		conditionalExpression -> [
+			binaryExpression
+			logicalExpression
+		]
+		functionDeclaration -> [
+			keywordFunc identifier codeBody
+			keywordFunc identifier operatorReturns identifier codeBody
+		]
+		ifStatement -> keywordIf condition codeBody
+		logicalExpression -> condition logicalExpressionOperator condition
+		logicalExpressionOperator -> [
+			operatorAnd
+			operatorOr
+		]
+		module -> codeMembers
+		structureDeclaration -> keywordStruct identifier structureBody
+		typeInheritanceClause -> operatorColon identifier
+		*/
 
 		static rules = {
 			aliasDeclaration: () => {},
@@ -555,16 +563,23 @@ instance = nil
 					children: []
 				}
 
-				if(this.currentToken.type === 'keywordClass' && this.getToken(1).type === 'braceOpen') {
+				if(
+					this.currentToken.type === 'keywordClass' &&
+					this.getToken(1).type === 'identifier'
+				) {
 					node.range.start = this.currentToken.position;
 					this.position = this.position+2;
 				} else {
 					return;
 				}
 
-				if(this.currentToken.type === 'braceClosed') {
-					node.range.end = this.currentToken.position;
-					this.position++;
+				node.children = [
+					this.rules.typeInheritanceClause(),
+					this.rules.classBody()
+				].filter(v => v);
+
+				if(node.children.find(v => v.type === 'classBody') > 0) {
+					node.range.end = node.children.at(-1).range.end;
 				} else {
 					this.position = node.range.start;
 
@@ -573,9 +588,55 @@ instance = nil
 
 				return node;
 			},
-			codeBlock: () => {
+			typeInheritanceClause: () => {
 				let node = {
-					type: 'codeBlockItemList',
+					type: 'typeInheritanceClause',
+					range: {},
+					children: []
+				}
+
+				if(this.currentToken.type === 'operatorColon') {
+					node.range.start = this.currentToken.position;
+					this.position++;
+				} else {
+					return;
+				}
+
+				node.children = [
+					this.rules.identifier()
+				].filter(v => v);
+
+				if(node.children.length > 0) {
+					node.range.end = node.children.at(-1).range.end;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			identifier: () => {
+				let node = {
+					type: 'identifier',
+					range: {},
+					value: ''
+				}
+
+				if(this.currentToken.type === 'identifier') {
+					node.range.start = this.currentToken.position;
+					node.range.end = this.currentToken.position+this.currentToken.value.length;
+					node.value = this.currentToken.value;
+					this.position++;
+				} else {
+					return;
+				}
+
+				return node;
+			},
+			classBody: () => {
+				let node = {
+					type: 'classBody',
 					range: {},
 					children: []
 				}
@@ -587,9 +648,7 @@ instance = nil
 					return;
 				}
 
-				node.children = [
-					this.rules.codeBlockItemList()
-				].filter(v => v);
+				node.children = this.rules.classMembers();
 
 				if(this.currentToken.type === 'braceClosed') {
 					node.range.end = this.currentToken.position;
@@ -602,13 +661,39 @@ instance = nil
 
 				return node;
 			},
-			codeBlockItemList: () => {
+			classMembers: () => {
+				return []
+			},
+			codeBody: () => {
 				let node = {
-						type: 'codeBlockItemList',
-						range: {},
-						children: []
-					},
-					childrenTypes = [
+					type: 'codeBody',
+					range: {},
+					children: []
+				}
+
+				if(this.currentToken.type === 'braceOpen') {
+					node.range.start = this.currentToken.position;
+					this.position++;
+				} else {
+					return;
+				}
+
+				node.children = this.rules.codeMembers();
+
+				if(this.currentToken.type === 'braceClosed') {
+					node.range.end = this.currentToken.position;
+					this.position++;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			codeMembers: () => {
+				let list = [],
+					types = [
 						'aliasDeclaration',
 						'classDeclaration',
 						'functionCallExpression',
@@ -617,32 +702,28 @@ instance = nil
 						'importDeclaration',
 						'structureDeclaration',
 						'variableAssignment',
-						'variableDeclaration'
-					],
-					lastChild = '';
+						'variableDeclaration',
+						'codeMembers'
+					]
 
-				while(lastChild != null) {
-					if(lastChild.type != null) {
-						node.children.push(lastChild);
-					}
+				for(let type of types) {
+					if(type !== 'codeMembers') {
+						let result = this.rules[type]();
 
-					for(let type of childrenTypes) {
-						lastChild = this.rules[type]();
+						if(result != null) {
+							list.push(result);
+						}
+					} else
+					if(list.length > 0) {
+						let result = this.rules[type]();
 
-						if(lastChild != null) {
-							break;
+						if(result.length > 0) {
+							list.push(...result);
 						}
 					}
 				}
 
-				if(node.children.length > 0) {
-					node.range.start = node.children[0].range.start;
-					node.range.end = node.children.at(-1).range.end;
-				} else {
-					return;
-				}
-
-				return node;
+				return list;
 			},
 			functionCallExpression: () => {},
 			functionDeclaration: () => {},
@@ -656,14 +737,12 @@ instance = nil
 						start: 0,
 						end: 0
 					},
-					children: [
-						this.rules.codeBlockItemList()
-					].filter(v => v)
+					children: this.rules.codeMembers()
 				}
 
 				if(node.children.length > 0) {
 					node.range.start = node.children[0].range.start;
-					node.range.end = node.children[0].range.end;
+					node.range.end = node.children.at(-1).range.end;
 				}
 
 				return node;
@@ -686,45 +765,10 @@ instance = nil
 			}
 		}
 
-		static report(string) {
-			console.log(this.position+': '+string);
-		}
-
 		static reset() {
 			this.tokens = []
 			this.position = 0;
 			this.tree = []
-		}
-
-		static multipleAtPosition(...tokenTypes) {
-			let status = false,
-				start = this.position,
-				end = this.position;
-
-			for(let position = this.position; position < tokens.length; position++) {
-				let localStatus = false;
-
-				for(let type of tokenTypes) {
-					localStatus = this.tokens[position].type === type;
-
-					if(localStatus) {
-						break;
-					}
-				}
-
-				if(localStatus) {
-					status = true;
-					end = position;
-				} else {
-					break;
-				}
-			}
-
-			return {
-				status: status,
-				start: start,
-				end: end
-			}
 		}
 
 		static parse(tokens) {
