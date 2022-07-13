@@ -114,11 +114,11 @@ class Class {
 	var private anotherVariableStorage
 
 	var anotherVariable {
-		willSet(newValue) {}
-		set(newValue) {
+		willSet {}
+		set {
 			anotherVariableStorage = newValue
 		}
-		didSet(oldValue) {}
+		didSet {}
 		willGet {}
 		get {
 			return anotherVariableStorage
@@ -126,9 +126,22 @@ class Class {
 		didGet {}
 	}
 
+	var {
+		get {
+			return self[key+1].n
+		}
+		set {
+			print(key)
+
+			return newValue
+		}
+	}
+
 	subscript(index: Integer) {
-		get {}
-		set(newValue) {}
+		get {
+			return object.properties[index].value
+		}
+		set {}
 	}
 
 	func initialize(with parameter: Integer = 0, and parameter_: String) {
@@ -229,40 +242,40 @@ instance = nil
 					}
 				}
 			}],
-			[['!=', '!', '%', '&&', '&', '??', '?.', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
+			[['!=', '!', '%', '&&', '&', '??=', '??', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					this.lastToken.value += v;
 				} else {
 					let title;
 
 					switch(v) {
-						case '!=':	title = 'NotEquals';		break;
-						case '!':	title = 'Not';				break;
-						case '%':	title = 'Remainder';		break;
-						case '&&':	title = 'And';				break;
-						case '&':	title = 'Ampersand';		break;
-						case '??':	title = 'NullCoalescing';	break;
-						case '?.':	title = 'OptionalChain';	break;
-						case '?':	title = 'Question';			break;
-						case '||':	title = 'Or';				break;
-						case '==':	title = 'Equals';			break;
-						case '=':	title = 'Assign';			break;
-						case '<=':	title = 'SmallerEquals';	break;
-						case '<':	title = 'Smaller';			break;
-						case '>=':	title = 'BiggerEquals';		break;
-						case '>':	title = 'Bigger';			break;
-						case '--':	title = 'Decrement';		break;
-						case '-=':	title = 'MinusAssign';		break;
-						case '->':	title = 'Returns';			break;
-						case '-':	title = 'Minus';			break;
-						case '++':	title = 'Increment';		break;
-						case '+=':	title = 'PlusAssign';		break;
-						case '+':	title = 'Plus';				break;
-						case '/=':	title = 'DivideAssign';		break;
-						case '/':	title = 'Divide';			break;
-						case '*=':	title = 'MultiplyAssign';	break;
-						case '*':	title = 'Multiply';			break;
-						case ':':	title = 'Colon';			break;
+						case '!=':	title = 'NotEquals';			break;
+						case '!':	title = 'Exclamation';			break;
+						case '%':	title = 'Remainder';			break;
+						case '&&':	title = 'And';					break;
+						case '&':	title = 'Ampersand';			break;
+						case '??=':	title = 'NullCoalescingAssign';	break;
+						case '??':	title = 'NullCoalescing';		break;
+						case '?':	title = 'Question';				break;
+						case '||':	title = 'Or';					break;
+						case '==':	title = 'Equals';				break;
+						case '=':	title = 'Assign';				break;
+						case '<=':	title = 'SmallerEquals';		break;
+						case '<':	title = 'Smaller';				break;
+						case '>=':	title = 'BiggerEquals';			break;
+						case '>':	title = 'Bigger';				break;
+						case '--':	title = 'Decrement';			break;
+						case '-=':	title = 'MinusAssign';			break;
+						case '->':	title = 'Returns';				break;
+						case '-':	title = 'Minus';				break;
+						case '++':	title = 'Increment';			break;
+						case '+=':	title = 'PlusAssign';			break;
+						case '+':	title = 'Plus';					break;
+						case '/=':	title = 'DivideAssign';			break;
+						case '/':	title = 'Divide';				break;
+						case '*=':	title = 'MultiplyAssign';		break;
+						case '*':	title = 'Multiply';				break;
+						case ':':	title = 'Colon';				break;
 						case '.':
 							if(this.lastToken.type === 'numberInteger') {
 								return true;
