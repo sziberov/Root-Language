@@ -118,7 +118,7 @@ class Class {
 		set(newValue) {
 			anotherVariableStorage = newValue
 		}
-		didSet(newValue) {}
+		didSet(oldValue) {}
 		willGet {}
 		get {
 			return anotherVariableStorage
@@ -353,29 +353,16 @@ instance = nil
 				if([
 					'alias',
 					'break',
-					'case',
-					'class',
-					'const',
-					'continue',
+					'case', 'catch', 'class', 'const', 'continue',
 					'default',
-					'else',
-					'false',
-					'for',
-					'func',
-					'if',
-					'import',
-					'is',
-					'nil',
-					'private',
-					'protected',
+					'else', 'enum', 'extension',
+					'false', 'for', 'func',
+					'if', 'import', 'is',
+					'namespace', 'nil',
+					'private', 'protected', 'protocol', 'public',
 					'return',
-					'self',
-					'struct',
-					'subscript',
-					'super',
-					'switch',
-					'throw',
-					'true',
+					'self', 'struct', 'subscript', 'super', 'switch',
+					'throw', 'true', 'try',
 					'var',
 					'while'
 				].includes(this.lastToken.value)) {
