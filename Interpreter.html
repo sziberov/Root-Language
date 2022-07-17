@@ -1,32 +1,30 @@
 <html>
 <body>
 <style>
-	#input {
-		width: 768px;
-		height: 512px;
+#input {
+	width: 768px;
+	height: 512px;
+	overflow: auto;
 
-		border: none;
-		border-radius: 2px;
-		background: white;
-		box-shadow: 0 2px 4px gray;
+	border: none;
+	border-radius: 2px;
+	background: white;
+	box-shadow: 0 2px 4px gray;
 
-		color: black;
-	}
-</style>
-<textarea id="input">
-class A {}
-class B: A {
-	a
-	struct C {}
-	b
+	color: black;
+	font: 12px monospace;
+	white-space: pre;
 }
+</style>
+<div id="input" contenteditable="true"><!--
+-->class A: B, C, D {}
 
 // Foundation Source
 
 struct Boolean {
 	const value
 
-	func initialize(value: bool) {
+	init(value: bool) {
 		self.value = value
 	}
 
@@ -40,7 +38,7 @@ struct Number {
 
 	const value
 
-	func initialize(value: int & decimal) {
+	init(value: int & decimal) {
 		self.value = value
 	}
 
@@ -50,7 +48,7 @@ struct Number {
 }
 
 struct Decimal: Number {
-	func initialize(value: int & decimal) {
+	init(value: int & decimal) {
 		if var v = value%2 && (v == 0 || v == 1) {
 			throw 'Value can\'t be integer'
 		}
@@ -60,7 +58,7 @@ struct Decimal: Number {
 }
 
 struct Integer: Number {
-	func initialize(value: int & decimal) {
+	init(value: int & decimal) {
 		if var v = value%2 && v > 0 && v < 1 {
 			throw 'Value can\'t be decimal'
 		}
@@ -72,7 +70,7 @@ struct Integer: Number {
 struct String {
 	const value
 
-	func initialize(value: string) {
+	init(value: string) {
 		self.value = value
 	}
 
@@ -126,32 +124,32 @@ class Class {
 		didGet {}
 	}
 
-	var {
+	chain {
 		get {
-			return self[key+1].n
+			return metaObject.properties[key]?.value
 		}
 		set {
-			print(key)
-
-			return newValue
+			metaObject.properties[key]?.value = value
 		}
 	}
 
-	subscript(index: Integer) {
+	subscript(a: Integer, b: Integer) {
 		get {
-			return object.properties[index].value
+			return a+b
 		}
-		set {}
+		set {
+			print(a, b)
+		}
 	}
 
-	func initialize(with parameter: Integer = 0, and parameter_: String) {
+	init(with parameter: Integer = 0, and parameter_: String) {
 		print('Intitializing with \(parameter) and \(parameter_)')
 
 		variable = parameter
 		variable_01a = parameter_
 	}
 
-	func deinitialize {
+	deinit {
 		print('Deinitializing!')
 	}
 }
@@ -161,9 +159,9 @@ var instance = Class(with: 12, and: '2')
 print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
 
 instance = nil
-</textarea>
+</div>
 <script>
-	let code = document.getElementById('input').value;
+	let code = document.getElementById('input').innerText;
 
 	class Lexer {
 		static code;
@@ -171,6 +169,7 @@ instance = nil
 		static location;
 		static tokens;
 		static levels;
+		static reports;
 		static rules = [
 			['/*', (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
@@ -366,7 +365,7 @@ instance = nil
 				if([
 					'alias',
 					'break',
-					'case', 'catch', 'class', 'const', 'continue',
+					'case', 'catch', 'chain', 'class', 'const', 'continue',
 					'default',
 					'else', 'enum', 'extension',
 					'false', 'for', 'func',
@@ -388,7 +387,7 @@ instance = nil
 				if(this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && v !== '\n' || this.levels.string > this.levels.stringExpression) {
 					this.lastToken.value += v;
 				} else {
-					this.report('Warning: No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
+					this.report(0, 'No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 				}
 			}]
 		]
@@ -411,16 +410,20 @@ instance = nil
 			});
 		}
 
-		static report(string) {
-			console.log((this.location.y+1)+':'+(this.location.x+1)+': '+string);
+		static report(level, string) {
+			this.reports.push({
+				level: level,
+				location: {...this.location},
+				string: string
+			});
 		}
 
 		static reset() {
 			this.code = undefined;
 			this.position = undefined;
 			this.location = {
-				x: 0,
-				y: 0
+				line: 0,
+				column: 0
 			}
 			this.tokens = []
 			this.levels = {
@@ -429,6 +432,7 @@ instance = nil
 				stringExpression: 0,
 				stringExpressionParenthesis: 0
 			}
+			this.reports = []
 		}
 
 		static atPosition(substring) {
@@ -464,10 +468,10 @@ instance = nil
 
 						for(let character of trigger) {
 							if(character === '\n') {
-								this.location.x = 0;
-								this.location.y++;
+								this.location.line++;
+								this.location.column = 0;
 							} else {
-								this.location.x++;
+								this.location.column++;
 							}
 						}
 
@@ -476,26 +480,45 @@ instance = nil
 				}
 			}
 
-			let tokens = this.tokens;
+			let result = {}
 
 			if(cleanupLevel === 1) {
-				tokens = tokens.filter(v => !(v.type === 'delimiter' && !v.value.includes('\n') && !v.value.includes(';')))
+				result.tokens = this.tokens.filter(v => !(v.type === 'delimiter' && !v.value.includes('\n') && !v.value.includes(';')))
 			}
 			if(cleanupLevel === 2) {
-				tokens = tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
+				result.tokens = this.tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
 			}
+
+			result.reports = this.reports;
 
 			this.reset();
 
-			return tokens;
+			return result;
 		}
 	}
 
 	class Parser {
 		static tokens;
 		static position;
+		static reports;
 		static rules = {
 			aliasDeclaration: () => {},
+			callExpression: () => {
+				let node = {
+					type: 'chainExpression',
+					range: {},
+					callee: undefined,
+					arguments: undefined
+				}
+			},
+			chainExpression: () => {
+				let node = {
+					type: 'chainExpression',
+					range: {},
+					object: undefined,
+					property: undefined
+				}
+			},
 			classBody: () => {
 				return this.rules.specificBody('class');
 			},
@@ -519,18 +542,18 @@ instance = nil
 				node.body = this.rules.classBody();
 
 				if(node.id == null) {
-					this.report(node.range.start, 'Warning: No identifier set for class.');
+					this.report(2, node.range.start, 'No identifier set for class.');
 				}
 				if(node.body != null) {
 					node.range.end = node.body.range.end;
 				} else {
-					this.report(node.range.start, 'Warning: Class doesn\'t have body.');
+					this.report(1, node.range.start, 'Class doesn\'t have body.');
 				}
 
 				return node;
 			},
 			classMembers: () => {
-				return this.rules.specificMembers('class', [
+				return this.rules.specificMembers([
 					'aliasDeclaration',
 					'classDeclaration',
 					'functionDeclaration',
@@ -538,29 +561,120 @@ instance = nil
 					'variableDeclaration'
 				]);
 			},
+			floatLiteralExpression: () => {
+				let node = {
+					type: 'floatLiteralExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.currentToken.type === 'numberFloat') {
+					node.value = this.currentToken.value;
+					node.range.start =
+					node.range.end = this.position++;
+				} else {
+					return;
+				}
+
+				return node;
+			},
 			functionBody: () => {
 				return this.rules.specificBody('function');
 			},
 			functionCallExpression: () => {},
-			functionDeclaration: () => {},
+			functionDeclaration: () => {
+				let node = {
+					type: 'functionDeclaration',
+					range: {},
+					id: undefined,
+					signature: undefined,
+					body: undefined
+				}
+
+				if(this.currentToken.type === 'keywordFunc') {
+					node.range.start = this.position++;
+				} else {
+					return;
+				}
+
+				node.id = this.rules.identifier() ?? this.rules.operator();
+				node.signature = this.rules.functionSignature();
+				node.body = this.rules.functionBody();
+
+				if(node.id == null) {
+					this.report(2, node.range.start, 'No identifier set for function.');
+				}
+				if(node.signature == null) {
+					this.report(2, node.range.start, 'Function lacks of signature.');
+				}
+				if(node.body != null) {
+					node.range.end = node.body.range.end;
+				} else {
+					this.report(1, node.range.start, 'Function doesn\'t have body.');
+				}
+
+				return node;
+			},
 			functionMembers: () => {
-				return this.rules.specificMembers('function', [
+				return this.rules.specificMembers([
 					'aliasDeclaration',
+					'callExpression',
+					'chainExpression',
 					'classDeclaration',
 					'functionCallExpression',
 					'functionDeclaration',
 					'ifStatement',
 					'importDeclaration',
 					'structureDeclaration',
+					'subscriptExpression',
 					'variableAssignment',
 					'variableDeclaration'
 				]);
+			},
+			functionParameter: () => {},
+			functionSignature: () => {
+				let node = {
+					type: 'functionSignature',
+					range: {},
+					parameters: undefined
+				}
+
+				if(this.currentToken.type === 'parenthesisOpen') {
+					node.range.start = this.position++;
+				} else {
+					return;
+				}
+
+				while(true) {
+					let node_ = this.rules.functionParameter();
+
+					if(node_ != null) {
+						node.parameters.push(node_);
+					} else {
+						break;
+					}
+					if(this.currentToken.type === 'operatorAlso') {
+						this.position++;
+					} else {
+						break;
+					}
+				}
+
+				if(this.currentToken.type === 'parenthesisClosed') {
+					node.range.end = this.position++;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
 			},
 			identifier: () => {
 				let node = {
 					type: 'identifier',
 					range: {},
-					value: ''
+					value: undefined
 				}
 
 				if(this.currentToken.type === 'identifier') {
@@ -575,6 +689,50 @@ instance = nil
 			},
 			ifStatement: () => {},
 			importDeclaration: () => {},
+			initializerClause: () => {
+				let node = {
+					type: 'initializerClause',
+					range: {},
+					id: undefined
+				}
+
+				if(this.currentToken.type === 'operatorAssign') {
+					node.value = this.currentToken.value;
+					node.range.start =
+					node.range.end = this.position++;
+				} else {
+					return;
+				}
+
+				node.id = this.rules.identifier();
+
+				if(node.id != null) {
+					node.range.end = node.id.range.end;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			integerLiteralExpression: () => {
+				let node = {
+					type: 'integerLiteralExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.currentToken.type === 'numberInteger') {
+					node.value = this.currentToken.value;
+					node.range.start =
+					node.range.end = this.position++;
+				} else {
+					return;
+				}
+
+				return node;
+			},
 			logicalExpression: () => {},
 			module: () => {
 				let node = {
@@ -583,12 +741,29 @@ instance = nil
 						start: 0,
 						end: 0
 					},
-					children: this.rules.functionMembers()
+					members: this.rules.functionMembers()
 				}
 
-				if(node.children.length > 0) {
-					node.range.start = node.children[0].range.start;
-					node.range.end = node.children.at(-1).range.end;
+				if(node.members.length > 0) {
+					node.range.start = node.members[0].range.start;
+					node.range.end = node.members.at(-1).range.end;
+				}
+
+				return node;
+			},
+			operator: () => {
+				let node = {
+					type: 'operator',
+					range: {},
+					value: undefined
+				}
+
+				if(this.currentToken.type.startsWith('operator')) {
+					node.value = this.currentToken.value;
+					node.range.start =
+					node.range.end = this.position++;
+				} else {
+					return;
 				}
 
 				return node;
@@ -597,7 +772,7 @@ instance = nil
 				let node = {
 					type: type+'Body',
 					range: {},
-					children: []
+					members: []
 				}
 
 				if(this.currentToken.type === 'braceOpen') {
@@ -606,7 +781,7 @@ instance = nil
 					return;
 				}
 
-				node.children = this.rules[type+'Members']();
+				node.members = this.rules[type+'Members']();
 
 				if(this.currentToken.type === 'braceClosed') {
 					node.range.end = this.position++;
@@ -618,14 +793,14 @@ instance = nil
 
 				return node;
 			},
-			specificMembers: (type, memberTypes) => {
+			specificMembers: (types) => {
 				let list = []
 
 				while(true) {
 					let node
 
-					for(let memberType of memberTypes) {
-						node = this.rules[memberType]();
+					for(let type of types) {
+						node = this.rules[type]();
 
 						if(node != null) {
 							list.push(node);
@@ -675,7 +850,7 @@ instance = nil
 				for(let node of list.filter(v => v.type === 'unawaredMember')) {
 					delete node.scopeLevel;
 
-					this.report(node.range.start, 'Warning: Unawared member type at range of tokens ['+node.range.start+':'+node.range.end+'].');
+					this.report(1, node.range.start, 'Unawared member type at range of tokens ['+node.range.start+':'+node.range.end+'].');
 				}
 
 				return list;
@@ -703,18 +878,18 @@ instance = nil
 				node.body = this.rules.structureBody();
 
 				if(node.id == null) {
-					this.report(node.range.start, 'Warning: No identifier set for structure.');
+					this.report(2, node.range.start, 'No identifier set for structure.');
 				}
 				if(node.body != null) {
 					node.range.end = node.body.range.end;
 				} else {
-					this.report(node.range.start, 'Error: Structure doesn\'t have body.');
+					this.report(1, node.range.start, 'Structure doesn\'t have body.');
 				}
 
 				return node;
 			},
 			structureMembers: () => {
-				return this.rules.specificMembers('structure', [
+				return this.rules.specificMembers([
 					'aliasDeclaration',
 					'classDeclaration',
 					'functionDeclaration',
@@ -722,11 +897,12 @@ instance = nil
 					'variableDeclaration'
 				]);
 			},
+			subscriptExpression: () => {},
 			typeInheritanceClause: () => {
 				let node = {
 					type: 'typeInheritanceClause',
 					range: {},
-					children: []
+					identifiers: []
 				}
 
 				if(this.currentToken.type === 'operatorColon') {
@@ -735,12 +911,23 @@ instance = nil
 					return;
 				}
 
-				node.children = [
-					this.rules.identifier()
-				].filter(v => v);
+				while(true) {
+					let node_ = this.rules.identifier();
 
-				if(node.children.length > 0) {
-					node.range.end = node.children.at(-1).range.end;
+					if(node_ != null) {
+						node.identifiers.push(node_);
+					} else {
+						break;
+					}
+					if(this.currentToken.type === 'operatorAlso') {
+						this.position++;
+					} else {
+						break;
+					}
+				}
+
+				if(node.identifiers.length > 0) {
+					node.range.end = node.identifiers.at(-1).range.end;
 				} else {
 					this.position = node.range.start;
 
@@ -749,8 +936,23 @@ instance = nil
 
 				return node;
 			},
-			variableAssignment: () => {},
-			variableDeclaration: () => {}
+			variableAssignment: () => {
+				let node = {
+					type: 'variableAssignment',
+					range: {},
+					identifier: undefined,
+					operator: undefined,
+					value: undefined
+				}
+			},
+			variableDeclaration: () => {
+				let node = {
+					type: 'variableDeclaration',
+					range: {},
+					kind: undefined,
+					list: []
+				}
+			}
 		}
 
 		static get currentToken() {
@@ -766,33 +968,70 @@ instance = nil
 			}
 		}
 
-		static report(position, string) {
+		static report(level, position, string) {
 			let location = this.tokens[position].location;
 
-			console.log((location.y+1)+':'+(location.x+1)+': '+string);
+			this.reports.push({
+				level: level,
+				location: location,
+				string: string
+			});
 		}
 
 		static reset() {
 			this.tokens = []
 			this.position = 0;
+			this.reports = []
 		}
 
-		static parse(tokens) {
+		static parse(lexerResult) {
 			this.reset();
 
-			this.tokens = tokens;
+			this.tokens = lexerResult.tokens;
 
-			let tree = this.rules.module();
+			let result = {
+				tree: this.rules.module(),
+				reports: this.reports
+			}
 
 			this.reset();
 
-			return tree;
+			return result;
 		}
 	}
 
-	let tokens = Lexer.tokenize(code, 2),
-		tree = Parser.parse(tokens);
+	let lexerResult = Lexer.tokenize(code, 2),
+		parserResult = Parser.parse(lexerResult),
+		tokens = lexerResult.tokens,
+		tree = parserResult.tree,
+		reports = [...lexerResult.reports, ...parserResult.reports]
+					.sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
+	/*
+	for(let k = tokens.length-1; k >= 0; k--) {
+		let textbox = document.getElementById('input'),
+			position = tokens[k].position,
+			type = tokens[k].type,
+			value = tokens[k].value,
+			length = value.length,
+			color;
+
+		if(token.type.startsWith('operator')) {
+			color = 'red';
+		}
+	}
+	*/
+	for(let report of reports) {
+		let level = report.level.toString()
+						.replace('0', 'Info')
+						.replace('1', 'Warning')
+						.replace('2', 'Error'),
+			line = report.location.line+1,
+			column = report.location.column+1,
+			string = report.string;
+
+		console.log(line+':'+column+': '+level+': '+string);
+	}
 	console.log(tokens);
 	console.log(tree);
 </script>
