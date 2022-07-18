@@ -17,7 +17,18 @@
 }
 </style>
 <div id="input" contenteditable="true"><!--
--->class A: B, C, D {}
+-->0
+1.2
+3.4.5
+6.7.a
+8.b
+.c
+.9
+10..11
+3.14
+1.23.45.678
+
+class A: B, C, D {}
 
 // Foundation Source
 
@@ -173,33 +184,33 @@ instance = nil
 		static rules = [
 			['/*', (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+					this.token.value += v;
 				} else {
-					this.createToken('commentBlock', '');
+					this.addToken('commentBlock', '');
 				}
-				if(this.lastToken.type === 'commentBlock') {
+				if(this.token.type === 'commentBlock') {
 					this.levels.comment++;
 				}
 			}],
 			['*/', (v) => {
-				if(this.levels.comment > 0 && this.lastToken.type === 'commentLine' || this.levels.comment > 1 || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+				if(this.levels.comment > 0 && this.token.type === 'commentLine' || this.levels.comment > 1 || this.levels.string > this.levels.stringExpression) {
+					this.token.value += v;
 				}
-				if(this.lastToken.type === 'commentBlock') {
+				if(this.token.type === 'commentBlock') {
 					this.levels.comment--;
 				}
 			}],
 			['//', (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+					this.token.value += v;
 				} else {
-					this.createToken('commentLine', '');
+					this.addToken('commentLine', '');
 					this.levels.comment++;
 				}
 			}],
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
 				if(this.levels.comment > 0) {
-					this.lastToken.value += v;
+					this.token.value += v;
 				} else
 				if(this.levels.string > this.levels.stringExpression) {
 					switch(v) {
@@ -215,18 +226,18 @@ instance = nil
 						case '\\':		v = '';			break;
 					}
 
-					this.lastToken.value += v;
+					this.token.value += v;
 				}
 			}],
 			[['\\(', ')'], (v) => {
 				if(this.levels.comment > 0) {
-					this.lastToken.value += v;
+					this.token.value += v;
 				} else {
 					switch(v) {
 						case '\\(':
 							if(this.levels.string > this.levels.stringExpression) {
-								this.lastToken.type = 'stringPart';
-								this.createToken('stringExpressionOpen', v);
+								this.token.type = 'stringPart';
+								this.addToken('stringExpressionOpen', v);
 								this.levels.stringExpression++;
 							}
 						break;
@@ -234,63 +245,23 @@ instance = nil
 							if(this.levels.string > this.levels.stringExpression || this.levels.stringExpression === 0 || this.levels.stringExpressionParenthesis > 0) {
 								return true;
 							}
-							this.createToken('stringExpressionClosed', v);
+							this.addToken('stringExpressionClosed', v);
 							this.levels.stringExpression--;
-							this.createToken('stringPart', '');
+							this.addToken('stringPart', '');
 						break;
 					}
 				}
 			}],
-			[['!=', '!', '%', '&&', '&', '??=', '??', '?', '||', '==', '=', '<=', '<', '>=', '>', '--', '-=', '->', '-', '++', '+=', '+', '/=', '/', '*=', '*', ':', '.', ','], (v) => {
-				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression || this.token.type === 'operator') {
+					this.token.value += v;
 				} else {
-					let title;
-
-					switch(v) {
-						case '!=':	title = 'NotEquals';			break;
-						case '!':	title = 'Exclamation';			break;
-						case '%':	title = 'Remainder';			break;
-						case '&&':	title = 'And';					break;
-						case '&':	title = 'Ampersand';			break;
-						case '??=':	title = 'NullCoalescingAssign';	break;
-						case '??':	title = 'NullCoalescing';		break;
-						case '?':	title = 'Question';				break;
-						case '||':	title = 'Or';					break;
-						case '==':	title = 'Equals';				break;
-						case '=':	title = 'Assign';				break;
-						case '<=':	title = 'SmallerEquals';		break;
-						case '<':	title = 'Smaller';				break;
-						case '>=':	title = 'BiggerEquals';			break;
-						case '>':	title = 'Bigger';				break;
-						case '--':	title = 'Decrement';			break;
-						case '-=':	title = 'MinusAssign';			break;
-						case '->':	title = 'Returns';				break;
-						case '-':	title = 'Minus';				break;
-						case '++':	title = 'Increment';			break;
-						case '+=':	title = 'PlusAssign';			break;
-						case '+':	title = 'Plus';					break;
-						case '/=':	title = 'DivideAssign';			break;
-						case '/':	title = 'Divide';				break;
-						case '*=':	title = 'MultiplyAssign';		break;
-						case '*':	title = 'Multiply';				break;
-						case ':':	title = 'Colon';				break;
-						case '.':
-							if(this.lastToken.type === 'numberInteger') {
-								return true;
-							} else {
-								title = 'Chain';
-							}
-						break;
-						case ',':	title = 'Also';				break;
-					}
-
-					this.createToken('operator'+title, v);
+					this.addToken('operator', v);
 				}
 			}],
 			[['(', ')', '{', '}', '[', ']'], (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+					this.token.value += v;
 				} else {
 					let title;
 
@@ -313,7 +284,7 @@ instance = nil
 						case ']':	title = 'bracketClosed';	break;
 					}
 
-					this.createToken(title, v);
+					this.addToken(title, v);
 				}
 			}],
 			['\'', () => {
@@ -321,7 +292,7 @@ instance = nil
 					return true;
 				}
 				if(this.levels.string === this.levels.stringExpression) {
-					this.createToken('string', '');
+					this.addToken('string', '');
 					this.levels.string++;
 				} else
 				if(this.levels.string > this.levels.stringExpression) {
@@ -330,38 +301,39 @@ instance = nil
 			}],
 			[/\s|;/, (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
-					if(v === '\n' && this.lastToken.type === 'commentLine') {
-						this.createToken('delimiter');
+					if(v === '\n' && this.token.type === 'commentLine') {
+						this.addToken('delimiter');
 						this.levels.comment--;
 					} else {
-						this.lastToken.value += v;
+						this.token.value += v;
 					}
 				} else
-				if(this.lastToken.type === 'delimiter') {
-					this.lastToken.value += v;
+				if(this.token.type === 'delimiter') {
+					this.token.value += v;
 				} else {
-					this.createToken('delimiter');
+					this.addToken('delimiter');
 				}
 			}],
-			[/[0-9\.]/, (v) => {
-				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression || this.lastToken.type.startsWith('number') || this.lastToken.type === 'identifier' && v !== '.') {
-					if(this.lastToken.type === 'numberInteger' && v === '.') {
-						this.lastToken.type = 'numberFloat';
-					}
-					this.lastToken.value += v;
+			[/[0-9]/, (v) => {
+				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression || this.token.type.startsWith('number') || this.token.type === 'identifier') {
+					this.token.value += v;
 				} else
-				if(v !== '.') {
-					this.createToken('numberInteger');
+				if(this.token.type === 'operator' && this.token.value === '.' && this.getToken(-1).type === 'numberInteger') {
+					this.removeToken();
+					this.token.type = 'numberFloat';
+					this.token.value += '.'+v;
+				} else {
+					this.addToken('numberInteger');
 				}
 			}],
 			[/[a-z_]/i, (v) => {
 				if(this.levels.comment > 0 || this.levels.string > this.levels.stringExpression) {
 					return true;
 				}
-				if(this.lastToken.type !== 'identifier' && !this.lastToken.type.startsWith('keyword')) {
-					this.createToken('identifier', '');
+				if(this.token.type !== 'identifier' && !this.token.type.startsWith('keyword')) {
+					this.addToken('identifier', '');
 				}
-				this.lastToken.value += v;
+				this.token.value += v;
 				if([
 					'alias',
 					'break',
@@ -377,23 +349,27 @@ instance = nil
 					'throw', 'true', 'try',
 					'var',
 					'while'
-				].includes(this.lastToken.value)) {
-					this.lastToken.type = 'keyword'+this.lastToken.value[0].toUpperCase()+this.lastToken.value.slice(1);
+				].includes(this.token.value)) {
+					this.token.type = 'keyword'+this.token.value[0].toUpperCase()+this.token.value.slice(1);
 				} else {
-					this.lastToken.type = 'identifier';
+					this.token.type = 'identifier';
 				}
 			}],
 			[/.|\n/i, (v) => {
-				if(this.lastToken.type === 'commentBlock' || this.lastToken.type === 'commentLine' && v !== '\n' || this.levels.string > this.levels.stringExpression) {
-					this.lastToken.value += v;
+				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.levels.string > this.levels.stringExpression) {
+					this.token.value += v;
 				} else {
 					this.report(0, 'No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 				}
 			}]
 		]
 
-		static get lastToken() {
-			return this.tokens.at(-1) ?? {
+		static get token() {
+			return this.getToken();
+		}
+
+		static getToken(offset = 0) {
+			return this.tokens[this.tokens.length-1+offset] ?? {
 				position: undefined,
 				location: undefined,
 				type: '',
@@ -401,13 +377,17 @@ instance = nil
 			}
 		}
 
-		static createToken(type, value) {
+		static addToken(type, value) {
 			this.tokens.push({
 				position: this.position,
 				location: {...this.location},
 				type: type,
 				value: value != null ? value : this.code[this.position]
 			});
+		}
+
+		static removeToken(offset = 0) {
+			this.tokens = this.tokens.filter((v, k) => k !== this.tokens.length-1+offset);
 		}
 
 		static report(level, string) {
@@ -531,7 +511,7 @@ instance = nil
 					body: undefined
 				}
 
-				if(this.currentToken.type === 'keywordClass') {
+				if(this.token.type === 'keywordClass') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -568,8 +548,8 @@ instance = nil
 					value: undefined
 				}
 
-				if(this.currentToken.type === 'numberFloat') {
-					node.value = this.currentToken.value;
+				if(this.token.type === 'numberFloat') {
+					node.value = this.token.value;
 					node.range.start =
 					node.range.end = this.position++;
 				} else {
@@ -591,7 +571,7 @@ instance = nil
 					body: undefined
 				}
 
-				if(this.currentToken.type === 'keywordFunc') {
+				if(this.token.type === 'keywordFunc') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -639,7 +619,7 @@ instance = nil
 					parameters: undefined
 				}
 
-				if(this.currentToken.type === 'parenthesisOpen') {
+				if(this.token.type === 'parenthesisOpen') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -653,14 +633,14 @@ instance = nil
 					} else {
 						break;
 					}
-					if(this.currentToken.type === 'operatorAlso') {
+					if(this.token.type === 'operator' && this.token.value === ',') {
 						this.position++;
 					} else {
 						break;
 					}
 				}
 
-				if(this.currentToken.type === 'parenthesisClosed') {
+				if(this.token.type === 'parenthesisClosed') {
 					node.range.end = this.position++;
 				} else {
 					this.position = node.range.start;
@@ -677,8 +657,8 @@ instance = nil
 					value: undefined
 				}
 
-				if(this.currentToken.type === 'identifier') {
-					node.value = this.currentToken.value;
+				if(this.token.type === 'identifier') {
+					node.value = this.token.value;
 					node.range.start =
 					node.range.end = this.position++;
 				} else {
@@ -696,8 +676,8 @@ instance = nil
 					id: undefined
 				}
 
-				if(this.currentToken.type === 'operatorAssign') {
-					node.value = this.currentToken.value;
+				if(this.token.type === 'operator' && this.token.value === '=') {
+					node.value = this.token.value;
 					node.range.start =
 					node.range.end = this.position++;
 				} else {
@@ -723,8 +703,8 @@ instance = nil
 					value: undefined
 				}
 
-				if(this.currentToken.type === 'numberInteger') {
-					node.value = this.currentToken.value;
+				if(this.token.type === 'numberInteger') {
+					node.value = this.token.value;
 					node.range.start =
 					node.range.end = this.position++;
 				} else {
@@ -758,8 +738,8 @@ instance = nil
 					value: undefined
 				}
 
-				if(this.currentToken.type.startsWith('operator')) {
-					node.value = this.currentToken.value;
+				if(this.token.type === 'operator') {
+					node.value = this.token.value;
 					node.range.start =
 					node.range.end = this.position++;
 				} else {
@@ -775,7 +755,7 @@ instance = nil
 					members: []
 				}
 
-				if(this.currentToken.type === 'braceOpen') {
+				if(this.token.type === 'braceOpen') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -783,7 +763,7 @@ instance = nil
 
 				node.members = this.rules[type+'Members']();
 
-				if(this.currentToken.type === 'braceClosed') {
+				if(this.token.type === 'braceClosed') {
 					node.range.end = this.position++;
 				} else {
 					this.position = node.range.start;
@@ -829,7 +809,7 @@ instance = nil
 						node.range.end = this.position;
 					}
 
-					switch(this.currentToken.type) {
+					switch(this.token.type) {
 						case 'braceOpen':	node.scopeLevel++; break;
 						case 'braceClosed':	node.scopeLevel--; break;
 					}
@@ -867,7 +847,7 @@ instance = nil
 					body: undefined
 				}
 
-				if(this.currentToken.type === 'keywordStruct') {
+				if(this.token.type === 'keywordStruct') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -905,7 +885,7 @@ instance = nil
 					identifiers: []
 				}
 
-				if(this.currentToken.type === 'operatorColon') {
+				if(this.token.type === 'operator' && this.token.value === ':') {
 					node.range.start = this.position++;
 				} else {
 					return;
@@ -919,7 +899,7 @@ instance = nil
 					} else {
 						break;
 					}
-					if(this.currentToken.type === 'operatorAlso') {
+					if(this.token.type === 'operator' && this.token.value === ',') {
 						this.position++;
 					} else {
 						break;
@@ -955,7 +935,7 @@ instance = nil
 			}
 		}
 
-		static get currentToken() {
+		static get token() {
 			return this.getToken();
 		}
 
@@ -1016,7 +996,7 @@ instance = nil
 			length = value.length,
 			color;
 
-		if(token.type.startsWith('operator')) {
+		if(token.type === 'operator') {
 			color = 'red';
 		}
 	}
