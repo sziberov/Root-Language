@@ -17,49 +17,42 @@
 }
 </style>
 <div id="input" contenteditable="true"><!--
--->0
-1.2
-3.4.5
-6.7.a
-8.b
-.c
-.9
-10..11
-3.14
-1.23.45.678
-
-class A: B, C, D {}
-
-// Foundation Source
+-->// Foundation Source
 
 struct Boolean {
-	const value
+	private const value
 
 	init(value: bool) {
 		self.value = value
 	}
 
-	func ==(rhs: bool & Boolean) -> Boolean {
-		return rhs !is Boolean ? value == rhs : value == rhs.value
+	static func ==(lhs: bool & Boolean, rhs: bool & Boolean) -> Boolean {
+		var leftValue = lhs !is Boolean ? lhs : lhs.value,
+			rightValue = rhs !is Boolean ? rhs : rhs.value
+
+		return leftValue == rightValue
 	}
 }
 
 struct Number {
-	static const Pi = 3.14
+	static const Pi = 3.141592653589793
 
-	const value
+	protected const value
 
-	init(value: int & decimal) {
+	init(value: int & float) {
 		self.value = value
 	}
 
-	func ==(rhs: int & decimal & Number) -> Boolean {
-		return rhs !is Number ? value == rhs : value == rhs.value
+	static func ==(lhs: int & float & Number, rhs: int & float & Number) -> Boolean {
+		var leftValue = lhs !is Number ? lhs : lhs.value,
+			rightValue = rhs !is Number ? rhs : rhs.value
+
+		return leftValue == rightValue
 	}
 }
 
-struct Decimal: Number {
-	init(value: int & decimal) {
+struct Float: Number {
+	init(value: int & float) {
 		if var v = value%2 && (v == 0 || v == 1) {
 			throw 'Value can\'t be integer'
 		}
@@ -69,9 +62,9 @@ struct Decimal: Number {
 }
 
 struct Integer: Number {
-	init(value: int & decimal) {
+	init(value: int & float) {
 		if var v = value%2 && v > 0 && v < 1 {
-			throw 'Value can\'t be decimal'
+			throw 'Value can\'t be float'
 		}
 
 		self.value = value
@@ -79,14 +72,17 @@ struct Integer: Number {
 }
 
 struct String {
-	const value
+	private const value
 
 	init(value: string) {
 		self.value = value
 	}
 
-	func ==(rhs: string & String) -> Boolean {
-		return rhs !is String ? value == rhs : value == rhs.value
+	static func ==(lhs: string & String, rhs: string & String) -> Boolean {
+		var leftValue = lhs !is String ? lhs : lhs.value,
+			rightValue = rhs !is String ? rhs : rhs.value
+
+		return leftValue == rightValue
 	}
 }
 
@@ -113,26 +109,27 @@ if constant > 0 {
 	variable = 1
 }
 
-class Class {
-	const private constant: Number = 0.5
+class A {
+	private const constant: Number = 0.5
 
-	var protected variable: Integer = 1
+	protected var variable: Integer = 1
 
 	var variable_01a = 'String'
 
-	var private anotherVariableStorage
+	private var anotherVariableStorage
 
 	var anotherVariable {
-		willSet {}
-		set {
-			anotherVariableStorage = newValue
-		}
-		didSet {}
-		willGet {}
 		get {
 			return anotherVariableStorage
 		}
+		set {
+			anotherVariableStorage = newValue
+		}
+
+		willGet {}
 		didGet {}
+		willSet {}
+		didSet {}
 	}
 
 	chain {
@@ -140,7 +137,7 @@ class Class {
 			return metaObject.properties[key]?.value
 		}
 		set {
-			metaObject.properties[key]?.value = value
+			metaObject.properties[key] = value
 		}
 	}
 
@@ -165,7 +162,13 @@ class Class {
 	}
 }
 
-var instance = Class(with: 12, and: '2')
+var instance = A(with: 12, and: '2')
+
+/*
+var self.A: self.Object = class { ... }
+
+var self.instance: Any? = Class(with: 12, and: '2')
+*/
 
 print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
 
