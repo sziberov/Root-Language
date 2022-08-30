@@ -17,7 +17,14 @@
 }
 </style>
 <div id="input" contenteditable="true"><!--
--->// Foundation Source
+-->one.two.three.four
+one().two.three
+one.two().three
+one.two.three()
+one[2].three.four()
+one[2]().three
+
+// Foundation Source
 
 struct Boolean {
 	private const value
@@ -486,22 +493,6 @@ instance = nil
 		static reports;
 		static rules = {
 			aliasDeclaration: () => {},
-			callExpression: () => {
-				let node = {
-					type: 'chainExpression',
-					range: {},
-					callee: undefined,
-					arguments: undefined
-				}
-			},
-			chainExpression: () => {
-				let node = {
-					type: 'chainExpression',
-					range: {},
-					object: undefined,
-					property: undefined
-				}
-			},
 			classBody: () => {
 				return this.rules.specificBody('class');
 			},
@@ -564,7 +555,6 @@ instance = nil
 			functionBody: () => {
 				return this.rules.specificBody('function');
 			},
-			functionCallExpression: () => {},
 			functionDeclaration: () => {
 				let node = {
 					type: 'functionDeclaration',
@@ -601,15 +591,12 @@ instance = nil
 			functionMembers: () => {
 				return this.rules.specificMembers([
 					'aliasDeclaration',
-					'callExpression',
-					'chainExpression',
 					'classDeclaration',
-					'functionCallExpression',
 					'functionDeclaration',
 					'ifStatement',
 					'importDeclaration',
+					'postfixExpression',
 					'structureDeclaration',
-					'subscriptExpression',
 					'variableAssignment',
 					'variableDeclaration'
 				]);
@@ -751,6 +738,94 @@ instance = nil
 
 				return node;
 			},
+			postfixExpression: () => {
+				let node = {
+					range: {}
+				}
+
+				let primary =
+					this.rules.floatLiteralExpression() ??
+					this.rules.identifier() ??
+					this.rules.integerLiteralExpression()/* ??
+					this.rules.stringLiteralExpression()*/;
+
+				if(primary != null) {
+					node.range.start = primary.range.start;
+				} else {
+					return;
+				}
+
+				let secondary = this.rules.postfixExpression_(node, primary);
+
+				if(secondary != null) {
+					node = secondary;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			postfixExpression_: (node, primary) => {
+				let start = this.position;
+
+				if(this.token.type === 'operator' && this.token.value === '.') {
+					node.type = 'chainExpression';
+					node.object = primary;
+					this.position++;
+
+					node.property = this.rules.identifier();
+
+					if(node.property != null) {
+						node.range.end = node.property.range.end;
+					} else {
+						this.position = start;
+
+						return;
+					}
+				} else
+				if(this.token.type === 'parenthesisOpen') {
+					node.type = 'callExpression';
+					node.callee = primary;
+					this.position++;
+
+					node.arguments = /*this.rules.functionArguments()*/ {}
+
+					if(this.token.type === 'parenthesisClosed') {
+						node.range.end = this.position++;
+					} else {
+						this.position = start;
+
+						return;
+					}
+				} else
+				if(this.token.type === 'bracketOpen') {
+					node.type = 'subscriptExpression';
+					node.object = primary;
+					this.position++;
+
+					node.expression = /*this.rules.expression()*/ {}
+
+					if(this.token.type === 'bracketClosed') {
+						node.range.end = this.position++;
+					} else {
+						this.position = start;
+
+						return;
+					}
+				} else {
+					return;
+				}
+
+				node = this.rules.postfixExpression_({
+					range: {
+						start: node.range.start
+					}
+				}, node) ?? node;
+
+				return node;
+			},
 			specificBody: (type) => {
 				let node = {
 					type: type+'Body',
@@ -764,7 +839,7 @@ instance = nil
 					return;
 				}
 
-				node.members = this.rules[type+'Members']();
+				node.members = this.rules[type+'Members']?.() ?? []
 
 				if(this.token.type === 'braceClosed') {
 					node.range.end = this.position++;
@@ -783,7 +858,7 @@ instance = nil
 					let node
 
 					for(let type of types) {
-						node = this.rules[type]();
+						node = this.rules[type]?.();
 
 						if(node != null) {
 							list.push(node);
@@ -880,7 +955,6 @@ instance = nil
 					'variableDeclaration'
 				]);
 			},
-			subscriptExpression: () => {},
 			typeInheritanceClause: () => {
 				let node = {
 					type: 'typeInheritanceClause',
