@@ -17,12 +17,12 @@
 }
 </style>
 <div id="input" contenteditable="true"><!--
--->one.two.three.four
-one().two.three
+-->one.two.three
+one().two?.three
 one.two().three
 one.two.three()
-one[2].three.four()
-one[2]().three
+one[].two.three()
+one[]().two
 
 // Foundation Source
 
@@ -501,7 +501,7 @@ instance = nil
 				this.position++;
 				node.type = 'callExpression';
 				node.callee = node_;
-				node.arguments = /*this.rules.functionArguments()*/ {}
+				node.arguments = /*this.rules.functionArguments()*/ undefined;
 
 				if(this.token.type !== 'parenthesisClosed') {
 					this.position = node.range.start;
@@ -514,10 +514,11 @@ instance = nil
 				return node;
 			},
 			chainExpression: (node, node_) => {
-				if(this.token.type !== 'operator' || this.token.value !== '.') {
+				if(this.token.type !== 'operator' || !['.', '?.'].includes(this.token.value)) {
 					return;
 				}
 
+				node.optional = this.token.value === '?.';
 				this.position++;
 				node.type = 'chainExpression';
 				node.object = node_;
@@ -565,7 +566,7 @@ instance = nil
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					this.position-1;
+					node.range.start;
 
 				return node;
 			},
@@ -630,7 +631,7 @@ instance = nil
 					node.body?.range.end ??
 					node.signature?.range.end ??
 					node.id?.range.end ??
-					this.position-1;
+					node.range.start;
 
 				return node;
 			},
@@ -798,7 +799,7 @@ instance = nil
 				for(let i = 0; i < Infinity; i++) {
 					let node_ = {
 						range: {
-							start: i === 0 ? node.range.start : this.position
+							start: node.range.start
 						}
 					}
 
@@ -938,7 +939,7 @@ instance = nil
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					this.position-1;
+					node.range.start;
 
 				return node;
 			},
@@ -959,7 +960,7 @@ instance = nil
 				this.position++;
 				node.type = 'subscriptExpression';
 				node.object = node_;
-				node.expression = /*this.rules.expression()*/ {}
+				node.expression = /*this.rules.expression()*/ undefined;
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node.range.start;
