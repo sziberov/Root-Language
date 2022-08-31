@@ -504,7 +504,7 @@ instance = nil
 				node.arguments = /*this.rules.functionArguments()*/ undefined;
 
 				if(this.token.type !== 'parenthesisClosed') {
-					this.position = node.range.start;
+					this.position = node_.range.end+1;
 
 					return;
 				}
@@ -525,7 +525,7 @@ instance = nil
 				node.property = this.rules.identifier();
 
 				if(node.property == null) {
-					this.position = node.range.start;
+					this.position = node_.range.end+1;
 
 					return;
 				}
@@ -810,6 +810,8 @@ instance = nil
 
 					if(node_ == null) {
 						if(i === 0) {
+							this.position = node.range.start;
+
 							return;
 						}
 
@@ -963,7 +965,7 @@ instance = nil
 				node.expression = /*this.rules.expression()*/ undefined;
 
 				if(this.token.type !== 'bracketClosed') {
-					this.position = node.range.start;
+					this.position = node_.range.end+1;
 
 					return;
 				}
