@@ -1217,6 +1217,7 @@ var enum_value: B = .first
 						title: 'TestClass',
 						typed: true,
 						inheritance: [1],
+						nillable: true,
 						value: '1'
 					},
 					{
@@ -1224,6 +1225,7 @@ var enum_value: B = .first
 						title: 'testPi',
 						typed: true,
 						inheritance: ['float'],
+						nillable: true,
 						value: '3.14'
 					},
 					{
@@ -1231,6 +1233,7 @@ var enum_value: B = .first
 						title: 'testClassInstance',
 						typed: true,
 						inheritance: [2],
+						nillable: true,
 						value: '3'
 					},
 					{
@@ -1238,6 +1241,7 @@ var enum_value: B = .first
 						title: 'computedInstanceProperty',
 						typed: false,
 						inheritance: [],
+						nillable: true,
 						value: null
 					}
 				],
@@ -1264,6 +1268,7 @@ var enum_value: B = .first
 						title: 'init',
 						typed: true,
 						inheritance: [2],
+						nillable: false,
 						value: '2'
 					},
 					{
@@ -1271,6 +1276,7 @@ var enum_value: B = .first
 						title: 'testVariable',
 						typed: true,
 						inheritance: ['int'],
+						nillable: true,
 						value: null
 					}
 				],
@@ -1285,17 +1291,20 @@ var enum_value: B = .first
 					{
 						title: 'firstArgument',
 						typed: true,
-						inheritance: ['float']
+						inheritance: ['float'],
+						nillable: false
 					},
 					{
 						title: 'secondArgument',
 						typed: true,
-						inheritance: ['bool']
+						inheritance: ['bool'],
+						nillable: true
 					},
 					{
 						title: 'return',
 						typed: true,
-						inheritance: ['bool']
+						inheritance: ['bool'],
+						nillable: true
 					}
 				],
 				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
