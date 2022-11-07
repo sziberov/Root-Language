@@ -19,8 +19,6 @@
 <div id="input" contenteditable="true"><!--
 -->'one\(two)three\(four)five\(six)seven'
 
-.implicit.member_1.member_2
-
 // Foundation Source
 
 struct Boolean {
@@ -90,6 +88,10 @@ struct String {
 	}
 }
 
+class Array {}
+
+class Dictionary {}
+
 // ---- ---- ---- ----
 
 /* Comment
@@ -103,7 +105,9 @@ alias Boolean = Foundation.Boolean,
 	  Number = Foundation.Number,
 	  Decimal = Foundation.Decimal,
 	  Integer = Foundation.Integer,
-	  String = Foundation.String
+	  String = Foundation.String,
+	  Array = Foundation.Array,
+	  Dictionary = Foundation.Dictionary
 
 const constant = Number.Pi
 
@@ -184,6 +188,15 @@ var instance_2 = struct {
 
 instance =
 instance_2 = nil
+
+enum B {
+	case first
+	case second
+	case third
+	case fourth
+}
+
+var enum_value: B = .first
 </div>
 <script>
 	let code = document.getElementById('input').innerText;
@@ -349,7 +362,7 @@ instance_2 = nil
 				}
 				this.token.value += v;
 				if([
-					'alias',
+					'alias', /*'arguments',*/
 					'break',
 					'case', 'catch', 'chain', 'class', 'const', 'continue',
 					'default',
@@ -517,6 +530,7 @@ instance_2 = nil
 
 				return node;
 			},
+			caseDeclaration: () => {},
 			chainExpression: (node, node_) => {
 				if(this.token.type !== 'operator' || !['.', '?.'].includes(this.token.value)) {
 					return;
@@ -584,10 +598,56 @@ instance_2 = nil
 				return this.rules.specificMembers([
 					'aliasDeclaration',
 					'classDeclaration',
+					'enumerationDeclaration',
 					'functionDeclaration',
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
+			},
+			enumerationBody: () => {
+				return this.rules.specificBody('enumeration');
+			},
+			enumerationDeclaration: (anonymous) => {
+				let node = {
+					type: 'enumeration'+(!anonymous ? 'Declaration' : 'Expression'),
+					range: {},
+					id: undefined,
+					inheritance: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'keywordEnum') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.id = this.rules.identifier();
+				node.inheritance = this.rules.typeInheritanceClause();
+				node.body = this.rules.enumerationBody();
+
+				if(anonymous) {
+					delete node.id;
+				} else
+				if(node.id == null) {
+					this.report(2, node.range.start, 'No identifier set for enumeration.');
+				}
+				if(node.body == null) {
+					this.report(1, node.range.start, 'Enumeration doesn\'t have body.');
+				}
+
+				node.range.end =
+					node.body?.range.end ??
+					node.inheritance?.range.end ??
+					node.id?.range.end ??
+					node.range.start;
+
+				return node;
+			},
+			enumerationExpression: () => {
+				return this.rules.enumerationDeclaration(true);
+			},
+			enumerationMembers: () => {
+				return this.rules.specificMembers(['caseDeclaration']);
 			},
 			floatLiteral: () => {
 				let node = {
@@ -606,6 +666,7 @@ instance_2 = nil
 
 				return node;
 			},
+			forStatement: () => {},
 			functionBody: () => {
 				return this.rules.specificBody('function');
 			},
@@ -656,12 +717,15 @@ instance_2 = nil
 					'postfixExpression',
 					'aliasDeclaration',
 					'classDeclaration',
+					'enumerationDeclaration',
+					'forStatement',
 					'functionDeclaration',
 					'ifStatement',
 					'importDeclaration',
 					'structureDeclaration',
 					'variableAssignment',
-					'variableDeclaration'
+					'variableDeclaration',
+					'whileStatement'
 				]);
 			},
 			functionParameter: () => {},
@@ -895,7 +959,7 @@ instance_2 = nil
 				let nodes = []
 
 				while(true) {
-					let node
+					let node;
 
 					for(let type of types) {
 						node = this.rules[type]?.();
@@ -1012,6 +1076,7 @@ instance_2 = nil
 				return this.rules.specificMembers([
 					'aliasDeclaration',
 					'classDeclaration',
+					'enumerationDeclaration',
 					'functionDeclaration',
 					'structureDeclaration',
 					'variableDeclaration'
@@ -1092,7 +1157,8 @@ instance_2 = nil
 					kind: undefined,
 					initializers: []
 				}
-			}
+			},
+			whileStatement: () => {}
 		}
 
 		static get token() {
@@ -1137,6 +1203,184 @@ instance_2 = nil
 			this.reset();
 
 			return result;
+		}
+	}
+
+	class Interpreter {
+		static memory = [
+			{
+				address: 0,
+				inheritance: ['namespace'],
+				members: [
+					{
+						accesibility: ['public', 'static'],
+						title: 'TestClass',
+						typed: true,
+						inheritance: [1],
+						value: '1'
+					},
+					{
+						accesibility: ['public', 'static', 'constant'],
+						title: 'testPi',
+						typed: true,
+						inheritance: ['float'],
+						value: '3.14'
+					},
+					{
+						accesibility: ['public', 'static'],
+						title: 'testClassInstance',
+						typed: true,
+						inheritance: [2],
+						value: '3'
+					},
+					{
+						accesibility: ['public'],
+						title: 'computedInstanceProperty',
+						typed: false,
+						inheritance: [],
+						value: null
+					}
+				],
+				observers: [
+					{
+						type: ['property', 'computedInstanceProperty'], // ['chain'], ['subscript']
+						willGet: null,	//5,
+						get: null,
+						didGet: null,
+						willSet: null,
+						set: null,
+						didSet: null
+					}
+				],
+				scope: null,
+				retains: 1
+			},
+			{
+				address: 1,
+				inheritance: ['class'],
+				members: [
+					{
+						accesibility: ['public', 'static'],
+						title: 'init',
+						typed: true,
+						inheritance: [2],
+						value: '2'
+					},
+					{
+						accesibility: ['public'],
+						title: 'testVariable',
+						typed: true,
+						inheritance: ['int'],
+						value: null
+					}
+				],
+				observers: [],
+				scope: 0,
+				retains: 1
+			},
+			{
+				address: 2,
+				inheritance: ['function'],
+				signature: [
+					{
+						title: 'firstArgument',
+						typed: true,
+						inheritance: ['float']
+					},
+					{
+						title: 'secondArgument',
+						typed: true,
+						inheritance: ['bool']
+					},
+					{
+						title: 'return',
+						typed: true,
+						inheritance: ['bool']
+					}
+				],
+				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
+				scope: 1,
+				retains: 1
+			},
+			{
+				address: 3,
+				inheritance: ['instance', 1],
+				members: [
+					{
+						title: 'testVariable',
+						value: '2'
+					}
+				],
+				scope: 0,
+				retains: 1
+			}
+		]
+		static mainContext;
+
+		static getObject(address) {
+			let object = this.memory.find(v => v.address === address);
+
+			if(object == null) {
+				return;
+			}
+
+			return new Proxy(object, {
+				get: (t, k) => {
+					let members = t.members ?? []
+
+					for(let member of members) {
+						let title = member.title,
+							inheritance = member.inheritance ?? [],
+							value = member.value;
+
+						if(title !== k) {
+							continue;
+						}
+
+						if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
+							let address = value*1;
+
+							return this.getObject(address);
+						} else {
+							return member;
+						}
+					}
+				},
+				ownKeys: (t) => {
+					let members = t.members ?? [],
+						keys = members.map(v => v.title);
+
+					return keys;
+				},
+				getOwnPropertyDescriptor: (t, k) => {
+				    let members = t.members ?? [],
+				    	member = members.find(v => v.title === k),
+				    	inheritance = member?.inheritance ?? [],
+				    	value = member?.value;
+
+			    	if(member == null) {
+			    		return;
+			    	}
+
+			    	if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
+			    		let address = value*1;
+
+			    		member = this.getObject(address);
+			    	}
+
+				    return {
+				    	enumerable: true,
+				    	configurable: true,
+				    	value: member
+				    }
+				}
+			});
+		}
+
+		static createMainContext() {
+		//	this.memory.push();
+
+			this.mainContext = this.getObject(0);
 		}
 	}
 

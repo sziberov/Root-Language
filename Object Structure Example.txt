@@ -1,135 +1,136 @@
 @1 => {
 	TestClass: @2 => class { ... },
 	testPi: 3.14,
-	testClassInstance: @4 => instance { ... },
-	metaObject: {
-		address: 1,
-		type: 'namespace',
-		inheritance: [],
-		members: [
-			{
-				accesibility: ['public', 'static'],
-				title: 'TestClass',
-				typed: true,
-				inheritance: [2],
-				value: '110010' -> 2
-			},
-			{
-				accesibility: ['public', 'static', 'constant'],
-				title: 'testPi',
-				typed: true,
-				inheritance: ['float'],
-				value: '110011101110110001110100' -> 3.14
-			},
-			{
-				accesibility: ['public', 'static'],
-				title: 'testClassInstance',
-				typed: true,
-				inheritance: [2],
-				value: '110100' -> 4
-			}
-		],
-		observers: [
-			/*
-			{
-				title: 'property:testPi', // 'chain', 'subscript'
-				willGet: 4,
-				get: nil,
-				didGet: nil,
-				willSet: nil,
-				set: nil,
-				didSet: nil
-			}
-			*/
-		],
-		scope: nil,
-		retains: 1
-	}
+	testClassInstance: @4 => instance { ... }
+} <= {
+	address: 1,
+	type: 'namespace',
+	inheritance: [],
+	members: [
+		{
+			accesibility: ['public', 'static'],
+			title: 'TestClass',
+			typed: true,
+			inheritance: [2],
+			value: '2'
+		},
+		{
+			accesibility: ['public', 'static', 'constant'],
+			title: 'testPi',
+			typed: true,
+			inheritance: ['float'],
+			value: '3.14'
+		},
+		{
+			accesibility: ['public', 'static'],
+			title: 'testClassInstance',
+			typed: true,
+			inheritance: [2],
+			value: '4'
+		}
+	],
+	observers: [
+		/*
+		{
+			type: ['property', 'testPi'], // ['chain'], ['subscript']
+			willGet: 4,
+			get: nil,
+			didGet: nil,
+			willSet: nil,
+			set: nil,
+			didSet: nil
+		}
+		*/
+	],
+	scope: nil,
+	retains: 1
 }
 
 @2 => {
 	init: @3 => (firstArgument: float, secondArgument: bool) -> bool { ... },
-	testVariable: nil,
-	metaObject: {
-		address: 2,
-		type: 'class',
-		inheritance: [],
-		members: [
-			{
-				accesibility: ['public', 'static'],
-				title: 'init',
-				typed: true,
-				inheritance: [3],
-				value: '110011' -> 3
-			},
-			{
-				accesibility: ['public'],
-				title: 'testVariable',
-				typed: true,
-				inheritance: ['int'],
-				value: nil
-			}
-		],
-		observers: [],
-		scope: 1,
-		retains: 1
-	}
+	testVariable: nil
+} <= {
+	address: 2,
+	type: 'class',
+	inheritance: [],
+	members: [
+		{
+			accesibility: ['public', 'static'],
+			title: 'init',
+			typed: true,
+			inheritance: [3],
+			value: '3'
+		},
+		{
+			accesibility: ['public'],
+			title: 'testVariable',
+			typed: true,
+			inheritance: ['int'],
+			value: nil
+		}
+	],
+	observers: [],
+	scope: 1,
+	retains: 1
 }
 
-@3 => {
-	init: 'testVariable = 2 print('Test: '+firstArgument) return secondArgument',
-	firstArgument,
-	secondArgument,
-	metaObject: {
-		address: 3,
-		type: 'function',
-		inheritance: ['bool'],
-		members: [
-			{
-				accesibility: [],
-				title: 'init',
-				typed: true,
-				inheritance: ['string']
-				value: '111010011001011110011111010010101101100001111001011010011100001110001011011001100101100000111101100000110010100000111000011100101101001110111011101001010001001111010100110010111100111110100111010100000100111101011110011011010011110010111001111101001000001111001011001111110101110110111001011101110111010010100110000011100101100101111010011101011110010110111010000011100111100101110001111011111101110110010010000011110010110011111101011101101110010111011101110100' -> ...
-			},
-			{
-				accesibility: [],
-				title: 'firstArgument',
-				typed: true,
-				inheritance: ['float']
-				value: nil
-			},
-			{
-				accesibility: [],
-				title: 'secondArgument',
-				typed: true,
-				inheritance: ['bool']
-				value: nil
-			}
-		],
-		observers: [],
-		scope: 2,
-		retains: 1
-	}
+@3 => (firstArgument: float, secondArgument: bool) -> bool {
+	testVariable = 2 print('Test: '+firstArgument)
+
+	return secondArgument
+} <= {
+	address: 3,
+	type: 'function',
+	signature: [
+		{
+			title: 'firstArgument',
+			typed: true,
+			inheritance: ['float']
+		},
+		{
+			title: 'secondArgument',
+			typed: true,
+			inheritance: ['bool']
+		},
+		{
+			title: 'return',
+			typed: true,
+			inheritance: ['bool']
+		}
+	],
+	body: (body code),
+	scope: 2,
+	retains: 1
 }
 
 @4 => {
-	testVariable: 2,
-	metaObject: {
-		address: 4,
-		type: 'instance',
-		inheritance: [2],
-		members: [
-			{
-				accesibility: [],
-				title: 'testVariable',
-				typed: true,
-				inheritance: [],
-				value: '110010' -> 2
-			}
-		],
-		observers: [],
-		scope: nil,
-		retains: 1
-	}
+	testVariable: 2
+} <= {
+	address: 4,
+	type: 'instance',
+	inheritance: [2],
+	members: [
+		{
+			accesibility: [],
+			title: 'testVariable',
+			typed: true,
+			inheritance: [],
+			value: '2'
+		}
+	],
+	observers: [],
+	scope: nil,
+	retains: 1
 }
+
+types: [
+	{
+		set: 'simple',
+		subset: 'class',
+		inheritance: []
+	},
+	{
+		set: 'compound',
+		subset: 'function'
+	}
+]
