@@ -101,7 +101,7 @@ Block */
 
 import Foundation
 
-alias Boolean = Foundation.Boolean,
+const Boolean = Foundation.Boolean,
 	  Number = Foundation.Number,
 	  Decimal = Foundation.Decimal,
 	  Integer = Foundation.Integer,
@@ -362,7 +362,7 @@ var enum_value: B = .first
 				}
 				this.token.value += v;
 				if([
-					'alias', /*'arguments',*/
+					/*'arguments',*/
 					'break',
 					'case', 'catch', 'chain', 'class', 'const', 'continue',
 					'default',
@@ -509,7 +509,6 @@ var enum_value: B = .first
 		static position;
 		static reports;
 		static rules = {
-			aliasDeclaration: () => {},
 			callExpression: (node, node_) => {
 				if(this.token.type !== 'parenthesisOpen') {
 					return;
@@ -596,7 +595,6 @@ var enum_value: B = .first
 			},
 			classMembers: () => {
 				return this.rules.specificMembers([
-					'aliasDeclaration',
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -715,7 +713,6 @@ var enum_value: B = .first
 			functionMembers: () => {
 				return this.rules.specificMembers([
 					'postfixExpression',
-					'aliasDeclaration',
 					'classDeclaration',
 					'enumerationDeclaration',
 					'forStatement',
@@ -1074,7 +1071,6 @@ var enum_value: B = .first
 			},
 			structureMembers: () => {
 				return this.rules.specificMembers([
-					'aliasDeclaration',
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -1214,6 +1210,7 @@ var enum_value: B = .first
 				members: [
 					{
 						accesibility: ['public', 'static'],
+						constant: false,
 						title: 'TestClass',
 						typed: true,
 						inheritance: [1],
@@ -1221,7 +1218,8 @@ var enum_value: B = .first
 						value: '1'
 					},
 					{
-						accesibility: ['public', 'static', 'constant'],
+						accesibility: ['public', 'static'],
+						constant: true,
 						title: 'testPi',
 						typed: true,
 						inheritance: ['float'],
@@ -1230,6 +1228,7 @@ var enum_value: B = .first
 					},
 					{
 						accesibility: ['public', 'static'],
+						constant: false,
 						title: 'testClassInstance',
 						typed: true,
 						inheritance: [2],
@@ -1238,6 +1237,7 @@ var enum_value: B = .first
 					},
 					{
 						accesibility: ['public'],
+						constant: false,
 						title: 'computedInstanceProperty',
 						typed: false,
 						inheritance: [],
@@ -1253,7 +1253,10 @@ var enum_value: B = .first
 						didGet: null,
 						willSet: null,
 						set: null,
-						didSet: null
+						didSet: null,
+						willDelete: null,
+						delete: null,
+						didDelete: null
 					}
 				],
 				scope: null,
@@ -1265,6 +1268,7 @@ var enum_value: B = .first
 				members: [
 					{
 						accesibility: ['public', 'static'],
+						constant: true,
 						title: 'init',
 						typed: true,
 						inheritance: [2],
@@ -1273,6 +1277,7 @@ var enum_value: B = .first
 					},
 					{
 						accesibility: ['public'],
+						constant: false,
 						title: 'testVariable',
 						typed: true,
 						inheritance: ['int'],
@@ -1308,6 +1313,13 @@ var enum_value: B = .first
 					}
 				],
 				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
+				members: [
+					{
+						title: 'parametersCount',
+						inheritance: ['int'],
+						value: '2'
+					}
+				],
 				scope: 1,
 				retains: 1
 			},
@@ -1335,33 +1347,45 @@ var enum_value: B = .first
 
 			return new Proxy(object, {
 				get: (t, k) => {
-					let members = t.members ?? []
+					if(k === 'metaObject') {
+						return t;
+					}
 
-					for(let member of members) {
-						let title = member.title,
-							inheritance = member.inheritance ?? [],
-							value = member.value;
+					let members = t.members ?? [],
+						member = members.find(v => v.title === k),
+						title = member?.title,
+						inheritance = member?.inheritance ?? [],
+						value = member?.value;
 
-						if(title !== k) {
-							continue;
-						}
+					if(member == null) {
+						return;
+					}
 
-						if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
-							let address = value*1;
+					if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
+						let address = value*1;
 
-							return this.getObject(address);
-						} else {
-							return member;
-						}
+						return this.getObject(address);
+					} else {
+						return member;
 					}
 				},
 				ownKeys: (t) => {
 					let members = t.members ?? [],
 						keys = members.map(v => v.title);
 
+					keys.push('metaObject');
+
 					return keys;
 				},
 				getOwnPropertyDescriptor: (t, k) => {
+					if(k === 'metaObject') {
+						return {
+							enumerable: true,
+							configurable: true,
+							value: t
+						}
+					}
+
 				    let members = t.members ?? [],
 				    	member = members.find(v => v.title === k),
 				    	inheritance = member?.inheritance ?? [],
