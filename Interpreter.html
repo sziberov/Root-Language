@@ -28,7 +28,7 @@ struct Boolean {
 		self.value = value
 	}
 
-	static func ==(lhs: bool & Boolean, rhs: bool & Boolean) -> Boolean {
+	static func ==(lhs: bool & Boolean, rhs: bool & Boolean -> Boolean) {
 		var leftValue = lhs !is Boolean ? lhs : lhs.value,
 			rightValue = rhs !is Boolean ? rhs : rhs.value
 
@@ -45,7 +45,7 @@ struct Number {
 		self.value = value
 	}
 
-	static func ==(lhs: int & float & Number, rhs: int & float & Number) -> Boolean {
+	static func ==(lhs: int & float & Number, rhs: int & float & Number -> Boolean) {
 		var leftValue = lhs !is Number ? lhs : lhs.value,
 			rightValue = rhs !is Number ? rhs : rhs.value
 
@@ -80,7 +80,7 @@ struct String {
 		self.value = value
 	}
 
-	static func ==(lhs: string & String, rhs: string & String) -> Boolean {
+	static func ==(lhs: string & String, rhs: string & String -> Boolean) {
 		var leftValue = lhs !is String ? lhs : lhs.value,
 			rightValue = rhs !is String ? rhs : rhs.value
 
@@ -362,14 +362,15 @@ var enum_value: B = .first
 				}
 				this.token.value += v;
 				if([
-					/*'arguments',*/
+					'Any',
+					'any', /*'arguments',*/
 					'break',
 					'case', 'catch', 'chain', 'class', 'const', 'continue',
 					'default',
 					'else', 'enum', 'extension',
 					'false', 'for', 'func',
 					'if', 'import', 'is',
-					'nil',
+					'namespace', 'nil',
 					'private', 'protected', 'protocol', 'public',
 					'return',
 					'self', 'struct', 'subscript', 'super', 'switch',
@@ -598,6 +599,8 @@ var enum_value: B = .first
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
@@ -719,6 +722,8 @@ var enum_value: B = .first
 					'functionDeclaration',
 					'ifStatement',
 					'importDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
 					'structureDeclaration',
 					'variableAssignment',
 					'variableDeclaration',
@@ -869,6 +874,24 @@ var enum_value: B = .first
 
 				return node;
 			},
+			namespaceBody: () => {
+				return this.rules.specificBody('namespace');
+			},
+			namespaceDeclaration: (anonymous) => {},
+			namespaceExpression: () => {
+				return this.rules.namespaceDeclaration(true);
+			},
+			namespaceMembers: () => {
+				return this.rules.specificMembers([
+					'classDeclaration',
+					'enumerationDeclaration',
+					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
+					'structureDeclaration',
+					'variableDeclaration'
+				]);
+			},
 			operator: () => {
 				let node = {
 					type: 'operator',
@@ -889,11 +912,14 @@ var enum_value: B = .first
 			postfixExpression: () => {
 				let node =
 					this.rules.classExpression() ??
+					this.rules.enumerationExpression() ??
 					this.rules.floatLiteral() ??
 					this.rules.functionExpression() ??
 					this.rules.identifier() ??
 					this.rules.implicitChainExpression() ??
 					this.rules.integerLiteral() ??
+					this.rules.namespaceExpression() ??
+					this.rules.protocolExpression() ??
 					this.rules.stringLiteral() ??
 					this.rules.structureExpression();
 
@@ -927,6 +953,24 @@ var enum_value: B = .first
 				}
 
 				return node;
+			},
+			protocolBody: () => {
+				return this.rules.specificBody('protocol');
+			},
+			protocolDeclaration: (anonymous) => {},
+			protocolExpression: () => {
+				return this.rules.protocolDeclaration(true);
+			},
+			protocolMembers: () => {
+				return this.rules.specificMembers([
+					'classDeclaration',
+					'enumerationDeclaration',
+					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
+					'structureDeclaration',
+					'variableDeclaration'
+				]);
 			},
 			specificBody: (type) => {
 				let node = {
@@ -1074,6 +1118,8 @@ var enum_value: B = .first
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
