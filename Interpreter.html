@@ -28,7 +28,7 @@ struct Boolean {
 		self.value = value
 	}
 
-	static func ==(lhs: bool & Boolean, rhs: bool & Boolean -> Boolean) {
+	static func ==(lhs: bool & Boolean, rhs: bool & Boolean) -> Boolean {
 		var leftValue = lhs !is Boolean ? lhs : lhs.value,
 			rightValue = rhs !is Boolean ? rhs : rhs.value
 
@@ -45,7 +45,7 @@ struct Number {
 		self.value = value
 	}
 
-	static func ==(lhs: int & float & Number, rhs: int & float & Number -> Boolean) {
+	static func ==(lhs: int & float & Number, rhs: int & float & Number) -> Boolean {
 		var leftValue = lhs !is Number ? lhs : lhs.value,
 			rightValue = rhs !is Number ? rhs : rhs.value
 
@@ -80,7 +80,7 @@ struct String {
 		self.value = value
 	}
 
-	static func ==(lhs: string & String, rhs: string & String -> Boolean) {
+	static func ==(lhs: string & String, rhs: string & String) -> Boolean {
 		var leftValue = lhs !is String ? lhs : lhs.value,
 			rightValue = rhs !is String ? rhs : rhs.value
 
@@ -149,7 +149,7 @@ class A {
 		}
 	}
 
-	subscript(a: Integer, b: Integer -> Integer) {
+	subscript(a: Integer, b: Integer) -> Integer {
 		get {
 			return a+b
 		}
