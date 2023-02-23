@@ -142,10 +142,10 @@ class A {
 
 	chain {
 		get {
-			return metaObject.properties[key]?.value
+			return metaSelf.properties[key]?.value
 		}
 		set {
-			metaObject.properties[key] = value
+			metaSelf.properties[key] = value
 		}
 	}
 
@@ -173,7 +173,7 @@ class A {
 var instance = A(with: 12, and: '2')
 
 /*
-var self.A: self.Object = class { ... }
+var self.A: self.Class = class { ... }
 
 var self.instance = A(with: 12, and: '2')
 */
@@ -197,6 +197,20 @@ enum B {
 }
 
 var enum_value: B = .first
+
+var function
+
+/*
+function = { x in x > 0 } - 1
+
+function = (x) in x > 0
+function = (x) { x > 0 }
+function = (x) { return x > 0 } - 2
+
+function = func (x) in x > 0
+function = func (x) { x > 0 }
+function = func (x) { return x > 0 } - 3
+*/
 </div>
 <script>
 	let code = document.getElementById('input').innerText;
@@ -363,17 +377,24 @@ var enum_value: B = .first
 				this.token.value += v;
 				if([
 					'Any',
+					'Class',
+					'Enumeration',
+					'Function',
+					'Namespace',
+					'Object',
+					'Protocol',
+					'Self', 'Structure',
 					'any', /*'arguments',*/
-					'break',
+					'bool', 'break',
 					'case', 'catch', 'chain', 'class', 'const', 'continue',
 					'default',
 					'else', 'enum', 'extension',
-					'false', 'for', 'func',
-					'if', 'import', 'is',
+					'false', 'float', 'for', 'func',
+					'if', 'import', 'in', 'int', 'is',
 					'namespace', 'nil',
 					'private', 'protected', 'protocol', 'public',
 					'return',
-					'self', 'struct', 'subscript', 'super', 'switch',
+					'self', 'string', 'struct', 'subscript', 'super', 'switch',
 					'throw', 'true', 'try',
 					'var',
 					'while'
@@ -539,7 +560,7 @@ var enum_value: B = .first
 				node.optional = this.token.value === '?.';
 				this.position++;
 				node.type = 'chainExpression';
-				node.object = node_;
+				node.composite = node_;
 				node.member = this.rules.identifier();
 
 				if(node.member == null) {
@@ -553,7 +574,7 @@ var enum_value: B = .first
 				return node;
 			},
 			classBody: () => {
-				return this.rules.specificBody('class');
+				return this.rules.compositeBody('class');
 			},
 			classDeclaration: (anonymous) => {
 				let node = {
@@ -595,7 +616,7 @@ var enum_value: B = .first
 				return this.rules.classDeclaration(true);
 			},
 			classMembers: () => {
-				return this.rules.specificMembers([
+				return this.rules.compositeMembers([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -605,8 +626,94 @@ var enum_value: B = .first
 					'variableDeclaration'
 				]);
 			},
+			compositeBody: (type) => {
+				let node = {
+					type: type+'Body',
+					range: {},
+					members: []
+				}
+
+				if(this.token.type !== 'braceOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.members = this.rules[type+'Members']?.() ?? []
+
+				if(this.token.type !== 'braceClosed') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
+			compositeMembers: (types) => {
+				let nodes = []
+
+				while(true) {
+					let node;
+
+					for(let type of types) {
+						node = this.rules[type]?.();
+
+						if(node != null) {
+							nodes.push(node);
+
+							break;
+						}
+					}
+					if(node != null) {
+						continue;
+					}
+
+					node = nodes.findLast(v => v.type === 'unawaredMember');
+
+					if(node == null || node !== nodes.at(-1)) {
+						node = {
+							type: 'unawaredMember',
+							range: {
+								start: this.position,
+								end: this.position
+							},
+							scopeLevel: 1
+						}
+
+						nodes.push(node);
+					} else {
+						node.range.end = this.position;
+					}
+
+					switch(this.token.type) {
+						case 'braceOpen':	node.scopeLevel++; break;
+						case 'braceClosed':	node.scopeLevel--; break;
+					}
+
+					if(node.scopeLevel === 0 || this.position === this.tokens.length) {
+						node.range.end--;
+
+						if(node.range.start > node.range.end) {
+							nodes = nodes.filter(v => v !== node);
+						}
+
+						break;
+					}
+
+					this.position++;
+				}
+
+				for(let node of nodes.filter(v => v.type === 'unawaredMember')) {
+					delete node.scopeLevel;
+
+					this.report(1, node.range.start, 'Unawared member type at range of tokens ['+node.range.start+':'+node.range.end+'].');
+				}
+
+				return nodes;
+			},
 			enumerationBody: () => {
-				return this.rules.specificBody('enumeration');
+				return this.rules.compositeBody('enumeration');
 			},
 			enumerationDeclaration: (anonymous) => {
 				let node = {
@@ -648,7 +755,7 @@ var enum_value: B = .first
 				return this.rules.enumerationDeclaration(true);
 			},
 			enumerationMembers: () => {
-				return this.rules.specificMembers(['caseDeclaration']);
+				return this.rules.compositeMembers(['caseDeclaration']);
 			},
 			floatLiteral: () => {
 				let node = {
@@ -669,7 +776,7 @@ var enum_value: B = .first
 			},
 			forStatement: () => {},
 			functionBody: () => {
-				return this.rules.specificBody('function');
+				return this.rules.compositeBody('function');
 			},
 			functionDeclaration: (anonymous) => {
 				let node = {
@@ -714,7 +821,7 @@ var enum_value: B = .first
 				return this.rules.functionDeclaration(true);
 			},
 			functionMembers: () => {
-				return this.rules.specificMembers([
+				return this.rules.compositeMembers([
 					'postfixExpression',
 					'classDeclaration',
 					'enumerationDeclaration',
@@ -875,14 +982,14 @@ var enum_value: B = .first
 				return node;
 			},
 			namespaceBody: () => {
-				return this.rules.specificBody('namespace');
+				return this.rules.compositeBody('namespace');
 			},
 			namespaceDeclaration: (anonymous) => {},
 			namespaceExpression: () => {
 				return this.rules.namespaceDeclaration(true);
 			},
 			namespaceMembers: () => {
-				return this.rules.specificMembers([
+				return this.rules.compositeMembers([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -955,14 +1062,14 @@ var enum_value: B = .first
 				return node;
 			},
 			protocolBody: () => {
-				return this.rules.specificBody('protocol');
+				return this.rules.compositeBody('protocol');
 			},
 			protocolDeclaration: (anonymous) => {},
 			protocolExpression: () => {
 				return this.rules.protocolDeclaration(true);
 			},
 			protocolMembers: () => {
-				return this.rules.specificMembers([
+				return this.rules.compositeMembers([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -971,92 +1078,6 @@ var enum_value: B = .first
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
-			},
-			specificBody: (type) => {
-				let node = {
-					type: type+'Body',
-					range: {},
-					members: []
-				}
-
-				if(this.token.type !== 'braceOpen') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.members = this.rules[type+'Members']?.() ?? []
-
-				if(this.token.type !== 'braceClosed') {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				node.range.end = this.position++;
-
-				return node;
-			},
-			specificMembers: (types) => {
-				let nodes = []
-
-				while(true) {
-					let node;
-
-					for(let type of types) {
-						node = this.rules[type]?.();
-
-						if(node != null) {
-							nodes.push(node);
-
-							break;
-						}
-					}
-					if(node != null) {
-						continue;
-					}
-
-					node = nodes.findLast(v => v.type === 'unawaredMember');
-
-					if(node == null || node !== nodes.at(-1)) {
-						node = {
-							type: 'unawaredMember',
-							range: {
-								start: this.position,
-								end: this.position
-							},
-							scopeLevel: 1
-						}
-
-						nodes.push(node);
-					} else {
-						node.range.end = this.position;
-					}
-
-					switch(this.token.type) {
-						case 'braceOpen':	node.scopeLevel++; break;
-						case 'braceClosed':	node.scopeLevel--; break;
-					}
-
-					if(node.scopeLevel === 0 || this.position === this.tokens.length) {
-						node.range.end--;
-
-						if(node.range.start > node.range.end) {
-							nodes = nodes.filter(v => v !== node);
-						}
-
-						break;
-					}
-
-					this.position++;
-				}
-
-				for(let node of nodes.filter(v => v.type === 'unawaredMember')) {
-					delete node.scopeLevel;
-
-					this.report(1, node.range.start, 'Unawared member type at range of tokens ['+node.range.start+':'+node.range.end+'].');
-				}
-
-				return nodes;
 			},
 			stringLiteral: () => {
 				let node = {
@@ -1072,7 +1093,7 @@ var enum_value: B = .first
 			//	return node;
 			},
 			structureBody: () => {
-				return this.rules.specificBody('structure');
+				return this.rules.compositeBody('structure');
 			},
 			structureDeclaration: (anonymous) => {
 				let node = {
@@ -1114,7 +1135,7 @@ var enum_value: B = .first
 				return this.rules.structureDeclaration(true);
 			},
 			structureMembers: () => {
-				return this.rules.specificMembers([
+				return this.rules.compositeMembers([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -1131,7 +1152,7 @@ var enum_value: B = .first
 
 				this.position++;
 				node.type = 'subscriptExpression';
-				node.object = node_;
+				node.composite = node_;
 				node.expression = /*this.rules.expression()*/ undefined;
 
 				if(this.token.type !== 'bracketClosed') {
@@ -1255,46 +1276,60 @@ var enum_value: B = .first
 				inheritance: ['namespace'],
 				members: [
 					{
-						accesibility: ['public', 'static'],
+						accessibility: ['public', 'static'],
 						constant: false,
 						title: 'TestClass',
 						typed: true,
 						inheritance: [1],
 						nillable: true,
-						value: '1'
+						value: '1',
+						observers: {}
 					},
 					{
-						accesibility: ['public', 'static'],
+						accessibility: ['public', 'static'],
 						constant: true,
 						title: 'testPi',
 						typed: true,
 						inheritance: ['float'],
 						nillable: true,
-						value: '3.14'
+						value: '3.14',
+						observers: {}
 					},
 					{
-						accesibility: ['public', 'static'],
+						accessibility: ['public', 'static'],
 						constant: false,
 						title: 'testClassInstance',
 						typed: true,
 						inheritance: [2],
 						nillable: true,
-						value: '3'
+						value: '3',
+						observers: {}
 					},
 					{
-						accesibility: ['public'],
+						accessibility: ['public'],
 						constant: false,
 						title: 'computedInstanceProperty',
 						typed: false,
 						inheritance: [],
 						nillable: true,
-						value: null
+						value: null,
+						observers: {
+							willGet: null, // Function address,
+							get: null,
+							didGet: null,
+							willSet: null,
+							set: null,
+							didSet: null,
+							willDelete: null,
+							delete: null,
+							didDelete: null
+						}
 					}
 				],
 				observers: [
 					{
-						type: ['property', 'computedInstanceProperty'], // ['chain'], ['subscript']
-						willGet: null,	//5,
+						type: 'chain', // 'subscript'
+						willGet: null, // Function address,
 						get: null,
 						didGet: null,
 						willSet: null,
@@ -1313,22 +1348,57 @@ var enum_value: B = .first
 				inheritance: ['class'],
 				members: [
 					{
-						accesibility: ['public', 'static'],
+						accessibility: ['public', 'static'],
 						constant: true,
 						title: 'init',
 						typed: true,
-						inheritance: [2],
+						inheritance: [
+							/*
+							{
+								type: 'signature',
+								parameters: [
+									{
+										generic: true,
+										typed: false,
+										inheritance: [],
+										nillable: true,
+										variadic: true
+									},
+									{
+										generic: false,
+										typed: false,
+										inheritance: [],
+										nillable: true,
+										variadic: true
+									}
+								],
+								return: {
+									typed: true,
+									inheritance: ['bool'],
+									nillable: false
+								},
+								throw: {
+									typed: false,
+									inheritance: [],
+									nillable: true
+								}
+							}
+							*/
+							'function'
+						],
 						nillable: false,
-						value: '2'
+						value: '2',
+						observers: {}
 					},
 					{
-						accesibility: ['public'],
+						accessibility: ['public'],
 						constant: false,
 						title: 'testVariable',
 						typed: true,
 						inheritance: ['int'],
 						nillable: true,
-						value: null
+						value: null,
+						observers: {}
 					}
 				],
 				observers: [],
@@ -1338,26 +1408,48 @@ var enum_value: B = .first
 			{
 				address: 2,
 				inheritance: ['function'],
-				signature: [
-					{
-						title: 'firstArgument',
-						typed: true,
-						inheritance: ['float'],
-						nillable: false
-					},
-					{
-						title: 'secondArgument',
+				signature: {
+					parameters: [
+						/*
+						{
+							generic: true,
+							label: null,
+							title: 'A',
+							inout: false,
+							typed: false,
+							inheritance: [],
+							nillable: true,
+							variadic: false
+						},
+						*/
+						{
+							generic: false,
+							label: null,
+							title: 'firstArgument',
+							inout: false,
+							typed: true,
+							inheritance: ['float'],
+							nillable: false,
+							variadic: false
+						},
+						{
+							generic: false,
+							label: null,
+							title: 'secondArgument',
+							inout: false,
+							typed: true,
+							inheritance: ['bool'],
+							nillable: true,
+							variadic: false
+						}
+					],
+					return: {
 						typed: true,
 						inheritance: ['bool'],
 						nillable: true
 					},
-					{
-						title: 'return',
-						typed: true,
-						inheritance: ['bool'],
-						nillable: true
-					}
-				],
+					throw: {}
+				},
 				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
 				members: [
 					{
@@ -1382,18 +1474,102 @@ var enum_value: B = .first
 				retains: 1
 			}
 		]
-		static mainContext;
+		static contexts = []
 
-		static getObject(address) {
-			let object = this.memory.find(v => v.address === address);
+		static rules = {
+			module: (node) => {
+				let namespace = this.rules.namespace(node);
 
-			if(object == null) {
+				if(node.members.length > 0) {
+					this.rules.members(namespace, node.members);
+				}
+			},
+			namespace: (node) => {
+
+			},
+			members: (context, members) => {
+
+			}
+		}
+
+		static createInheritance(primary, ...secondary) {
+			if(![
+				'argument',
+				'class',
+				'enumeration',
+				'function',
+				'instance',
+				'namespace',
+				'protocol',
+				'structure',
+				'variable'
+			].includes(primary)) {
+				throw new RangeError();
+			}
+			if(['argument', 'variable'].includes(primary)) {
+				if(
+					![
+						'_',
+						'Any',
+						'any',
+						'bool',
+						'float',
+						'int',
+						'string'
+					].includes(secondary[0]) ||
+					secondary?.some(v => typeof v !== 'string' && !Number.isInteger(v))
+				) {
+					throw new TypeError();
+				}
+			}
+
+			return [primary, ...secondary]
+		}
+
+		static createAccessibility(...values) {
+			for(value of values) {
+				if(![
+					'private',
+					'protected',
+					'public',
+					'static'
+				].includes(value)) {
+					return;
+				}
+			}
+
+			return values;
+		}
+
+		static createMember(inheritance, parameters) {
+			let member;
+
+			if(inheritance[0] === 'variable') {
+				member = {
+					/*
+					accessibility: accessibility,
+					constant: constant,
+					title: title,
+					typed: typed,
+					inheritance: inheritance,
+					nillable: nillable,
+					value: value
+					*/
+				}
+			}
+			return member;
+		}
+
+		static getComposite(address) {
+			let composite = this.memory.find(v => v.address === address);
+
+			if(composite == null) {
 				return;
 			}
 
-			return new Proxy(object, {
+			return new Proxy(composite, {
 				get: (t, k) => {
-					if(k === 'metaObject') {
+					if(k === 'metaSelf') {
 						return t;
 					}
 
@@ -1410,7 +1586,7 @@ var enum_value: B = .first
 					if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
 						let address = value*1;
 
-						return this.getObject(address);
+						return this.getComposite(address);
 					} else {
 						return member;
 					}
@@ -1419,12 +1595,12 @@ var enum_value: B = .first
 					let members = t.members ?? [],
 						keys = members.map(v => v.title);
 
-					keys.push('metaObject');
+					keys.push('metaSelf');
 
 					return keys;
 				},
 				getOwnPropertyDescriptor: (t, k) => {
-					if(k === 'metaObject') {
+					if(k === 'metaSelf') {
 						return {
 							enumerable: true,
 							configurable: true,
@@ -1444,7 +1620,7 @@ var enum_value: B = .first
 			    	if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
 			    		let address = value*1;
 
-			    		member = this.getObject(address);
+			    		member = this.getComposite(address);
 			    	}
 
 				    return {
@@ -1459,7 +1635,9 @@ var enum_value: B = .first
 		static createMainContext() {
 		//	this.memory.push();
 
-			this.mainContext = this.getObject(0);
+			if(this.contexts.length === 0) {
+				this.contexts.push(this.getComposite(0));
+			}
 		}
 	}
 
