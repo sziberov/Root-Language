@@ -17,7 +17,9 @@
 }
 </style>
 <div id="input" contenteditable="true"><!--
--->'one\(two)three\(four)five\(six)seven'
+-->long.identifiers?.chain_.with_().call.to[].subscript_
+
+'one\(two)three\(four)five\(six)seven'
 
 // Foundation Source
 
@@ -531,15 +533,22 @@ function = func (x) { return x > 0 } - 3
 		static position;
 		static reports;
 		static rules = {
-			callExpression: (node, node_) => {
+			callExpression: (node_) => {
+				let node = {
+					type: 'callExpression',
+					range: {
+						start: node_.range.start
+					},
+					callee: node_,
+					arguments: undefined
+				}
+
 				if(this.token.type !== 'parenthesisOpen') {
 					return;
 				}
 
 				this.position++;
-				node.type = 'callExpression';
-				node.callee = node_;
-				node.arguments = /*this.rules.functionArguments()*/ undefined;
+			//	node.arguments = this.rules.functionArguments();
 
 				if(this.token.type !== 'parenthesisClosed') {
 					this.position = node_.range.end+1;
@@ -552,15 +561,23 @@ function = func (x) { return x > 0 } - 3
 				return node;
 			},
 			caseDeclaration: () => {},
-			chainExpression: (node, node_) => {
+			chainExpression: (node_) => {
+				let node = {
+					type: 'chainExpression',
+					range: {
+						start: node_.range.start
+					},
+					optional: undefined,
+					composite: node_,
+					member: undefined
+				}
+
 				if(this.token.type !== 'operator' || !['.', '?.'].includes(this.token.value)) {
 					return;
 				}
 
 				node.optional = this.token.value === '?.';
 				this.position++;
-				node.type = 'chainExpression';
-				node.composite = node_;
 				node.member = this.rules.identifier();
 
 				if(node.member == null) {
@@ -822,7 +839,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			functionMembers: () => {
 				return this.rules.compositeMembers([
-					'postfixExpression',
+					'postfixExpression',  // Postfixes must be parsed before nodes that they can begin with
 					'classDeclaration',
 					'enumerationDeclaration',
 					'forStatement',
@@ -1035,16 +1052,10 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				for(let i = 0; i < Infinity; i++) {
-					let node_ = {
-						range: {
-							start: node.range.start
-						}
-					}
-
-					node_ =
-						this.rules.chainExpression(node_, node) ??
-						this.rules.callExpression(node_, node) ??
-						this.rules.subscriptExpression(node_, node);
+					let node_ =
+						this.rules.chainExpression(node) ??
+						this.rules.callExpression(node) ??
+						this.rules.subscriptExpression(node);
 
 					if(node_ == null) {
 						if(i === 0) {
@@ -1064,7 +1075,42 @@ function = func (x) { return x > 0 } - 3
 			protocolBody: () => {
 				return this.rules.compositeBody('protocol');
 			},
-			protocolDeclaration: (anonymous) => {},
+			protocolDeclaration: (anonymous) => {
+				let node = {
+					type: 'protocol'+(!anonymous ? 'Declaration' : 'Expression'),
+					range: {},
+					id: undefined,
+					inheritance: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'keywordProtocol') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.id = this.rules.identifier();
+				node.inheritance = this.rules.typeInheritanceClause();
+				node.body = this.rules.protocolBody();
+
+				if(anonymous) {
+					delete node.id;
+				} else
+				if(node.id == null) {
+					this.report(2, node.range.start, 'No identifier set for protocol.');
+				}
+				if(node.body == null) {
+					this.report(1, node.range.start, 'Protocol doesn\'t have body.');
+				}
+
+				node.range.end =
+					node.body?.range.end ??
+					node.inheritance?.range.end ??
+					node.id?.range.end ??
+					node.range.start;
+
+				return node;
+			},
 			protocolExpression: () => {
 				return this.rules.protocolDeclaration(true);
 			},
@@ -1145,15 +1191,22 @@ function = func (x) { return x > 0 } - 3
 					'variableDeclaration'
 				]);
 			},
-			subscriptExpression: (node, node_) => {
+			subscriptExpression: (node_) => {
+				let node = {
+					type: 'subscriptExpression',
+					range: {
+						start: node_.range.start
+					},
+					composite: node_,
+					arguments: undefined
+				}
+
 				if(this.token.type !== 'bracketOpen') {
 					return;
 				}
 
 				this.position++;
-				node.type = 'subscriptExpression';
-				node.composite = node_;
-				node.expression = /*this.rules.expression()*/ undefined;
+			//	node.arguments = this.rules.functionArguments();
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node_.range.end+1;
