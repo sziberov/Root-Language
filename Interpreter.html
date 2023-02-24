@@ -1273,7 +1273,7 @@ function = func (x) { return x > 0 } - 3
 		static memory = [
 			{
 				address: 0,
-				inheritance: ['namespace'],
+				inheritance: ['Namespace'],
 				members: [
 					{
 						accessibility: ['public', 'static'],
@@ -1345,7 +1345,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			{
 				address: 1,
-				inheritance: ['class'],
+				inheritance: ['Class'],
 				members: [
 					{
 						accessibility: ['public', 'static'],
@@ -1355,7 +1355,7 @@ function = func (x) { return x > 0 } - 3
 						inheritance: [
 							/*
 							{
-								type: 'signature',
+								type: 'Signature',
 								parameters: [
 									{
 										generic: true,
@@ -1384,7 +1384,7 @@ function = func (x) { return x > 0 } - 3
 								}
 							}
 							*/
-							'function'
+							'Function'
 						],
 						nillable: false,
 						value: '2',
@@ -1407,7 +1407,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			{
 				address: 2,
-				inheritance: ['function'],
+				inheritance: ['Function'],
 				signature: {
 					parameters: [
 						/*
@@ -1463,7 +1463,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			{
 				address: 3,
-				inheritance: ['instance', 1],
+				inheritance: ['Object', 1],
 				members: [
 					{
 						title: 'testVariable',
