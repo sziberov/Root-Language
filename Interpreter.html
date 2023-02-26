@@ -22,17 +22,7 @@ body {
 }
 </style>
 <textarea id="input">
-1++
-++2
-1+2
-1+ 2
-1 +2
-1 + 2
-+
-+'b'
-'a'+
-'a'+'b'
-
+?. .? ?.. ... !. .!. ..! ..? ..?. :. .: :: =.f :,, ,.. ,,, .,. ,?? .??. .??,
 long.identifiers?.chain_.with_().call.to[].subscript_
 .implicit.chaining
 
@@ -315,7 +305,9 @@ function = func (x) { return x > 0 } - 3
 				}
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
-				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator')) {
+				let initializers = [',', '.', ':']  // Create new token if value exists in list and current token doesn't initialized with it
+
+				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator') && (!initializers.includes(v) || this.token.value.startsWith(v))) {
 					this.token.value += v;
 				} else {
 					let type = 'operator';
@@ -525,7 +517,7 @@ function = func (x) { return x > 0 } - 3
 			return this.code.indexOf(substring, this.position) === this.position;
 		}
 
-		static tokenize(code, cleanupLevel) {
+		static tokenize(code) {
 			this.reset();
 
 			this.code = code;
@@ -566,18 +558,11 @@ function = func (x) { return x > 0 } - 3
 				}
 			}
 
-			let result = {}
-
-			result.tokens = this.tokens;
-
-			if(cleanupLevel === 1) {
-				result.tokens = this.tokens.filter(v => !(v.type === 'delimiter' && !v.value.includes('\n') && !v.value.includes(';')))
+			let result = {
+				rawTokens: this.tokens,
+				tokens: this.tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter'),
+				reports: this.reports
 			}
-			if(cleanupLevel === 2) {
-				result.tokens = this.tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter');
-			}
-
-			result.reports = this.reports;
 
 			this.reset();
 
@@ -1752,10 +1737,9 @@ function = func (x) { return x > 0 } - 3
 		}
 	}
 
-	let lexerResult = Lexer.tokenize(code/*, 2*/),
+	let lexerResult = Lexer.tokenize(code),
 		parserResult = Parser.parse(lexerResult),
-		tokens = lexerResult.tokens,
-		tree = parserResult.tree,
+		tokens = lexerResult.rawTokens,
 		reports = [...lexerResult.reports, ...parserResult.reports]
 					.sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
@@ -1856,8 +1840,8 @@ function = func (x) { return x > 0 } - 3
 
 		console.log(line+':'+column+': '+level+': '+string);
 	}
-	console.log(tokens);
-	console.log(tree);
+	console.log(lexerResult.tokens);
+	console.log(parserResult.tree);
 </script>
 </body>
 </html>
