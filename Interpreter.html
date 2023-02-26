@@ -22,7 +22,6 @@ body {
 }
 </style>
 <textarea id="input">
-?. .? ?.. ... !. .!. ..! ..? ..?. :. .: :: =.f :,, ,.. ,,, .,. ,?? .??. .??,
 long.identifiers?.chain_.with_().call.to[].subscript_
 .implicit.chaining
 
@@ -607,13 +606,13 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'chainExpression',
 					range: {
-						start: node_?.range.start ?? this.position
+						start: node_.range.start
 					},
 					composite: node_,
 					member: undefined
 				}
 
-				if(this.token.type !== 'operator' || this.token.value !== '.') {
+				if(!['operatorPrefix', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
 					return;
 				}
 
@@ -621,7 +620,7 @@ function = func (x) { return x > 0 } - 3
 				node.member = this.rules.identifier();
 
 				if(node.member == null) {
-					this.position = node_ != null ? node_.range.end+1 : node.range.start;
+					this.position = node_.range.end+1;
 
 					return;
 				}
@@ -953,7 +952,28 @@ function = func (x) { return x > 0 } - 3
 			},
 			ifStatement: () => {},
 			implicitChainExpression: () => {
-				return this.rules.chainExpression();
+				let node = {
+					type: 'implicitChainExpression',
+					range: {},
+					member: undefined
+				}
+
+				if(this.token.type !== 'operatorPrefix' || this.token.value !== '.') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.member = this.rules.identifier();
+
+				if(node.member == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.member.range.end;
+
+				return node;
 			},
 			importDeclaration: () => {},
 			initializerClause: () => {
@@ -1084,6 +1104,23 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			optionalExpression: (node_) => {
+				let node = {
+					type: 'optionalExpression',
+					range: {
+						start: node_.range.start
+					},
+					node: node_
+				}
+
+				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			postfixExpression: () => {
 				let node =
 					this.rules.classExpression() ??
@@ -1104,8 +1141,9 @@ function = func (x) { return x > 0 } - 3
 
 				for(let i = 0; i < Infinity; i++) {
 					let node_ =
-						this.rules.chainExpression(node) ??
 						this.rules.callExpression(node) ??
+						this.rules.chainExpression(node) ??
+						this.rules.optionalExpression(node) ??
 						this.rules.subscriptExpression(node);
 
 					if(node_ == null) {
