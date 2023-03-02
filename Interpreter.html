@@ -22,6 +22,7 @@ body {
 }
 </style>
 <textarea id="input">
+'firstStringStart\('secondStringStart\(abc)secondStringEnd')firstStringEnd'
 '\(abc)'
 0.1.0.1
 'one\(two)three\(four)five\(six)seven'
@@ -791,9 +792,9 @@ function = func (x) { return x > 0 } - 3
 						continue;
 					}
 
-					node = nodes.findLast(v => v.type === 'unawaredMember');
+					node = nodes.at(-1);
 
-					if(node == null || node !== nodes.at(-1)) {
+					if(node?.type !== 'unawaredMember') {
 						node = {
 							type: 'unawaredMember',
 							range: {
@@ -1357,7 +1358,10 @@ function = func (x) { return x > 0 } - 3
 									continue;
 								}
 
-								let node_ = this.rules.identifier();
+								let node_ =
+									this.rules.postfixExpression() ??
+									this.rules.identifier() ??
+									this.rules.stringLiteral();
 
 								if(node_ != null) {
 									node.range.end = node_.range.end;
