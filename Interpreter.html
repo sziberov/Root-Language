@@ -22,6 +22,8 @@ body {
 }
 </style>
 <textarea id="input">
+'\(abc)'
+0.1.0.1
 'one\(two)three\(four)five\(six)seven'
 
 'abc\(2+2+(4*(7/9)+1)+6+1)def';
@@ -237,7 +239,7 @@ function = func (x) { return x > 0 } - 3
 		static rules = [
 			['/*', (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
 					this.addToken('commentBlock', '');
@@ -248,7 +250,7 @@ function = func (x) { return x > 0 } - 3
 			}],
 			['*/', (v) => {
 				if(this.atCommentLevel && this.token.type === 'commentLine' || this.levels.comment > 1 || this.atStringLevel) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
 				}
 				if(this.token.type === 'commentBlock') {
@@ -257,7 +259,7 @@ function = func (x) { return x > 0 } - 3
 			}],
 			['//', (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
 					this.addToken('commentLine', '');
@@ -267,110 +269,121 @@ function = func (x) { return x > 0 } - 3
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
 				if(this.atCommentLevel) {
 					this.token.value += v;
-				} else
-				if(this.atStringLevel) {
-					switch(v) {
-						case '\\\\':	v = '\\';		break;
-						case '\\\'':	v = '\'';		break;
-						case '\\(':		return true;	break;
-						case '\\b':		v = '\b';		break;
-						case '\\f':		v = '\f';		break;
-						case '\\n':		v = '\n';		break;
-						case '\\r':		v = '\r';		break;
-						case '\\t':		v = '\t';		break;
-						case '\\v':		v = '\v';		break;
-						case '\\':		v = '';			break;
-					}
 
-					this.ruleHelpers.prepareStringToken();
-					this.token.value += v;
+					return;
 				}
+				if(!this.atStringLevel) {
+					return;
+				}
+				if(v === '\\(') {
+					return true;
+				}
+
+				this.ruleHelpers.continueString();
+				this.token.value += ({
+					'\\\\': '\\',
+					'\\\'': '\'',
+					'\\b': '\b',
+					'\\f': '\f',
+					'\\n': '\n',
+					'\\r': '\r',
+					'\\t': '\t',
+					'\\v': '\v',
+					'\\': ''
+				})[v]
 			}],
 			[['\\(', ')'], (v) => {
 				if(this.atCommentLevel) {
 					this.token.value += v;
-				} else {
-					switch(v) {
-						case '\\(':
-							if(this.atStringLevel) {
-								this.token.type = 'stringSegment'+(this.token.type.endsWith('Last') ? '' : 'First');
-								this.addToken('stringExpressionOpen', v);
-								this.levels.stringExpression++;
-							}
-						break;
-						case ')':
-							if(this.atStringExpressionLevel && this.levels.stringExpressionParenthesis === 0) {
-								this.addToken('stringExpressionClosed');
-								this.levels.stringExpression--;
-							} else {
-								return true;
-							}
-						break;
-					}
+
+					return;
+				}
+
+				switch(v) {
+					case '\\(':
+						if(this.atStringLevel) {
+							this.token.type = 'stringSegment'+(this.token.type.endsWith('Last') ? '' : 'First');
+							this.addToken('stringExpressionOpen', v);
+							this.levels.stringExpression++;
+						}
+					break;
+					case ')':
+						if(this.atStringExpressionLevel && this.levels.stringExpressionParenthesis === 0) {
+							this.addToken('stringExpressionClosed');
+							this.levels.stringExpression--;
+						} else {
+							return true;
+						}
+					break;
 				}
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
 				let initializers = [',', '.', ':']  // Create new token if value exists in list and current token doesn't initialized with it
 
 				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator') && (!initializers.includes(v) || this.token.value.startsWith(v))) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
-				} else {
-					let type = 'operator';
 
-					if(
-						['string', 'stringSegmentLast', 'identifier'].includes(this.token.type) ||
-						this.token.type.endsWith('Closed') ||
-						this.token.type.startsWith('number') ||
-						this.token.type.startsWith('keyword')
-					) {
-						type += 'Postfix';
-					}
-
-					this.addToken(type);
+					return;
 				}
+
+				let type = 'operator';
+
+				if(
+					['string', 'stringSegmentLast', 'identifier'].includes(this.token.type) ||
+					this.token.type.endsWith('Closed') ||
+					this.token.type.startsWith('number') ||
+					this.token.type.startsWith('keyword')
+				) {
+					type += 'Postfix';
+				}
+
+				this.addToken(type);
 			}],
 			[['(', ')', '{', '}', '[', ']'], (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
-				} else {
-					let type;
 
-					switch(v) {
-						case '(':
-							if(this.atStringExpressionLevel) {
-								this.levels.stringExpressionParenthesis++;
-							}
-							type = 'parenthesisOpen';
-						break;
-						case ')':
-							if(this.atStringExpressionLevel) {
-								this.levels.stringExpressionParenthesis--;
-							}
-							type = 'parenthesisClosed';
-						break;
-						case '{':	type = 'braceOpen';		break;
-						case '}':	type = 'braceClosed';	break;
-						case '[':	type = 'bracketOpen';	break;
-						case ']':	type = 'bracketClosed';	break;
-					}
-					if(type.endsWith('Open')) {
-						this.ruleHelpers.specifyOperatorType();
-					}
-
-					this.addToken(type);
+					return;
 				}
+
+				let type = ({
+					'(': 'parenthesisOpen',
+					')': 'parenthesisClosed',
+					'{': 'braceOpen',
+					'}': 'braceClosed',
+					'[': 'bracketOpen',
+					']': 'bracketClosed'
+				})[v]
+
+				if(this.atStringExpressionLevel) {
+					if(v === '(') {
+						this.levels.stringExpressionParenthesis++;
+					}
+					if(v === ')') {
+						this.levels.stringExpressionParenthesis--;
+					}
+				}
+				if(type.endsWith('Open')) {
+					this.ruleHelpers.specifyOperatorType();
+				}
+
+				this.addToken(type);
 			}],
-			['\'', () => {
+			['\'', (v) => {
 				if(this.atCommentLevel) {
-					return true;
+					this.token.value += v;
+
+					return;
 				}
+
 				if(!this.atStringLevel) {
 					this.ruleHelpers.specifyOperatorType();
 					this.addToken('string', '');
 					this.levels.string++;
 				} else {
+					this.ruleHelpers.continueString();
 					this.levels.string--;
 				}
 			}],
@@ -380,40 +393,52 @@ function = func (x) { return x > 0 } - 3
 						this.addToken('delimiter');
 						this.levels.comment--;
 					} else {
-						this.ruleHelpers.prepareStringToken();
+						this.ruleHelpers.continueString();
 						this.token.value += v;
 					}
-				} else
-				if(this.token.type === 'delimiter') {
-					this.token.value += v;
-				} else {
+
+					return;
+				}
+
+				if(this.token.type !== 'delimiter') {
 					this.addToken('delimiter');
+				} else {
+					this.token.value += v;
 				}
 			}],
 			[/[0-9]/, (v) => {
 				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('number') || this.token.type === 'identifier') {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
-				} else
+
+					return;
+				}
 				if(this.token.type === 'operatorPostfix' && this.token.value === '.' && this.getToken(-1).type === 'numberInteger') {
 					this.removeToken();
 					this.token.type = 'numberFloat';
 					this.token.value += '.'+v;
-				} else {
-					this.ruleHelpers.specifyOperatorType();
-					this.addToken('numberInteger');
+
+					return;
 				}
+
+				this.ruleHelpers.specifyOperatorType();
+				this.addToken('numberInteger');
 			}],
 			[/[a-z_]/i, (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
-					return true;
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+
+					return;
 				}
-				this.ruleHelpers.specifyOperatorType();
+
 				if(this.token.type !== 'identifier' && !this.token.type.startsWith('keyword')) {
+					this.ruleHelpers.specifyOperatorType();
 					this.addToken('identifier', '');
 				}
 				this.token.value += v;
-				if([
+
+				let keywords = [
 					'Any',
 					'Class',
 					'Enumeration',
@@ -437,7 +462,9 @@ function = func (x) { return x > 0 } - 3
 					'throw', 'true', 'try',
 					'var',
 					'while'
-				].includes(this.token.value)) {
+				]
+
+				if(keywords.includes(this.token.value)) {
 					this.token.type = 'keyword'+this.token.value[0].toUpperCase()+this.token.value.slice(1);
 				} else {
 					this.token.type = 'identifier';
@@ -445,16 +472,18 @@ function = func (x) { return x > 0 } - 3
 			}],
 			[/.|\n/i, (v) => {
 				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atStringLevel) {
-					this.ruleHelpers.prepareStringToken();
+					this.ruleHelpers.continueString();
 					this.token.value += v;
-				} else {
-					this.report(0, 'No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
+
+					return;
 				}
+
+				this.report(0, 'No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 			}]
 		]
 
 		static ruleHelpers = {
-			prepareStringToken: () => {
+			continueString: () => {
 				if(this.token.type === 'stringExpressionClosed') {
 					this.addToken('stringSegmentLast', '');
 				}
@@ -592,6 +621,23 @@ function = func (x) { return x > 0 } - 3
 		static position;
 		static reports;
 		static rules = {
+			booleanLiteral: () => {
+				let node = {
+					type: 'booleanLiteral',
+					range: {},
+					value: undefined
+				}
+
+				if(!['keywordFalse', 'keywordTrue'].includes(this.token.type)) {
+					return;
+				}
+
+				node.value = this.token.value === 'true';
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			callExpression: (node_) => {
 				let node = {
 					type: 'callExpression',
@@ -635,7 +681,9 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.member = this.rules.identifier();
+				node.member =
+					this.rules.identifier() /*??
+					this.rules.stringLiteral()*/;
 
 				if(node.member == null) {
 					this.position = node_.range.end+1;
@@ -786,6 +834,19 @@ function = func (x) { return x > 0 } - 3
 
 				return nodes;
 			},
+			declaration: () => {
+				let node =
+					this.rules.classDeclaration() ??
+					this.rules.enumerationDeclaration() ??
+					this.rules.functionDeclaration() ??
+					this.rules.importDeclaration() ??
+					this.rules.namespaceDeclaration() ??
+					this.rules.protocolDeclaration() ??
+					this.rules.structureDeclaration() ??
+					this.rules.variableDeclaration();
+
+				return node;
+			},
 			enumerationBody: () => {
 				return this.rules.compositeBody('enumeration');
 			},
@@ -897,18 +958,11 @@ function = func (x) { return x > 0 } - 3
 			functionMembers: () => {
 				return this.rules.compositeMembers([
 					'postfixExpression',  // Postfixes must be parsed before nodes that they can begin with
-					'classDeclaration',
-					'enumerationDeclaration',
+					'declaration',
 					'forStatement',
-					'functionDeclaration',
 					'ifStatement',
-					'importDeclaration',
-					'namespaceDeclaration',
-					'protocolDeclaration',
-					'stringLiteral',
-					'structureDeclaration',
+					'literalExpression',
 					'variableAssignment',
-					'variableDeclaration',
 					'whileStatement'
 				]);
 			},
@@ -1038,6 +1092,18 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			literalExpression: () => {
+				let node =
+				//	this.rules.arrayLiteral() ??
+					this.rules.booleanLiteral() ??
+				//	this.rules.dictionaryLiteral() ??
+					this.rules.floatLiteral() ??
+					this.rules.integerLiteral() ??
+					this.rules.nilLiteral() ??
+					this.rules.stringLiteral();
+
+				return node;
+			},
 			logicalExpression: () => {},
 			module: () => {
 				let node = {
@@ -1106,30 +1172,13 @@ function = func (x) { return x > 0 } - 3
 					'variableDeclaration'
 				]);
 			},
-			operator: () => {
+			nillableExpression: (node_) => {
 				let node = {
-					type: 'operator',
-					range: {},
-					value: undefined
-				}
-
-				if(this.token.type !== 'operator') {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
-
-				return node;
-			},
-			optionalExpression: (node_) => {
-				let node = {
-					type: 'optionalExpression',
+					type: 'nillableExpression',
 					range: {
 						start: node_.range.start
 					},
-					node: node_
+					value: node_
 				}
 
 				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
@@ -1140,18 +1189,48 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			nilLiteral: () => {
+				let node = {
+					type: 'nilLiteral',
+					range: {}
+				}
+
+				if(this.token.type !== 'keywordNil') {
+					return;
+				}
+
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
+			operator: () => {
+				let node = {
+					type: 'operator',
+					range: {},
+					value: undefined
+				}
+
+				if(!this.token.type.startsWith('operator')) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			postfixExpression: () => {
 				let node =
 					this.rules.classExpression() ??
 					this.rules.enumerationExpression() ??
-					this.rules.floatLiteral() ??
 					this.rules.functionExpression() ??
 					this.rules.identifier() ??
 					this.rules.implicitChainExpression() ??
-					this.rules.integerLiteral() ??
+					this.rules.literalExpression() ??
 					this.rules.namespaceExpression() ??
 					this.rules.protocolExpression() ??
-					this.rules.stringLiteral() ??
 					this.rules.structureExpression();
 
 				if(node == null) {
@@ -1162,7 +1241,7 @@ function = func (x) { return x > 0 } - 3
 					let node_ =
 						this.rules.callExpression(node) ??
 						this.rules.chainExpression(node) ??
-						this.rules.optionalExpression(node) ??
+						this.rules.nillableExpression(node) ??
 						this.rules.subscriptExpression(node);
 
 					if(node_ == null) {
@@ -1237,25 +1316,63 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'stringLiteral',
 					range: {},
-					segments: [],
-					expressions: []
+					segments: []
 				}
 
-				if(!this.token.type.startsWith('string')) {
+				if(!['string', 'stringSegmentFirst'].includes(this.token.type)) {
 					return;
 				}
 
-				/*
-				node.range.start = this.position++;
-
 				if(this.token.type === 'string') {
-					segments.push(this.token.value);
+					node.segments.push(this.token.value);
 
-					node.range.end = node.range.start+segments[0].length;
+					node.range.start =
+					node.range.end = this.position++;
 				}
-				*/
+				if(this.token.type === 'stringSegmentFirst') {
+					node.range.start = this.position;
 
-			//	return node;
+					while(this.position < this.tokens.length) {
+						if(this.token.type.includes('Segment')) {
+							let last = this.token.type.endsWith('Last');
+
+							node.segments.push(this.token.value);
+							node.range.end = this.position++;
+
+							if(!last) {
+								continue;
+							} else {
+								break;
+							}
+						}
+						if(this.token.type.includes('Expression')) {
+							let open = this.token.type.endsWith('Open');
+
+							node.range.end = this.position++;
+
+							if(open) {
+								if(this.token.type === 'stringExpressionClosed') {
+									node.range.end = this.position++;
+
+									continue;
+								}
+
+								let node_ = this.rules.identifier();
+
+								if(node_ != null) {
+									node.range.end = node_.range.end;
+									node.segments.push(node_);
+								}
+							}
+
+							continue;
+						}
+
+						this.position++;
+					}
+				}
+
+				return node;
 			},
 			structureBody: () => {
 				return this.rules.compositeBody('structure');
@@ -1344,7 +1461,7 @@ function = func (x) { return x > 0 } - 3
 					identifiers: []
 				}
 
-				if(this.token.type !== 'operator' || this.token.value !== ':') {
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
 					return;
 				}
 
