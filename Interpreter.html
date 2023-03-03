@@ -479,7 +479,7 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 
-				this.report(0, 'No token of appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
+				this.report(0, 'No token of an appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 			}]
 		]
 
@@ -654,7 +654,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-			//	node.arguments = this.rules.functionArguments();
+			//  node.arguments = this.rules.functionArguments();
 
 				if(this.token.type !== 'parenthesisClosed') {
 					this.position = node_.range.end+1;
@@ -763,20 +763,34 @@ function = func (x) { return x > 0 } - 3
 				node.range.start = this.position++;
 				node.members = this.rules[type+'Members']?.() ?? []
 
-				if(this.token.type !== 'braceClosed') {
+				if(node.members.length === 0) {
+					this.report(1, node.range.start, 'Body is empty.');
+				}
+
+				if(this.token.type !== 'braceClosed' && !this.tokensEnd) {
 					this.position = node.range.start;
 
 					return;
 				}
 
-				node.range.end = this.position++;
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and decided to be autoclosed at the end of stream (this can cause a mistakenly nested members though).');
+				}
 
 				return node;
 			},
 			compositeMembers: (types) => {
-				let nodes = []
+				return this.rules.nestedNodes(types, 'member', 'braceOpen', 'braceClosed');
+			},
+			nestedNodes: (types, title, openingTokenType, closingTokenType) => {
+				let nodes = [],
+					unawaredNodeType = 'unawared'+title[0].toUpperCase()+title.slice(1);
 
-				while(true) {
+				while(!this.tokensEnd) {
 					let node;
 
 					for(let type of types) {
@@ -794,9 +808,9 @@ function = func (x) { return x > 0 } - 3
 
 					node = nodes.at(-1);
 
-					if(node?.type !== 'unawaredMember') {
+					if(node?.type !== unawaredNodeType) {
 						node = {
-							type: 'unawaredMember',
+							type: unawaredNodeType,
 							range: {
 								start: this.position,
 								end: this.position
@@ -810,15 +824,15 @@ function = func (x) { return x > 0 } - 3
 					}
 
 					switch(this.token.type) {
-						case 'braceOpen':	node.scopeLevel++; break;
-						case 'braceClosed':	node.scopeLevel--; break;
+						case openingTokenType: node.scopeLevel++; break;
+						case closingTokenType: node.scopeLevel--; break;
 					}
 
-					if(node.scopeLevel === 0 || this.position === this.tokens.length) {
+					if(node.scopeLevel === 0) {
 						node.range.end--;
 
 						if(node.range.start > node.range.end) {
-							nodes = nodes.filter(v => v !== node);
+							nodes.pop();
 						}
 
 						break;
@@ -827,10 +841,10 @@ function = func (x) { return x > 0 } - 3
 					this.position++;
 				}
 
-				for(let node of nodes.filter(v => v.type === 'unawaredMember')) {
+				for(let node of nodes.filter(v => v.type === unawaredNodeType)) {
 					delete node.scopeLevel;
 
-					this.report(1, node.range.start, 'Unawared member type at range of tokens ['+node.range.start+':'+node.range.end+'].');
+					this.report(1, node.range.start, 'Unawared '+title+' type at range of tokens ['+node.range.start+':'+node.range.end+'].');
 				}
 
 				return nodes;
@@ -1095,9 +1109,9 @@ function = func (x) { return x > 0 } - 3
 			},
 			literalExpression: () => {
 				let node =
-				//	this.rules.arrayLiteral() ??
+				//  this.rules.arrayLiteral() ??
 					this.rules.booleanLiteral() ??
-				//	this.rules.dictionaryLiteral() ??
+				//  this.rules.dictionaryLiteral() ??
 					this.rules.floatLiteral() ??
 					this.rules.integerLiteral() ??
 					this.rules.nilLiteral() ??
@@ -1358,6 +1372,13 @@ function = func (x) { return x > 0 } - 3
 									continue;
 								}
 
+								/*
+								let node_ = this.nestedNodes([
+									'postfixExpression',
+									'identifier',
+									'stringLiteral'
+								], 'segment', 'stringExpressionOpen', 'stringExpressionClosed');
+								*/
 								let node_ =
 									this.rules.postfixExpression() ??
 									this.rules.identifier() ??
@@ -1446,7 +1467,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-			//	node.arguments = this.rules.functionArguments();
+			//  node.arguments = this.rules.functionArguments();
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node_.range.end+1;
@@ -1521,6 +1542,10 @@ function = func (x) { return x > 0 } - 3
 			return this.getToken();
 		}
 
+		static get tokensEnd() {
+			return this.position === this.tokens.length;
+		}
+
 		static getToken(offset = 0) {
 			return this.tokens[this.position+offset] ?? {
 				position: undefined,
@@ -1532,6 +1557,14 @@ function = func (x) { return x > 0 } - 3
 
 		static report(level, position, string) {
 			let location = this.tokens[position].location;
+
+			if(this.reports.find(v =>
+				v.location.line === location.line &&
+				v.location.column === location.column &&
+				v.string === string) != null
+			) {
+				return;
+			}
 
 			this.reports.push({
 				level: level,
@@ -1893,32 +1926,32 @@ function = func (x) { return x > 0 } - 3
 						}
 					}
 
-				    let members = t.members ?? [],
-				    	member = members.find(v => v.title === k),
-				    	inheritance = member?.inheritance ?? [],
-				    	value = member?.value;
+					let members = t.members ?? [],
+						member = members.find(v => v.title === k),
+						inheritance = member?.inheritance ?? [],
+						value = member?.value;
 
-			    	if(member == null) {
-			    		return;
-			    	}
+					if(member == null) {
+						return;
+					}
 
-			    	if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
-			    		let address = value*1;
+					if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
+						let address = value*1;
 
-			    		member = this.getComposite(address);
-			    	}
+						member = this.getComposite(address);
+					}
 
-				    return {
-				    	enumerable: true,
-				    	configurable: true,
-				    	value: member
-				    }
+					return {
+						enumerable: true,
+						configurable: true,
+						value: member
+					}
 				}
 			});
 		}
 
 		static createMainContext() {
-		//	this.memory.push();
+		//  this.memory.push();
 
 			if(this.contexts.length === 0) {
 				this.contexts.push(this.getComposite(0));
