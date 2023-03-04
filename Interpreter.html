@@ -18,12 +18,13 @@ body {
 
 	color: rgb(191 191 191 / 1);
 	font: 12px monospace;
+	tab-size: 4;
 	white-space: pre;
 }
 </style>
 <textarea id="input">
-'firstStringStart\('secondStringStart\(abc)secondStringEnd')firstStringEnd'
-'\(abc)'
+'one\('two\(three)four')five'
+'\()'
 0.1.0.1
 'one\(two)three\(four)five\(six)seven'
 
@@ -107,8 +108,9 @@ class Dictionary {}
 
 // ---- ---- ---- ----
 
-/* Comment
-Block */
+/* Multiblock
+	/* Comment */
+		Block */
 
 // Comment Line
 
@@ -238,24 +240,20 @@ function = func (x) { return x > 0 } - 3
 		static reports;
 
 		static rules = [
-			['/*', (v) => {
+			[['/*', '*/'], (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
-				} else {
-					this.addToken('commentBlock', '');
+				} else
+				if(v === '/*') {
+					this.addToken('commentBlock', v);
 				}
 				if(this.token.type === 'commentBlock') {
-					this.levels.comment++;
-				}
-			}],
-			['*/', (v) => {
-				if(this.atCommentLevel && this.token.type === 'commentLine' || this.levels.comment > 1 || this.atStringLevel) {
-					this.ruleHelpers.continueString();
-					this.token.value += v;
-				}
-				if(this.token.type === 'commentBlock') {
-					this.levels.comment--;
+					if(v === '/*') {
+						this.levels.comment++;
+					} else {
+						this.levels.comment--;
+					}
 				}
 			}],
 			['//', (v) => {
@@ -263,7 +261,7 @@ function = func (x) { return x > 0 } - 3
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
-					this.addToken('commentLine', '');
+					this.addToken('commentLine', v);
 					this.levels.comment++;
 				}
 			}],
@@ -303,7 +301,6 @@ function = func (x) { return x > 0 } - 3
 				switch(v) {
 					case '\\(':
 						if(this.atStringLevel) {
-							this.token.type = 'stringSegment'+(this.token.type.endsWith('Last') ? '' : 'First');
 							this.addToken('stringExpressionOpen', v);
 							this.levels.stringExpression++;
 						}
@@ -331,7 +328,7 @@ function = func (x) { return x > 0 } - 3
 				let type = 'operator';
 
 				if(
-					['string', 'stringSegmentLast', 'identifier'].includes(this.token.type) ||
+					['string', 'identifier'].includes(this.token.type) ||
 					this.token.type.endsWith('Closed') ||
 					this.token.type.startsWith('number') ||
 					this.token.type.startsWith('keyword')
@@ -381,10 +378,10 @@ function = func (x) { return x > 0 } - 3
 
 				if(!this.atStringLevel) {
 					this.ruleHelpers.specifyOperatorType();
-					this.addToken('string', '');
+					this.addToken('stringOpen');
 					this.levels.string++;
 				} else {
-					this.ruleHelpers.continueString();
+					this.addToken('stringClosed');
 					this.levels.string--;
 				}
 			}],
@@ -485,8 +482,8 @@ function = func (x) { return x > 0 } - 3
 
 		static ruleHelpers = {
 			continueString: () => {
-				if(this.token.type === 'stringExpressionClosed') {
-					this.addToken('stringSegmentLast', '');
+				if(['stringOpen', 'stringExpressionClosed'].includes(this.token.type)) {
+					this.addToken('stringSegment', '');
 				}
 			},
 			specifyOperatorType: () => {
@@ -761,7 +758,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.members = this.rules[type+'Members']?.() ?? []
+				node.members = this.rules[type+'Members']?.();
 
 				if(node.members.length === 0) {
 					this.report(1, node.range.start, 'Body is empty.');
@@ -778,17 +775,16 @@ function = func (x) { return x > 0 } - 3
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and decided to be autoclosed at the end of stream (this can cause a mistakenly nested members though).');
+					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
 			},
 			compositeMembers: (types) => {
-				return this.rules.nestedNodes(types, 'member', 'braceOpen', 'braceClosed');
+				return this.rules.nestedNodes(types, 'braceOpen', 'braceClosed');
 			},
-			nestedNodes: (types, title, openingTokenType, closingTokenType) => {
-				let nodes = [],
-					unawaredNodeType = 'unawared'+title[0].toUpperCase()+title.slice(1);
+			nestedNodes: (types, openingTokenType, closingTokenType) => {
+				let nodes = []
 
 				while(!this.tokensEnd) {
 					let node;
@@ -808,9 +804,9 @@ function = func (x) { return x > 0 } - 3
 
 					node = nodes.at(-1);
 
-					if(node?.type !== unawaredNodeType) {
+					if(node?.type !== 'unsupported') {
 						node = {
-							type: unawaredNodeType,
+							type: 'unsupported',
 							range: {
 								start: this.position,
 								end: this.position
@@ -841,10 +837,10 @@ function = func (x) { return x > 0 } - 3
 					this.position++;
 				}
 
-				for(let node of nodes.filter(v => v.type === unawaredNodeType)) {
+				for(let node of nodes.filter(v => v.type === 'unsupported')) {
 					delete node.scopeLevel;
 
-					this.report(1, node.range.start, 'Unawared '+title+' type at range of tokens ['+node.range.start+':'+node.range.end+'].');
+					this.report(1, node.range.start, 'Unsupported type at range of tokens ['+node.range.start+':'+node.range.end+'].');
 				}
 
 				return nodes;
@@ -1334,67 +1330,74 @@ function = func (x) { return x > 0 } - 3
 					segments: []
 				}
 
-				if(!['string', 'stringSegmentFirst'].includes(this.token.type)) {
+				if(this.token.type !== 'stringOpen') {
 					return;
 				}
 
-				if(this.token.type === 'string') {
-					node.segments.push(this.token.value);
+				node.range.start = this.position++;
+				node.segments = this.rules.stringSegments();
 
-					node.range.start =
-					node.range.end = this.position++;
+				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
+					this.position = node.range.start;
+
+					return;
 				}
-				if(this.token.type === 'stringSegmentFirst') {
-					node.range.start = this.position;
 
-					while(this.position < this.tokens.length) {
-						if(this.token.type.includes('Segment')) {
-							let last = this.token.type.endsWith('Last');
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
 
-							node.segments.push(this.token.value);
-							node.range.end = this.position++;
+					this.report(1, node.range.start, 'String doesn\'t have the closing apostrophe and decided to be autoclosed at the end of stream.');
+				}
 
-							if(!last) {
-								continue;
-							} else {
-								break;
-							}
-						}
-						if(this.token.type.includes('Expression')) {
-							let open = this.token.type.endsWith('Open');
+				return node;
+			},
+			stringSegments: () => {
+				return this.rules.nestedNodes([
+					'stringSegment',
+					'stringExpression'
+				], 'stringOpen', 'stringClosed');
+			},
+			stringSegment: () => {
+				if(this.token.type === 'stringSegment') {
+					let value = this.token.value;
 
-							node.range.end = this.position++;
+					this.position++;
 
-							if(open) {
-								if(this.token.type === 'stringExpressionClosed') {
-									node.range.end = this.position++;
+					return value;
+				}
+			},
+			stringExpression: () => {
+				let node = {
+					type: 'stringExpression',
+					range: {},
+					value: undefined
+				}
 
-									continue;
-								}
+				if(this.token.type !== 'stringExpressionOpen') {
+					return;
+				}
 
-								/*
-								let node_ = this.nestedNodes([
-									'postfixExpression',
-									'identifier',
-									'stringLiteral'
-								], 'segment', 'stringExpressionOpen', 'stringExpressionClosed');
-								*/
-								let node_ =
-									this.rules.postfixExpression() ??
-									this.rules.identifier() ??
-									this.rules.stringLiteral();
+				node.range.start = this.position++;
+				node.value = this.rules.nestedNodes([
+					'postfixExpression',
+					'identifier',
+					'stringLiteral'
+				], 'stringExpressionOpen', 'stringExpressionClosed');
 
-								if(node_ != null) {
-									node.range.end = node_.range.end;
-									node.segments.push(node_);
-								}
-							}
+				if(this.token.type !== 'stringExpressionClosed' && !this.tokensEnd) {
+					this.position = node.range.start;
 
-							continue;
-						}
+					return;
+				}
 
-						this.position++;
-					}
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -1996,12 +1999,6 @@ function = func (x) { return x > 0 } - 3
 			elements[0].innerHTML = value;
 
 			if(type.startsWith('comment')) {
-				if(type === 'commentLine') {
-					elements[0].innerHTML = '//'+value;
-				}
-				if(type === 'commentBlock') {
-					elements[0].innerHTML = '/*'+value+'*/';
-				}
 				elements[0].style.color = 'rgb(95 179 63 / 1)';
 			}
 			if(type.startsWith('string')) {
