@@ -1146,7 +1146,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position,
 						end: this.position
 					},
-					value: ''
+					tokens: []
 				}
 
 				while(!this.tokensEnd) {
@@ -1158,7 +1158,7 @@ function = func (x) { return x > 0 } - 3
 						break;
 					}
 
-					node.value += this.token.value;
+					node.tokens.push(this.token);
 					node.range.end = this.position++;
 				}
 
@@ -1203,7 +1203,7 @@ function = func (x) { return x > 0 } - 3
 								start: this.position,
 								end: this.position
 							},
-							value: ''
+							tokens: []
 						}
 					}
 
@@ -1215,7 +1215,7 @@ function = func (x) { return x > 0 } - 3
 						break;
 					}
 
-					node.value += this.token.value;
+					node.tokens.push(this.token);
 					node.range.end = this.position++;
 
 					if(node !== nodes.at(-1)) {
