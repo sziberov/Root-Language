@@ -783,68 +783,6 @@ function = func (x) { return x > 0 } - 3
 			compositeMembers: (types) => {
 				return this.rules.nestedNodes(types, 'braceOpen', 'braceClosed');
 			},
-			nestedNodes: (types, openingTokenType, closingTokenType) => {
-				let nodes = []
-
-				while(!this.tokensEnd) {
-					let node;
-
-					for(let type of types) {
-						node = this.rules[type]?.();
-
-						if(node != null) {
-							nodes.push(node);
-
-							break;
-						}
-					}
-					if(node != null) {
-						continue;
-					}
-
-					node = nodes.at(-1);
-
-					if(node?.type !== 'unsupported') {
-						node = {
-							type: 'unsupported',
-							range: {
-								start: this.position,
-								end: this.position
-							},
-							scopeLevel: 1
-						}
-
-						nodes.push(node);
-					} else {
-						node.range.end = this.position;
-					}
-
-					switch(this.token.type) {
-						case openingTokenType: node.scopeLevel++; break;
-						case closingTokenType: node.scopeLevel--; break;
-					}
-
-					if(node.scopeLevel === 0) {
-						node.range.end--;
-
-						if(node.range.start > node.range.end) {
-							nodes.pop();
-						}
-
-						break;
-					}
-
-					this.position++;
-				}
-
-				for(let node of nodes.filter(v => v.type === 'unsupported')) {
-					delete node.scopeLevel;
-
-					this.report(1, node.range.start, 'Unsupported type at range of tokens ['+node.range.start+':'+node.range.end+'].');
-				}
-
-				return nodes;
-			},
 			declaration: () => {
 				let node =
 					this.rules.classDeclaration() ??
@@ -1183,6 +1121,117 @@ function = func (x) { return x > 0 } - 3
 					'variableDeclaration'
 				]);
 			},
+			nestedNode: (types, openingTokenType, closingTokenType) => {
+				let node,
+					start = this.position,
+					scopeLevel = 1;
+
+				for(let type of types) {
+					node = this.rules[type]?.();
+
+					if(node != null) {
+						break;
+					}
+				}
+
+				if(this.token.type === closingTokenType || this.tokensEnd) {
+					return node;
+				}
+
+				this.position = start;
+
+				node = {
+					type: 'unsupported',
+					range: {
+						start: this.position,
+						end: this.position
+					},
+					value: ''
+				}
+
+				while(!this.tokensEnd) {
+					switch(this.token.type) {
+						case openingTokenType: scopeLevel++; break;
+						case closingTokenType: scopeLevel--; break;
+					}
+					if(scopeLevel === 0) {
+						break;
+					}
+
+					node.value += this.token.value;
+					node.range.end = this.position++;
+				}
+
+				let range = node.range.start !== node.range.end,
+					message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
+
+				this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+
+				return node;
+			},
+			nestedNodes: (types, openingTokenType, closingTokenType) => {
+				let nodes = [],
+					scopeLevel = 1;
+
+				while(!this.tokensEnd) {
+					let node;
+
+					for(let type of types) {
+						node = this.rules[type]?.();
+
+						if(node != null) {
+							break;
+						}
+					}
+
+					if(node != null) {
+						nodes.push(node);
+
+						if(this.token.type === closingTokenType && scopeLevel === 1 || this.tokensEnd) {
+							break;
+						}
+
+						continue;
+					}
+
+					node = nodes.at(-1);
+
+					if(node?.type !== 'unsupported') {
+						node = {
+							type: 'unsupported',
+							range: {
+								start: this.position,
+								end: this.position
+							},
+							value: ''
+						}
+					}
+
+					switch(this.token.type) {
+						case openingTokenType: scopeLevel++; break;
+						case closingTokenType: scopeLevel--; break;
+					}
+					if(scopeLevel === 0) {
+						break;
+					}
+
+					node.value += this.token.value;
+					node.range.end = this.position++;
+
+					if(node !== nodes.at(-1)) {
+						nodes.push(node);
+					}
+				}
+
+				for(let node of nodes.filter(v => v.type === 'unsupported')) {
+					let range = node.range.start !== node.range.end,
+						message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
+
+					this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+				}
+
+				return nodes;
+			},
 			nillableExpression: (node_) => {
 				let node = {
 					type: 'nillableExpression',
@@ -1323,6 +1372,34 @@ function = func (x) { return x > 0 } - 3
 					'variableDeclaration'
 				]);
 			},
+			stringExpression: () => {
+				let node = {
+					type: 'stringExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'stringExpressionOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.nestedNode([
+					'postfixExpression',
+					'identifier',
+					'literalExpression'
+				], 'stringExpressionOpen', 'stringExpressionClosed');
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
 			stringLiteral: () => {
 				let node = {
 					type: 'stringLiteral',
@@ -1335,7 +1412,10 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.segments = this.rules.stringSegments();
+				node.segments = this.rules.nestedNodes([
+					'stringSegment',
+					'stringExpression'
+				], 'stringOpen', 'stringClosed');
 
 				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
 					this.position = node.range.start;
@@ -1353,52 +1433,20 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			stringSegments: () => {
-				return this.rules.nestedNodes([
-					'stringSegment',
-					'stringExpression'
-				], 'stringOpen', 'stringClosed');
-			},
 			stringSegment: () => {
-				if(this.token.type === 'stringSegment') {
-					let value = this.token.value;
-
-					this.position++;
-
-					return value;
-				}
-			},
-			stringExpression: () => {
 				let node = {
-					type: 'stringExpression',
+					type: 'stringSegment',
 					range: {},
 					value: undefined
 				}
 
-				if(this.token.type !== 'stringExpressionOpen') {
+				if(this.token.type !== 'stringSegment') {
 					return;
 				}
 
-				node.range.start = this.position++;
-				node.value = this.rules.nestedNodes([
-					'postfixExpression',
-					'identifier',
-					'stringLiteral'
-				], 'stringExpressionOpen', 'stringExpressionClosed');
-
-				if(this.token.type !== 'stringExpressionClosed' && !this.tokensEnd) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
-				}
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
 
 				return node;
 			},
