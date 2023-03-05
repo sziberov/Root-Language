@@ -23,14 +23,6 @@ body {
 }
 </style>
 <textarea id="input">
-'one\('two\(three)four')five'
-'\()'
-0.1.0.1
-'one\(two)three\(four)five\(six)seven'
-
-'abc\(2+2+(4*(7/9)+1)+6+1)def';
-
-long.identifiers?.chain_.with_().call.to[].subscript_
 .implicit.chaining
 
 // Foundation Source
@@ -445,10 +437,10 @@ function = func (x) { return x > 0 } - 3
 					'Object',
 					'Protocol',
 					'Self', 'Structure',
-					'any', /*'arguments',*/
+					'any', /*'arguments',*/ 'await',
 					'bool', 'break',
 					'case', 'catch', 'class', 'const', 'continue',
-					'default',
+					'default', 'do',
 					'else', 'enum', 'extension',
 					'false', 'float', 'for', 'func',
 					'if', 'import', 'in', 'int', 'is',
@@ -618,7 +610,34 @@ function = func (x) { return x > 0 } - 3
 		static tokens;
 		static position;
 		static reports;
+
 		static rules = {
+			awaitExpression: () => {
+				let node = {
+					type: 'awaitExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordAwait') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value =
+					this.rules.tryExpression() ??
+					this.rules.prefixExpression();
+
+				if(node.value == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
 			booleanLiteral: () => {
 				let node = {
 					type: 'booleanLiteral',
@@ -630,7 +649,7 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 
-				node.value = this.token.value === 'true';
+				node.value = this.token.value;
 				node.range.start =
 				node.range.end = this.position++;
 
@@ -715,10 +734,14 @@ function = func (x) { return x > 0 } - 3
 				node.body = this.rules.classBody();
 
 				if(anonymous) {
-					delete node.id;
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
 				} else
 				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for class.');
+					this.report(2, node.range.start, 'No identifier set for class declaration.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Class doesn\'t have body.');
@@ -781,7 +804,7 @@ function = func (x) { return x > 0 } - 3
 				return node;
 			},
 			compositeMembers: (types) => {
-				return this.rules.nestedNodes(types, 'braceOpen', 'braceClosed');
+				return this.ruleHelpers.skippableNodes(types, 'braceOpen', 'braceClosed');
 			},
 			declaration: () => {
 				let node =
@@ -818,10 +841,14 @@ function = func (x) { return x > 0 } - 3
 				node.body = this.rules.enumerationBody();
 
 				if(anonymous) {
-					delete node.id;
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
 				} else
 				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for enumeration.');
+					this.report(2, node.range.start, 'No identifier set for enumeration declaration.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Enumeration doesn\'t have body.');
@@ -840,6 +867,42 @@ function = func (x) { return x > 0 } - 3
 			},
 			enumerationMembers: () => {
 				return this.rules.compositeMembers(['caseDeclaration']);
+			},
+			expression: () => {
+				let node =
+					this.rules.awaitExpression() ??
+					this.rules.tryExpression() ??
+					this.rules.prefixExpression();
+
+				return node;
+			},
+			expressionsSequence: () => {
+				let node = {
+					type: 'expressionsSequence',
+					range: {},
+					values: []
+				}
+
+				node.range.start = this.position;
+				node.values = this.ruleHelpers.sequentialNodes([
+					'expression',
+					'infixOperator'
+				]);
+
+				if(node.values.length === 0) {
+					this.position = node.range.start;
+
+					return;
+				}
+				if(node.values.length < 3) {
+					this.position = node.values[0].range.end+1;
+
+					return node.values[0]
+				}
+
+				node.range.end = node.values.at(-1).range.end;
+
+				return node;
 			},
 			floatLiteral: () => {
 				let node = {
@@ -881,10 +944,14 @@ function = func (x) { return x > 0 } - 3
 				node.body = this.rules.functionBody();
 
 				if(anonymous) {
-					delete node.id;
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
 				} else
 				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for function.');
+					this.report(2, node.range.start, 'No identifier set for function declaration.');
 				}
 				if(node.signature == null) {
 					this.report(2, node.range.start, 'Function lacks of signature.');
@@ -906,11 +973,10 @@ function = func (x) { return x > 0 } - 3
 			},
 			functionMembers: () => {
 				return this.rules.compositeMembers([
-					'postfixExpression',  // Postfixes must be parsed before nodes that they can begin with
+					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 					'declaration',
 					'forStatement',
 					'ifStatement',
-					'literalExpression',
 					'variableAssignment',
 					'whileStatement'
 				]);
@@ -998,6 +1064,36 @@ function = func (x) { return x > 0 } - 3
 				return node;
 			},
 			importDeclaration: () => {},
+			infixExpression: (left, operator, right) => {
+				let node = {
+					type: 'infixExpression',
+					range: {
+						start: left.range.start,
+						end: right.range.end
+					},
+					operator: operator,
+					values: {}
+				}
+
+				return node;
+			},
+			infixOperator: () => {
+				let node = {
+					type: 'infixOperator',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'operatorInfix') {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			initializerClause: () => {
 				let node = {
 					type: 'initializerClause',
@@ -1012,6 +1108,30 @@ function = func (x) { return x > 0 } - 3
 				node.value = this.token.value;
 				node.range.start =
 				node.range.end = this.position++;
+				node.id = this.rules.identifier();
+
+				if(node.id == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.id.range.end;
+
+				return node;
+			},
+			inoutExpression: () => {
+				let node = {
+					type: 'inoutExpression',
+					range: {},
+					id: undefined
+				}
+
+				if(this.token.type !== 'operatorPrefix' || this.token.value !== '&') {
+					return;
+				}
+
+				node.range.start = this.position++;
 				node.id = this.rules.identifier();
 
 				if(node.id == null) {
@@ -1053,7 +1173,6 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			logicalExpression: () => {},
 			module: () => {
 				let node = {
 					type: 'module',
@@ -1091,10 +1210,14 @@ function = func (x) { return x > 0 } - 3
 				node.body = this.rules.namespaceBody();
 
 				if(anonymous) {
-					delete node.id;
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
 				} else
 				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for namespace.');
+					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Namespace doesn\'t have body.');
@@ -1121,7 +1244,444 @@ function = func (x) { return x > 0 } - 3
 					'variableDeclaration'
 				]);
 			},
-			nestedNode: (types, openingTokenType, closingTokenType) => {
+			nillableExpression: (node_) => {
+				let node = {
+					type: 'nillableExpression',
+					range: {
+						start: node_.range.start
+					},
+					value: node_
+				}
+
+				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
+			nilLiteral: () => {
+				let node = {
+					type: 'nilLiteral',
+					range: {}
+				}
+
+				if(this.token.type !== 'keywordNil') {
+					return;
+				}
+
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
+			operator: () => {
+				let node = {
+					type: 'operator',
+					range: {},
+					value: undefined
+				}
+
+				if(!this.token.type.startsWith('operator')) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
+			postfixExpression: () => {
+				let node = {
+					type: 'postfixExpression',
+					range: {},
+					value: this.rules.primaryExpression(),
+					operator: undefined
+				}
+
+				if(node.value == null) {
+					return;
+				}
+
+				node.range.start = node.value.range.start;
+
+				while(!this.tokensEnd) {
+					let node_ =
+						this.rules.callExpression(node.value) ??
+						this.rules.chainExpression(node.value) ??
+						this.rules.nillableExpression(node.value) ??
+						this.rules.subscriptExpression(node.value);
+
+					if(node_ == null) {
+						break;
+					}
+
+					node.value = node_;
+				}
+
+				if(this.token.type !== 'operatorPostfix') {
+					return node.value;
+				}
+
+				node.operator = this.token.value;
+				node.range.end = this.position++;
+
+				return node;
+			},
+			prefixExpression: () => {
+				let node = {
+					type: 'prefixExpression',
+					range: {},
+					operator: undefined,
+					value: undefined
+				}
+
+				node.range.start = this.position;
+
+				if(this.token.type === 'operatorPrefix' && !['&', '.'].includes(this.token.value)) {
+					node.operator = this.token.value;
+					this.position++;
+				}
+
+				node.value = this.rules.postfixExpression();
+
+				if(node.value == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+				if(node.operator == null) {
+					return node.value;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
+			primaryExpression: () => {
+				let node =
+					this.rules.classExpression() ??
+					this.rules.enumerationExpression() ??
+					this.rules.functionExpression() ??
+					this.rules.identifier() ??
+					this.rules.implicitChainExpression() ??
+					this.rules.inoutExpression() ??
+					this.rules.literalExpression() ??
+					this.rules.namespaceExpression() ??
+					this.rules.protocolExpression() ??
+					this.rules.structureExpression();
+
+				return node;
+			},
+			protocolBody: () => {
+				return this.rules.compositeBody('protocol');
+			},
+			protocolDeclaration: (anonymous) => {
+				let node = {
+					type: 'protocol'+(!anonymous ? 'Declaration' : 'Expression'),
+					range: {},
+					id: undefined,
+					inheritance: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'keywordProtocol') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.id = this.rules.identifier();
+				node.inheritance = this.rules.typeInheritanceClause();
+				node.body = this.rules.protocolBody();
+
+				if(anonymous) {
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
+				} else
+				if(node.id == null) {
+					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
+				}
+				if(node.body == null) {
+					this.report(1, node.range.start, 'Protocol doesn\'t have body.');
+				}
+
+				node.range.end =
+					node.body?.range.end ??
+					node.inheritance?.range.end ??
+					node.id?.range.end ??
+					node.range.start;
+
+				return node;
+			},
+			protocolExpression: () => {
+				return this.rules.protocolDeclaration(true);
+			},
+			protocolMembers: () => {
+				return this.rules.compositeMembers([
+					'classDeclaration',
+					'enumerationDeclaration',
+					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
+					'structureDeclaration',
+					'variableDeclaration'
+				]);
+			},
+			stringExpression: () => {
+				let node = {
+					type: 'stringExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'stringExpressionOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.ruleHelpers.skippableNode(['prefixExpression'], 'stringExpressionOpen', 'stringExpressionClosed');
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
+			stringLiteral: () => {
+				let node = {
+					type: 'stringLiteral',
+					range: {},
+					segments: []
+				}
+
+				if(this.token.type !== 'stringOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.segments = this.ruleHelpers.skippableNodes([
+					'stringSegment',
+					'stringExpression'
+				], 'stringOpen', 'stringClosed');
+
+				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'String doesn\'t have the closing apostrophe and decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
+			stringSegment: () => {
+				let node = {
+					type: 'stringSegment',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'stringSegment') {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
+			structureBody: () => {
+				return this.rules.compositeBody('structure');
+			},
+			structureDeclaration: (anonymous) => {
+				let node = {
+					type: 'structure'+(!anonymous ? 'Declaration' : 'Expression'),
+					range: {},
+					id: undefined,
+					inheritance: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'keywordStruct') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.id = this.rules.identifier();
+				node.inheritance = this.rules.typeInheritanceClause();
+				node.body = this.rules.structureBody();
+
+				if(anonymous) {
+					if(node.id != null) {
+						return;
+					} else {
+						delete node.id;
+					}
+				} else
+				if(node.id == null) {
+					this.report(2, node.range.start, 'No identifier set for structure declaration.');
+				}
+				if(node.body == null) {
+					this.report(1, node.range.start, 'Structure doesn\'t have body.');
+				}
+
+				node.range.end =
+					node.body?.range.end ??
+					node.inheritance?.range.end ??
+					node.id?.range.end ??
+					node.range.start;
+
+				return node;
+			},
+			structureExpression: () => {
+				return this.rules.structureDeclaration(true);
+			},
+			structureMembers: () => {
+				return this.rules.compositeMembers([
+					'classDeclaration',
+					'enumerationDeclaration',
+					'functionDeclaration',
+					'namespaceDeclaration',
+					'protocolDeclaration',
+					'structureDeclaration',
+					'variableDeclaration'
+				]);
+			},
+			subscriptExpression: (node_) => {
+				let node = {
+					type: 'subscriptExpression',
+					range: {
+						start: node_.range.start
+					},
+					composite: node_,
+					arguments: undefined
+				}
+
+				if(this.token.type !== 'bracketOpen') {
+					return;
+				}
+
+				this.position++;
+			//  node.arguments = this.rules.functionArguments();
+
+				if(this.token.type !== 'bracketClosed') {
+					this.position = node_.range.end+1;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
+			tryExpression: () => {
+				let node = {
+					type: 'tryExpression',
+					range: {},
+					nillable: false,
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordTry') {
+					return;
+				}
+
+				node.range.start = this.position++;
+
+				if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
+					node.nillable = true;
+					node.range.end = this.position++;
+				}
+
+				node.value = this.rules.prefixExpression();
+
+				if(node.value == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
+			typeInheritanceClause: () => {
+				let node = {
+					type: 'typeInheritanceClause',
+					range: {},
+					identifiers: []
+				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					return;
+				}
+
+				node.range.start = this.position++;
+
+				while(true) {
+					let node_ = this.rules.identifier();
+
+					if(node_ == null) {
+						break;
+					}
+
+					node.identifiers.push(node_);
+
+					if(this.token.type !== 'operator' || this.token.value !== ',') {
+						break;
+					}
+
+					this.position++;
+				}
+
+				if(node.identifiers.length === 0) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.identifiers.at(-1).range.end;
+
+				return node;
+			},
+			variableAssignment: () => {
+				let node = {
+					type: 'variableAssignment',
+					range: {},
+					identifier: undefined,
+					operator: undefined,
+					value: undefined
+				}
+			},
+			variableDeclaration: () => {
+				let node = {
+					type: 'variableDeclaration',
+					range: {},
+					kind: undefined,
+					initializers: []
+				}
+			},
+			whileStatement: () => {}
+		}
+
+		static ruleHelpers = {
+			skippableNode: (types, openingTokenType, closingTokenType) => {
 				let node,
 					start = this.position,
 					scopeLevel = 1;
@@ -1169,7 +1729,7 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			nestedNodes: (types, openingTokenType, closingTokenType) => {
+			skippableNodes: (types, openingTokenType, closingTokenType) => {
 				let nodes = [],
 					scopeLevel = 1;
 
@@ -1232,361 +1792,26 @@ function = func (x) { return x > 0 } - 3
 
 				return nodes;
 			},
-			nillableExpression: (node_) => {
-				let node = {
-					type: 'nillableExpression',
-					range: {
-						start: node_.range.start
-					},
-					value: node_
-				}
-
-				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
-					return;
-				}
-
-				node.range.end = this.position++;
-
-				return node;
-			},
-			nilLiteral: () => {
-				let node = {
-					type: 'nilLiteral',
-					range: {}
-				}
-
-				if(this.token.type !== 'keywordNil') {
-					return;
-				}
-
-				node.range.start =
-				node.range.end = this.position++;
-
-				return node;
-			},
-			operator: () => {
-				let node = {
-					type: 'operator',
-					range: {},
-					value: undefined
-				}
-
-				if(!this.token.type.startsWith('operator')) {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
-
-				return node;
-			},
-			postfixExpression: () => {
-				let node =
-					this.rules.classExpression() ??
-					this.rules.enumerationExpression() ??
-					this.rules.functionExpression() ??
-					this.rules.identifier() ??
-					this.rules.implicitChainExpression() ??
-					this.rules.literalExpression() ??
-					this.rules.namespaceExpression() ??
-					this.rules.protocolExpression() ??
-					this.rules.structureExpression();
-
-				if(node == null) {
-					return;
-				}
+			sequentialNodes: (types) => {
+				let nodes = []
 
 				for(let i = 0; i < Infinity; i++) {
-					let node_ =
-						this.rules.callExpression(node) ??
-						this.rules.chainExpression(node) ??
-						this.rules.nillableExpression(node) ??
-						this.rules.subscriptExpression(node);
+					let type = types[i%types.length],
+						node = this.rules[type]?.();
 
-					if(node_ == null) {
-						if(i === 0) {
-							this.position = node.range.start;
-
-							return;
-						}
-
+					if(node == null) {
 						break;
 					}
 
-					node = node_;
-				}
+					nodes.push(node);
 
-				return node;
-			},
-			protocolBody: () => {
-				return this.rules.compositeBody('protocol');
-			},
-			protocolDeclaration: (anonymous) => {
-				let node = {
-					type: 'protocol'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
-					id: undefined,
-					inheritance: undefined,
-					body: undefined
-				}
-
-				if(this.token.type !== 'keywordProtocol') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
-				node.body = this.rules.protocolBody();
-
-				if(anonymous) {
-					delete node.id;
-				} else
-				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for protocol.');
-				}
-				if(node.body == null) {
-					this.report(1, node.range.start, 'Protocol doesn\'t have body.');
-				}
-
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.id?.range.end ??
-					node.range.start;
-
-				return node;
-			},
-			protocolExpression: () => {
-				return this.rules.protocolDeclaration(true);
-			},
-			protocolMembers: () => {
-				return this.rules.compositeMembers([
-					'classDeclaration',
-					'enumerationDeclaration',
-					'functionDeclaration',
-					'namespaceDeclaration',
-					'protocolDeclaration',
-					'structureDeclaration',
-					'variableDeclaration'
-				]);
-			},
-			stringExpression: () => {
-				let node = {
-					type: 'stringExpression',
-					range: {},
-					value: undefined
-				}
-
-				if(this.token.type !== 'stringExpressionOpen') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.value = this.rules.nestedNode([
-					'postfixExpression',
-					'identifier',
-					'literalExpression'
-				], 'stringExpressionOpen', 'stringExpressionClosed');
-
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
-				}
-
-				return node;
-			},
-			stringLiteral: () => {
-				let node = {
-					type: 'stringLiteral',
-					range: {},
-					segments: []
-				}
-
-				if(this.token.type !== 'stringOpen') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.segments = this.rules.nestedNodes([
-					'stringSegment',
-					'stringExpression'
-				], 'stringOpen', 'stringClosed');
-
-				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'String doesn\'t have the closing apostrophe and decided to be autoclosed at the end of stream.');
-				}
-
-				return node;
-			},
-			stringSegment: () => {
-				let node = {
-					type: 'stringSegment',
-					range: {},
-					value: undefined
-				}
-
-				if(this.token.type !== 'stringSegment') {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
-
-				return node;
-			},
-			structureBody: () => {
-				return this.rules.compositeBody('structure');
-			},
-			structureDeclaration: (anonymous) => {
-				let node = {
-					type: 'structure'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
-					id: undefined,
-					inheritance: undefined,
-					body: undefined
-				}
-
-				if(this.token.type !== 'keywordStruct') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
-				node.body = this.rules.structureBody();
-
-				if(anonymous) {
-					delete node.id;
-				} else
-				if(node.id == null) {
-					this.report(2, node.range.start, 'No identifier set for structure.');
-				}
-				if(node.body == null) {
-					this.report(1, node.range.start, 'Structure doesn\'t have body.');
-				}
-
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.id?.range.end ??
-					node.range.start;
-
-				return node;
-			},
-			structureExpression: () => {
-				return this.rules.structureDeclaration(true);
-			},
-			structureMembers: () => {
-				return this.rules.compositeMembers([
-					'classDeclaration',
-					'enumerationDeclaration',
-					'functionDeclaration',
-					'namespaceDeclaration',
-					'protocolDeclaration',
-					'structureDeclaration',
-					'variableDeclaration'
-				]);
-			},
-			subscriptExpression: (node_) => {
-				let node = {
-					type: 'subscriptExpression',
-					range: {
-						start: node_.range.start
-					},
-					composite: node_,
-					arguments: undefined
-				}
-
-				if(this.token.type !== 'bracketOpen') {
-					return;
-				}
-
-				this.position++;
-			//  node.arguments = this.rules.functionArguments();
-
-				if(this.token.type !== 'bracketClosed') {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				node.range.end = this.position++;
-
-				return node;
-			},
-			typeInheritanceClause: () => {
-				let node = {
-					type: 'typeInheritanceClause',
-					range: {},
-					identifiers: []
-				}
-
-				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					return;
-				}
-
-				node.range.start = this.position++;
-
-				while(true) {
-					let node_ = this.rules.identifier();
-
-					if(node_ == null) {
+					if(this.tokensEnd) {
 						break;
 					}
-
-					node.identifiers.push(node_);
-
-					if(this.token.type !== 'operator' || this.token.value !== ',') {
-						break;
-					}
-
-					this.position++;
 				}
 
-				if(node.identifiers.length === 0) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				node.range.end = node.identifiers.at(-1).range.end;
-
-				return node;
-			},
-			variableAssignment: () => {
-				let node = {
-					type: 'variableAssignment',
-					range: {},
-					identifier: undefined,
-					operator: undefined,
-					value: undefined
-				}
-			},
-			variableDeclaration: () => {
-				let node = {
-					type: 'variableDeclaration',
-					range: {},
-					kind: undefined,
-					initializers: []
-				}
-			},
-			whileStatement: () => {}
+				return nodes;
+			}
 		}
 
 		static get token() {
