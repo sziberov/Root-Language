@@ -135,7 +135,7 @@ if constant > 0 {
 	variable = 1
 }
 
-public prefix class A {
+class A {
 	private const constant: Number = 0.5
 
 	protected var variable: Integer = 1
@@ -737,11 +737,7 @@ function = func (x) { return x > 0 } - 3
 					body: undefined
 				}
 
-				if(node.modifiers == null) {
-					node.range.start = this.position;
-				} else {
-					node.range.start = node.modifiers.range.start;
-				}
+				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordClass') {
 					this.position = node.range.start;
@@ -749,7 +745,7 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 
-				this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.classBody();
@@ -776,8 +772,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					node.modifiers?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -853,16 +848,21 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'enumeration'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
 
+				node.range.start = node.modifiers?.range.start ?? this.position;
+
 				if(this.token.type !== 'keywordEnum') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.enumerationBody();
@@ -877,6 +877,9 @@ function = func (x) { return x > 0 } - 3
 				if(node.id == null) {
 					this.report(2, node.range.start, 'No identifier set for enumeration declaration.');
 				}
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for enumeration.');
+				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Enumeration doesn\'t have body.');
 				}
@@ -885,7 +888,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -961,24 +964,30 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'function'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					signature: undefined,
 					body: undefined
 				}
 
+				node.range.start = node.modifiers?.range.start ?? this.position;
+
 				if(this.token.type !== 'keywordFunc') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier() ?? this.rules.operator();
 				node.signature = this.rules.functionSignature();
 				node.body = this.rules.functionBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.modifiers != null || node.id != null) {
 						return;
 					} else {
+						delete node.modifiers;
 						delete node.id;
 					}
 				} else
@@ -996,7 +1005,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.signature?.range.end ??
 					node.id?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -1301,27 +1310,36 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'namespace'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					body: undefined
 				}
 
+				node.range.start = node.modifiers?.range.start ?? this.position;
+
 				if(this.token.type !== 'keywordNamespace') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier();
 				node.body = this.rules.namespaceBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.modifiers != null || node.id != null) {
 						return;
 					} else {
+						delete node.modifiers;
 						delete node.id;
 					}
 				} else
 				if(node.id == null) {
 					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
+				}
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for namespace.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Namespace doesn\'t have body.');
@@ -1330,7 +1348,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.id?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -1389,6 +1407,7 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			operatorBody: () => {},
 			operatorDeclaration: () => {
 				let node = {
 					type: 'operatorDeclaration',
@@ -1412,13 +1431,13 @@ function = func (x) { return x > 0 } - 3
 
 				this.position++;
 				node.operator = this.rules.operator();
-			//	node.body = this.rules.operatorBody();
+				node.body = this.rules.operatorBody();
 
 				if(node.operator == null) {
 					this.report(2, node.range.start, 'No operator set for operator declaration.');
 				}
-				if(!['infix', 'postfix', 'prefix'].includes(node.modifiers?.values[0])) {
-					this.report(2, node.range.start, 'Operator declaration should have specific modifier (infix, postfix, prefix) first.');
+				if(!node.modifiers?.values.some(v => ['infix', 'postfix', 'prefix'].includes(v))) {
+					this.report(2, node.range.start, 'Operator declaration should have specific modifier (infix, postfix, prefix).');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Operator doesn\'t have body.');
@@ -1523,29 +1542,38 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'protocol'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
 
+				node.range.start = node.modifiers?.range.start ?? this.position;
+
 				if(this.token.type !== 'keywordProtocol') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.protocolBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.modifiers != null || node.id != null) {
 						return;
 					} else {
+						delete node.modifiers;
 						delete node.id;
 					}
 				} else
 				if(node.id == null) {
 					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
+				}
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for protocol.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Protocol doesn\'t have body.');
@@ -1555,7 +1583,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -1654,29 +1682,38 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'structure'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
 
+				node.range.start = node.modifiers?.range.start ?? this.position;
+
 				if(this.token.type !== 'keywordStruct') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				node.range.end = this.position++;
 				node.id = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.structureBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.modifiers != null || node.id != null) {
 						return;
 					} else {
+						delete node.modifiers;
 						delete node.id;
 					}
 				} else
 				if(node.id == null) {
 					this.report(2, node.range.start, 'No identifier set for structure declaration.');
+				}
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for structure.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Structure doesn\'t have body.');
@@ -1686,7 +1723,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
