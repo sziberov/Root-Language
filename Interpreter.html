@@ -27,6 +27,17 @@ body {
 
 // Foundation Source
 
+postfix operator ++
+postfix operator --
+
+prefix operator ++
+prefix operator --
+
+/* private */ infix operator == {
+	associativity: left
+	precedence: 64
+}
+
 struct Boolean {
 	private const value
 
@@ -124,7 +135,7 @@ if constant > 0 {
 	variable = 1
 }
 
-class A {
+public prefix class A {
 	private const constant: Number = 0.5
 
 	protected var variable: Integer = 1
@@ -437,16 +448,17 @@ function = func (x) { return x > 0 } - 3
 					'Object',
 					'Protocol',
 					'Self', 'Structure',
-					'any', /*'arguments',*/ 'await',
+					'any', /*'arguments',*/ 'async', 'await',
 					'bool', 'break',
 					'case', 'catch', 'class', 'const', 'continue',
 					'default', 'do',
 					'else', 'enum', 'extension',
 					'false', 'float', 'for', 'func',
-					'if', 'import', 'in', 'int', 'is',
+					'if', 'import', 'in', 'infix', 'int', 'is',
 					'metaSelf',
 					'namespace', 'nil',
-					'private', 'protected', 'protocol', 'public',
+					'operator',
+					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
 					'return',
 					'self', 'static', 'string', 'struct', 'super', 'switch',
 					'throw', 'true', 'try',
@@ -670,7 +682,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-			//  node.arguments = this.rules.functionArguments();
+			    node.arguments = this.rules.expressionsSequence();
 
 				if(this.token.type !== 'parenthesisClosed') {
 					this.position = node_.range.end+1;
@@ -719,29 +731,42 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'class'+(!anonymous ? 'Declaration' : 'Expression'),
 					range: {},
+					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
 
+				if(node.modifiers == null) {
+					node.range.start = this.position;
+				} else {
+					node.range.start = node.modifiers.range.start;
+				}
+
 				if(this.token.type !== 'keywordClass') {
+					this.position = node.range.start;
+
 					return;
 				}
 
-				node.range.start = this.position++;
+				this.position++;
 				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
+				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.classBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.modifiers != null || node.id != null) {
 						return;
 					} else {
+						delete node.modifiers;
 						delete node.id;
 					}
 				} else
 				if(node.id == null) {
 					this.report(2, node.range.start, 'No identifier set for class declaration.');
+				}
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for class.');
 				}
 				if(node.body == null) {
 					this.report(1, node.range.start, 'Class doesn\'t have body.');
@@ -751,6 +776,7 @@ function = func (x) { return x > 0 } - 3
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
 					node.id?.range.end ??
+					node.modifiers?.range.end ??
 					node.range.start;
 
 				return node;
@@ -813,6 +839,7 @@ function = func (x) { return x > 0 } - 3
 					this.rules.functionDeclaration() ??
 					this.rules.importDeclaration() ??
 					this.rules.namespaceDeclaration() ??
+					this.rules.operatorDeclaration() ??
 					this.rules.protocolDeclaration() ??
 					this.rules.structureDeclaration() ??
 					this.rules.variableDeclaration();
@@ -837,7 +864,7 @@ function = func (x) { return x > 0 } - 3
 
 				node.range.start = this.position++;
 				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
+				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.enumerationBody();
 
 				if(anonymous) {
@@ -898,6 +925,11 @@ function = func (x) { return x > 0 } - 3
 					this.position = node.values[0].range.end+1;
 
 					return node.values[0]
+				}
+				if(node.values.length%2 === 0) {
+					this.position = node.values.at(-2).range.end+1;
+
+					node.values.pop();
 				}
 
 				node.range.end = node.values.at(-1).range.end;
@@ -1084,13 +1116,52 @@ function = func (x) { return x > 0 } - 3
 					value: undefined
 				}
 
-				if(this.token.type !== 'operatorInfix') {
+				if(!['operator', 'operatorInfix'].includes(this.token.type)) {
 					return;
 				}
 
 				node.value = this.token.value;
 				node.range.start =
 				node.range.end = this.position++;
+
+				return node;
+			},
+			inheritance: () => {
+				let node = {
+					type: 'inheritance',
+					range: {},
+					identifiers: []
+				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					return;
+				}
+
+				node.range.start = this.position++;
+
+				while(true) {
+					let node_ = this.rules.identifier();
+
+					if(node_ == null) {
+						break;
+					}
+
+					node.identifiers.push(node_);
+
+					if(this.token.type !== 'operator' || this.token.value !== ',') {
+						break;
+					}
+
+					this.position++;
+				}
+
+				if(node.identifiers.length === 0) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.identifiers.at(-1).range.end;
 
 				return node;
 			},
@@ -1173,6 +1244,39 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			modifiers: () => {
+				let node = {
+					type: 'modifiers',
+					range: {},
+					values: []
+				}
+
+				node.range.start = this.position;
+
+				while([
+					'keywordInfix',
+					'keywordPostfix',
+					'keywordPrefix',
+					'keywordPrivate',
+					'keywordProtected',
+					'keywordPublic',
+					'keywordStatic'
+				].includes(this.token.type)) {
+					node.values.push(this.token.value);
+
+					this.position++;
+				}
+
+				if(node.values.length === 0) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			module: () => {
 				let node = {
 					type: 'module',
@@ -1234,15 +1338,7 @@ function = func (x) { return x > 0 } - 3
 				return this.rules.namespaceDeclaration(true);
 			},
 			namespaceMembers: () => {
-				return this.rules.compositeMembers([
-					'classDeclaration',
-					'enumerationDeclaration',
-					'functionDeclaration',
-					'namespaceDeclaration',
-					'protocolDeclaration',
-					'structureDeclaration',
-					'variableDeclaration'
-				]);
+				return this.rules.compositeMembers(['declaration']);
 			},
 			nillableExpression: (node_) => {
 				let node = {
@@ -1293,6 +1389,49 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			operatorDeclaration: () => {
+				let node = {
+					type: 'operatorDeclaration',
+					range: {},
+					modifiers: this.rules.modifiers(),
+					operator: undefined,
+					body: undefined
+				}
+
+				if(node.modifiers == null) {
+					node.range.start = this.position;
+				} else {
+					node.range.start = node.modifiers.range.start;
+				}
+
+				if(this.token.type !== 'keywordOperator') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.operator = this.rules.operator();
+			//	node.body = this.rules.operatorBody();
+
+				if(node.operator == null) {
+					this.report(2, node.range.start, 'No operator set for operator declaration.');
+				}
+				if(!['infix', 'postfix', 'prefix'].includes(node.modifiers?.values[0])) {
+					this.report(2, node.range.start, 'Operator declaration should have specific modifier (infix, postfix, prefix) first.');
+				}
+				if(node.body == null) {
+					this.report(1, node.range.start, 'Operator doesn\'t have body.');
+				}
+
+				node.range.end =
+					node.body?.range.end ??
+					node.operator?.range.end ??
+					node.modifiers?.range.end ??
+					node.range.start;
+
+				return node;
+			},
 			postfixExpression: () => {
 				let node = {
 					type: 'postfixExpression',
@@ -1340,7 +1479,9 @@ function = func (x) { return x > 0 } - 3
 
 				node.range.start = this.position;
 
-				if(this.token.type === 'operatorPrefix' && !['&', '.'].includes(this.token.value)) {
+				let exceptions = ['&', '.']  // primaryExpressions can start with (prefix) operators from the list
+
+				if(this.token.type === 'operatorPrefix' && !exceptions.includes(this.token.value)) {
 					node.operator = this.token.value;
 					this.position++;
 				}
@@ -1393,7 +1534,7 @@ function = func (x) { return x > 0 } - 3
 
 				node.range.start = this.position++;
 				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
+				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.protocolBody();
 
 				if(anonymous) {
@@ -1524,7 +1665,7 @@ function = func (x) { return x > 0 } - 3
 
 				node.range.start = this.position++;
 				node.id = this.rules.identifier();
-				node.inheritance = this.rules.typeInheritanceClause();
+				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.structureBody();
 
 				if(anonymous) {
@@ -1618,45 +1759,6 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = node.value.range.end;
-
-				return node;
-			},
-			typeInheritanceClause: () => {
-				let node = {
-					type: 'typeInheritanceClause',
-					range: {},
-					identifiers: []
-				}
-
-				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					return;
-				}
-
-				node.range.start = this.position++;
-
-				while(true) {
-					let node_ = this.rules.identifier();
-
-					if(node_ == null) {
-						break;
-					}
-
-					node.identifiers.push(node_);
-
-					if(this.token.type !== 'operator' || this.token.value !== ',') {
-						break;
-					}
-
-					this.position++;
-				}
-
-				if(node.identifiers.length === 0) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				node.range.end = node.identifiers.at(-1).range.end;
 
 				return node;
 			},
@@ -1876,11 +1978,43 @@ function = func (x) { return x > 0 } - 3
 			{
 				address: 0,
 				inheritance: ['Namespace'],
+				operators: [
+					{
+						modifiers: ['postfix'],
+						identifier: '++',
+						associativity: null,
+						precedence: null
+					},
+					{
+						modifiers: ['postfix'],
+						identifier: '--',
+						associativity: null,
+						precedence: null
+					},
+					{
+						modifiers: ['prefix'],
+						identifier: '++',
+						associativity: null,
+						precedence: null
+					},
+					{
+						modifiers: ['prefix'],
+						identifier: '--',
+						associativity: null,
+						precedence: null
+					},
+					{
+						modifiers: [/* 'private', */ 'infix'],
+						identifier: '+',
+						associativity: 'left',
+						precedence: 64
+					}
+				],
 				members: [
 					{
-						accessibility: ['public', 'static'],
+						modifiers: ['public', 'static'],
 						constant: false,
-						title: 'TestClass',
+						identifier: 'TestClass',
 						typed: true,
 						inheritance: [1],
 						nillable: true,
@@ -1888,9 +2022,9 @@ function = func (x) { return x > 0 } - 3
 						observers: {}
 					},
 					{
-						accessibility: ['public', 'static'],
+						modifiers: ['public', 'static'],
 						constant: true,
-						title: 'testPi',
+						identifier: 'testPi',
 						typed: true,
 						inheritance: ['float'],
 						nillable: true,
@@ -1898,9 +2032,9 @@ function = func (x) { return x > 0 } - 3
 						observers: {}
 					},
 					{
-						accessibility: ['public', 'static'],
+						modifiers: ['public', 'static'],
 						constant: false,
-						title: 'testClassInstance',
+						identifier: 'testClassInstance',
 						typed: true,
 						inheritance: [2],
 						nillable: true,
@@ -1908,9 +2042,9 @@ function = func (x) { return x > 0 } - 3
 						observers: {}
 					},
 					{
-						accessibility: ['public'],
+						modifiers: ['public'],
 						constant: false,
-						title: 'computedInstanceProperty',
+						identifier: 'computedInstanceProperty',
 						typed: false,
 						inheritance: [],
 						nillable: true,
@@ -1951,9 +2085,9 @@ function = func (x) { return x > 0 } - 3
 				generics: [],
 				members: [
 					{
-						accessibility: ['public', 'static'],
+						modifiers: ['public', 'static'],
 						constant: true,
-						title: 'init',
+						identifier: 'init',
 						typed: true,
 						inheritance: [
 							/*
@@ -1990,9 +2124,9 @@ function = func (x) { return x > 0 } - 3
 						observers: {}
 					},
 					{
-						accessibility: ['public'],
+						modifiers: ['public'],
 						constant: false,
-						title: 'testVariable',
+						identifier: 'testVariable',
 						typed: true,
 						inheritance: ['int'],
 						nillable: true,
@@ -2010,7 +2144,7 @@ function = func (x) { return x > 0 } - 3
 				generics: [
 					/*
 					{
-						title: 'A',
+						identifier: 'A',
 						typed: false,
 						inheritance: [],
 						nillable: true
@@ -2020,7 +2154,7 @@ function = func (x) { return x > 0 } - 3
 				parameters: [
 					{
 						label: null,
-						title: 'firstArgument',
+						identifier: 'firstArgument',
 						inout: false,
 						typed: true,
 						inheritance: ['float'],
@@ -2029,7 +2163,7 @@ function = func (x) { return x > 0 } - 3
 					},
 					{
 						label: null,
-						title: 'secondArgument',
+						identifier: 'secondArgument',
 						inout: false,
 						typed: true,
 						inheritance: ['bool'],
@@ -2047,7 +2181,7 @@ function = func (x) { return x > 0 } - 3
 				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
 				members: [
 					{
-						title: 'parametersCount',
+						identifier: 'parametersCount',
 						inheritance: ['int'],
 						value: '2'
 					}
@@ -2060,7 +2194,7 @@ function = func (x) { return x > 0 } - 3
 				inheritance: ['Object', 1],
 				members: [
 					{
-						title: 'testVariable',
+						identifier: 'testVariable',
 						value: '2'
 					}
 				],
@@ -2120,9 +2254,12 @@ function = func (x) { return x > 0 } - 3
 			return [primary, ...secondary]
 		}
 
-		static createAccessibility(...values) {
+		static createModifiers(...values) {
 			for(value of values) {
 				if(![
+					'infix',
+					'postfix',
+					'prefix',
 					'private',
 					'protected',
 					'public',
@@ -2141,9 +2278,9 @@ function = func (x) { return x > 0 } - 3
 			if(inheritance[0] === 'variable') {
 				member = {
 					/*
-					accessibility: accessibility,
+					modifiers: modifiers,
 					constant: constant,
-					title: title,
+					identifier: identifier,
 					typed: typed,
 					inheritance: inheritance,
 					nillable: nillable,
@@ -2168,8 +2305,8 @@ function = func (x) { return x > 0 } - 3
 					}
 
 					let members = t.members ?? [],
-						member = members.find(v => v.title === k),
-						title = member?.title,
+						member = members.find(v => v.identifier === k),
+						identifier = member?.identifier,
 						inheritance = member?.inheritance ?? [],
 						value = member?.value;
 
@@ -2187,7 +2324,7 @@ function = func (x) { return x > 0 } - 3
 				},
 				ownKeys: (t) => {
 					let members = t.members ?? [],
-						keys = members.map(v => v.title);
+						keys = members.map(v => v.identifier);
 
 					keys.push('metaSelf');
 
@@ -2203,7 +2340,7 @@ function = func (x) { return x > 0 } - 3
 					}
 
 					let members = t.members ?? [],
-						member = members.find(v => v.title === k),
+						member = members.find(v => v.identifier === k),
 						inheritance = member?.inheritance ?? [],
 						value = member?.value;
 
