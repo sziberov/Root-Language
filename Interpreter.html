@@ -636,9 +636,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value =
-					this.rules.tryExpression() ??
-					this.rules.prefixExpression();
+				node.value = this.rules.expression();
 
 				if(node.value == null) {
 					this.position = node.range.start;
@@ -1451,6 +1449,30 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			parenthesizedExpression: () => {
+				let node = {
+					type: 'parenthesizedExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'parenthesisOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.ruleHelpers.skippableNode(['expressionsSequence'], 'parenthesisOpen', 'parenthesisClosed');
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Parenthesized expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
 			postfixExpression: () => {
 				let node = {
 					type: 'postfixExpression',
@@ -1530,6 +1552,7 @@ function = func (x) { return x > 0 } - 3
 					this.rules.inoutExpression() ??
 					this.rules.literalExpression() ??
 					this.rules.namespaceExpression() ??
+					this.rules.parenthesizedExpression() ??
 					this.rules.protocolExpression() ??
 					this.rules.structureExpression();
 
@@ -1787,7 +1810,7 @@ function = func (x) { return x > 0 } - 3
 					node.range.end = this.position++;
 				}
 
-				node.value = this.rules.prefixExpression();
+				node.value = this.rules.expression();
 
 				if(node.value == null) {
 					this.position = node.range.start;
