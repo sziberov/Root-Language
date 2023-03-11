@@ -23,7 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
-.implicit.chaining
+++.a++
+.implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)
 
 // Foundation Source
 
@@ -339,6 +340,7 @@ function = func (x) { return x > 0 } - 3
 					type += 'Postfix';
 				}
 
+				this.ruleHelpers.specifyOperatorType();
 				this.addToken(type);
 			}],
 			[['(', ')', '{', '}', '[', ']'], (v) => {
@@ -665,33 +667,6 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			callExpression: (node_) => {
-				let node = {
-					type: 'callExpression',
-					range: {
-						start: node_.range.start
-					},
-					callee: node_,
-					arguments: undefined
-				}
-
-				if(this.token.type !== 'parenthesisOpen') {
-					return;
-				}
-
-				this.position++;
-			    node.arguments = this.rules.expressionsSequence();
-
-				if(this.token.type !== 'parenthesisClosed') {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				node.range.end = this.position++;
-
-				return node;
-			},
 			caseDeclaration: () => {},
 			chainExpression: (node_) => {
 				let node = {
@@ -709,8 +684,8 @@ function = func (x) { return x > 0 } - 3
 
 				this.position++;
 				node.member =
-					this.rules.identifier() /*??
-					this.rules.stringLiteral()*/;
+					this.rules.identifier() ??
+					this.rules.stringLiteral();
 
 				if(node.member == null) {
 					this.position = node_.range.end+1;
@@ -728,14 +703,14 @@ function = func (x) { return x > 0 } - 3
 			classDeclaration: (anonymous) => {
 				let node = {
 					type: 'class'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordClass') {
 					this.position = node.range.start;
@@ -845,14 +820,14 @@ function = func (x) { return x > 0 } - 3
 			enumerationDeclaration: (anonymous) => {
 				let node = {
 					type: 'enumeration'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordEnum') {
 					this.position = node.range.start;
@@ -907,15 +882,14 @@ function = func (x) { return x > 0 } - 3
 			expressionsSequence: () => {
 				let node = {
 					type: 'expressionsSequence',
-					range: {},
-					values: []
+					range: {
+						start: this.position
+					},
+					values: this.ruleHelpers.sequentialNodes([
+						'expression',
+						'infixOperator'
+					])
 				}
-
-				node.range.start = this.position;
-				node.values = this.ruleHelpers.sequentialNodes([
-					'expression',
-					'infixOperator'
-				]);
 
 				if(node.values.length === 0) {
 					this.position = node.range.start;
@@ -958,17 +932,86 @@ function = func (x) { return x > 0 } - 3
 			functionBody: () => {
 				return this.rules.compositeBody('function');
 			},
+			functionCallArgument: () => {
+				let node = {
+					type: 'functionCallArgument',
+					range: {
+						start: this.position
+					},
+					label: this.rules.identifier(),
+					value: undefined
+				}
+
+				if(node.label == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
+					node.label = undefined;
+					this.position = node.range.start;
+				} else {
+					this.position++;
+				}
+
+				node.range.end = this.position;
+				node.value = this.rules.expressionsSequence();
+
+				if(node.label == null && node.value == null) {
+					return;
+				}
+
+				node.range.end =
+					node.value?.range.end ??
+					node.range.end;
+
+				return node;
+			},
+			functionCallArgumentsSequence: () => {
+				let nodes = this.ruleHelpers.sequentialNodes(
+					['functionCallArgument'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(nodes.length === 0) {
+					return;
+				}
+
+				return nodes;
+			},
+			functionCallExpression: (node_) => {
+				let node = {
+					type: 'functionCallExpression',
+					range: {
+						start: node_.range.start
+					},
+					callee: node_,
+					arguments: []
+				}
+
+				if(this.token.type !== 'parenthesisOpen') {
+					return;
+				}
+
+				this.position++;
+			    node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'parenthesisOpen', 'parenthesisClosed');
+
+				if(this.token.type !== 'parenthesisClosed') {
+					this.position = node_.range.end+1;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			functionDeclaration: (anonymous) => {
 				let node = {
 					type: 'function'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					signature: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordFunc') {
 					this.position = node.range.start;
@@ -1123,7 +1166,9 @@ function = func (x) { return x > 0 } - 3
 					value: undefined
 				}
 
-				if(!['operator', 'operatorInfix'].includes(this.token.type)) {
+				let exceptions = [',']  // Enclosing nodes can use operators from the list as delimiters
+
+				if(!['operator', 'operatorInfix'].includes(this.token.type) || exceptions.includes(this.token.value)) {
 					return;
 				}
 
@@ -1145,22 +1190,10 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-
-				while(true) {
-					let node_ = this.rules.identifier();
-
-					if(node_ == null) {
-						break;
-					}
-
-					node.identifiers.push(node_);
-
-					if(this.token.type !== 'operator' || this.token.value !== ',') {
-						break;
-					}
-
-					this.position++;
-				}
+				node.identifiers = this.ruleHelpers.sequentialNodes(
+					['identifier'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
 
 				if(node.identifiers.length === 0) {
 					this.position = node.range.start;
@@ -1254,11 +1287,11 @@ function = func (x) { return x > 0 } - 3
 			modifiers: () => {
 				let node = {
 					type: 'modifiers',
-					range: {},
+					range: {
+						start: this.position
+					},
 					values: []
 				}
-
-				node.range.start = this.position;
 
 				while([
 					'keywordInfix',
@@ -1307,13 +1340,13 @@ function = func (x) { return x > 0 } - 3
 			namespaceDeclaration: (anonymous) => {
 				let node = {
 					type: 'namespace'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordNamespace') {
 					this.position = node.range.start;
@@ -1409,16 +1442,12 @@ function = func (x) { return x > 0 } - 3
 			operatorDeclaration: () => {
 				let node = {
 					type: 'operatorDeclaration',
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					operator: undefined,
 					body: undefined
-				}
-
-				if(node.modifiers == null) {
-					node.range.start = this.position;
-				} else {
-					node.range.start = node.modifiers.range.start;
 				}
 
 				if(this.token.type !== 'keywordOperator') {
@@ -1461,7 +1490,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode(['expressionsSequence'], 'parenthesisOpen', 'parenthesisClosed');
+				node.value = this.ruleHelpers.skippableNode('expressionsSequence', 'parenthesisOpen', 'parenthesisClosed');
 
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
@@ -1476,7 +1505,9 @@ function = func (x) { return x > 0 } - 3
 			postfixExpression: () => {
 				let node = {
 					type: 'postfixExpression',
-					range: {},
+					range: {
+						start: this.position
+					},
 					value: this.rules.primaryExpression(),
 					operator: undefined
 				}
@@ -1485,12 +1516,10 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 
-				node.range.start = node.value.range.start;
-
 				while(!this.tokensEnd) {
 					let node_ =
-						this.rules.callExpression(node.value) ??
 						this.rules.chainExpression(node.value) ??
+						this.rules.functionCallExpression(node.value) ??
 						this.rules.nillableExpression(node.value) ??
 						this.rules.subscriptExpression(node.value);
 
@@ -1501,11 +1530,31 @@ function = func (x) { return x > 0 } - 3
 					node.value = node_;
 				}
 
-				if(this.token.type !== 'operatorPostfix') {
+				node.operator = this.rules.postfixOperator();
+
+				if(node.operator == null) {
 					return node.value;
 				}
 
-				node.operator = this.token.value;
+				node.range.end = node.operator.range.end;
+
+				return node;
+			},
+			postfixOperator: () => {
+				let node = {
+					type: 'postfixOperator',
+					range: {},
+					value: undefined
+				}
+
+				let exceptions = [',']  // Enclosing nodes can use trailing operators from the list
+
+				if(this.token.type !== 'operatorPostfix' || exceptions.includes(this.token.value)) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
 				node.range.end = this.position++;
 
 				return node;
@@ -1513,18 +1562,11 @@ function = func (x) { return x > 0 } - 3
 			prefixExpression: () => {
 				let node = {
 					type: 'prefixExpression',
-					range: {},
-					operator: undefined,
+					range: {
+						start: this.position
+					},
+					operator: this.rules.prefixOperator(),
 					value: undefined
-				}
-
-				node.range.start = this.position;
-
-				let exceptions = ['&', '.']  // primaryExpressions can start with (prefix) operators from the list
-
-				if(this.token.type === 'operatorPrefix' && !exceptions.includes(this.token.value)) {
-					node.operator = this.token.value;
-					this.position++;
 				}
 
 				node.value = this.rules.postfixExpression();
@@ -1539,6 +1581,25 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = node.value.range.end;
+
+				return node;
+			},
+			prefixOperator: () => {
+				let node = {
+					type: 'prefixOperator',
+					range: {},
+					value: undefined
+				}
+
+				let exceptions = ['&', '.']  // primaryExpressions can start with operators from the list
+
+				if(this.token.type !== 'operatorPrefix' || exceptions.includes(this.token.value)) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
 
 				return node;
 			},
@@ -1564,14 +1625,14 @@ function = func (x) { return x > 0 } - 3
 			protocolDeclaration: (anonymous) => {
 				let node = {
 					type: 'protocol'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordProtocol') {
 					this.position = node.range.start;
@@ -1636,7 +1697,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode(['expressionsSequence'], 'stringExpressionOpen', 'stringExpressionClosed');
+				node.value = this.ruleHelpers.skippableNode('expressionsSequence', 'stringExpressionOpen', 'stringExpressionClosed');
 
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
@@ -1704,14 +1765,14 @@ function = func (x) { return x > 0 } - 3
 			structureDeclaration: (anonymous) => {
 				let node = {
 					type: 'structure'+(!anonymous ? 'Declaration' : 'Expression'),
-					range: {},
+					range: {
+						start: this.position
+					},
 					modifiers: this.rules.modifiers(),
 					id: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
-
-				node.range.start = node.modifiers?.range.start ?? this.position;
 
 				if(this.token.type !== 'keywordStruct') {
 					this.position = node.range.start;
@@ -1779,7 +1840,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-			//  node.arguments = this.rules.functionArguments();
+				node.arguments = this.ruleHelpers.skippableNode('functionCallArguments', 'bracketOpen', 'bracketClosed');
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node_.range.end+1;
@@ -1843,18 +1904,40 @@ function = func (x) { return x > 0 } - 3
 		}
 
 		static ruleHelpers = {
-			skippableNode: (types, openingTokenType, closingTokenType) => {
+			sequentialNodes: (types, delimitingCondition) => {
+				let nodes = []
+
+				for(let i = 0; i < Infinity; i++) {
+					if(delimitingCondition != null && i > 0) {
+						if(delimitingCondition()) {
+							this.position++;
+						} else {
+							break;
+						}
+					}
+
+					let type = types[i%types.length],
+						node = this.rules[type]?.();
+
+					if(node == null) {
+						break;
+					}
+
+					nodes.push(node);
+
+					if(this.tokensEnd) {
+						break;
+					}
+				}
+
+				return nodes;
+			},
+			skippableNode: (type, openingTokenType, closingTokenType) => {
 				let node,
 					start = this.position,
 					scopeLevel = 1;
 
-				for(let type of types) {
-					node = this.rules[type]?.();
-
-					if(node != null) {
-						break;
-					}
-				}
+				node = this.rules[type]?.();
 
 				if(this.token.type === closingTokenType || this.tokensEnd) {
 					return node;
@@ -1950,26 +2033,6 @@ function = func (x) { return x > 0 } - 3
 						message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
 
 					this.report(1, node.range.start, 'Unsupported type at '+message+'.');
-				}
-
-				return nodes;
-			},
-			sequentialNodes: (types) => {
-				let nodes = []
-
-				for(let i = 0; i < Infinity; i++) {
-					let type = types[i%types.length],
-						node = this.rules[type]?.();
-
-					if(node == null) {
-						break;
-					}
-
-					nodes.push(node);
-
-					if(this.tokensEnd) {
-						break;
-					}
 				}
 
 				return nodes;
