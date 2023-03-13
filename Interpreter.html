@@ -457,7 +457,6 @@ function = func (x) { return x > 0 } - 3
 					'else', 'enum', 'extension',
 					'false', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
-					'metaSelf',
 					'namespace', 'nil',
 					'operator',
 					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
@@ -465,7 +464,8 @@ function = func (x) { return x > 0 } - 3
 					'self', 'static', 'string', 'struct', 'super', 'switch',
 					'throw', 'true', 'try',
 					'var',
-					'while'
+					'while',
+					'_'
 				]
 
 				if(keywords.includes(this.token.value)) {
@@ -752,8 +752,8 @@ function = func (x) { return x > 0 } - 3
 			classExpression: () => {
 				return this.rules.classDeclaration(true);
 			},
-			classMembers: () => {
-				return this.rules.compositeMembers([
+			classStatements: () => {
+				return this.rules.compositeStatements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -767,7 +767,7 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: type+'Body',
 					range: {},
-					members: []
+					statements: []
 				}
 
 				if(this.token.type !== 'braceOpen') {
@@ -775,9 +775,9 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.members = this.rules[type+'Members']?.();
+				node.statements = this.rules[type+'Statements']?.();
 
-				if(node.members.length === 0) {
+				if(node.statements.length === 0) {
 					this.report(1, node.range.start, 'Body is empty.');
 				}
 
@@ -797,7 +797,7 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			compositeMembers: (types) => {
+			compositeStatements: (types) => {
 				return this.ruleHelpers.skippableNodes(types, 'braceOpen', 'braceClosed');
 			},
 			declaration: () => {
@@ -868,8 +868,8 @@ function = func (x) { return x > 0 } - 3
 			enumerationExpression: () => {
 				return this.rules.enumerationDeclaration(true);
 			},
-			enumerationMembers: () => {
-				return this.rules.compositeMembers(['caseDeclaration']);
+			enumerationStatements: () => {
+				return this.rules.compositeStatements(['caseDeclaration']);
 			},
 			expression: () => {
 				let node =
@@ -1053,16 +1053,6 @@ function = func (x) { return x > 0 } - 3
 			functionExpression: () => {
 				return this.rules.functionDeclaration(true);
 			},
-			functionMembers: () => {
-				return this.rules.compositeMembers([
-					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
-					'declaration',
-					'forStatement',
-					'ifStatement',
-					'variableAssignment',
-					'whileStatement'
-				]);
-			},
 			functionParameter: () => {},
 			functionSignature: () => {
 				let node = {
@@ -1102,6 +1092,16 @@ function = func (x) { return x > 0 } - 3
 				node.range.end = this.position++;
 
 				return node;
+			},
+			functionStatements: () => {
+				return this.rules.compositeStatements([
+					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
+					'declaration',
+					'forStatement',
+					'ifStatement',
+					'variableAssignment',
+					'whileStatement'
+				]);
 			},
 			identifier: () => {
 				let node = {
@@ -1324,12 +1324,12 @@ function = func (x) { return x > 0 } - 3
 						start: 0,
 						end: 0
 					},
-					members: this.rules.functionMembers()
+					statements: this.rules.functionStatements()
 				}
 
-				if(node.members.length > 0) {
-					node.range.start = node.members[0].range.start;
-					node.range.end = node.members.at(-1).range.end;
+				if(node.statements.length > 0) {
+					node.range.start = node.statements[0].range.start;
+					node.range.end = node.statements.at(-1).range.end;
 				}
 
 				return node;
@@ -1386,8 +1386,8 @@ function = func (x) { return x > 0 } - 3
 			namespaceExpression: () => {
 				return this.rules.namespaceDeclaration(true);
 			},
-			namespaceMembers: () => {
-				return this.rules.compositeMembers(['declaration']);
+			namespaceStatements: () => {
+				return this.rules.compositeStatements(['declaration']);
 			},
 			nillableExpression: (node_) => {
 				let node = {
@@ -1674,8 +1674,8 @@ function = func (x) { return x > 0 } - 3
 			protocolExpression: () => {
 				return this.rules.protocolDeclaration(true);
 			},
-			protocolMembers: () => {
-				return this.rules.compositeMembers([
+			protocolStatements: () => {
+				return this.rules.compositeStatements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -1814,8 +1814,8 @@ function = func (x) { return x > 0 } - 3
 			structureExpression: () => {
 				return this.rules.structureDeclaration(true);
 			},
-			structureMembers: () => {
-				return this.rules.compositeMembers([
+			structureStatements: () => {
+				return this.rules.compositeStatements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -1883,6 +1883,49 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			/*
+			type: () => {
+				let node =
+					this.rules.anyType() ??
+					this.rules.arrayType() ??
+					this.rules.dictionaryType() ??
+					this.rules.functionType() ??
+					this.rules.nillableType() ??
+					this.rules.parenthesizedType() ??
+					this.rules.typeIdentifier();
+
+				return node;
+			},
+			typeIdentifier: (node_) => {
+				let node = {
+					type: (node_ != null ? 'chainT': 't')+'ypeIdentifier',
+					range: {
+						start: node_?.range.start ?? this.position
+					},
+					type: node_,
+					value: undefined
+				}
+
+				if(!['operatorPrefix', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
+					return;
+				}
+
+				this.position++;
+				node.member =
+					this.rules.identifier() ??
+					this.rules.stringLiteral();
+
+				if(node.member == null) {
+					this.position = node_.range.end+1;
+
+					return;
+				}
+
+				node.range.end = node.member.range.end;
+
+				return node;
+			},
+			*/
 			variableAssignment: () => {
 				let node = {
 					type: 'variableAssignment',
@@ -2101,6 +2144,14 @@ function = func (x) { return x > 0 } - 3
 			{
 				address: 0,
 				inheritance: ['Namespace'],
+				imports: [
+					/*
+					{
+						identifier: 'Foundation',
+						value: 0
+					}
+					*/
+				],
 				operators: [
 					{
 						modifiers: ['postfix'],
@@ -2142,7 +2193,7 @@ function = func (x) { return x > 0 } - 3
 						inheritance: [1],
 						nillable: true,
 						value: '1',
-						observers: {}
+						observers: []
 					},
 					{
 						modifiers: ['public', 'static'],
@@ -2152,7 +2203,7 @@ function = func (x) { return x > 0 } - 3
 						inheritance: ['float'],
 						nillable: true,
 						value: '3.14',
-						observers: {}
+						observers: []
 					},
 					{
 						modifiers: ['public', 'static'],
@@ -2162,7 +2213,7 @@ function = func (x) { return x > 0 } - 3
 						inheritance: [2],
 						nillable: true,
 						value: '3',
-						observers: {}
+						observers: []
 					},
 					{
 						modifiers: ['public'],
@@ -2172,33 +2223,23 @@ function = func (x) { return x > 0 } - 3
 						inheritance: [],
 						nillable: true,
 						value: null,
-						observers: {
-							willGet: null, // Function address,
-							get: null,
-							didGet: null,
-							willSet: null,
-							set: null,
-							didSet: null,
-							willDelete: null,
-							delete: null,
-							didDelete: null
+						observers: [
+							{
+								identifier: 'willGet',  // 'get', 'didGet', 'willSet', 'set', 'didSet', 'willDelete', 'delete', 'didDelete'
+								value: null  // Function address
+							}
+						]
+					}
+				],
+				observers: {
+					chain: [
+						{
+							identifier: 'willGet',  // ...
+							value: null  // Function address
 						}
-					}
-				],
-				observers: [
-					{
-						type: 'chain', // 'subscript'
-						willGet: null, // Function address,
-						get: null,
-						didGet: null,
-						willSet: null,
-						set: null,
-						didSet: null,
-						willDelete: null,
-						delete: null,
-						didDelete: null
-					}
-				],
+					],
+					subscript: []
+				},
 				scope: null,
 				retains: 1
 			},
@@ -2244,7 +2285,7 @@ function = func (x) { return x > 0 } - 3
 						],
 						nillable: false,
 						value: '2',
-						observers: {}
+						observers: []
 					},
 					{
 						modifiers: ['public'],
@@ -2254,10 +2295,13 @@ function = func (x) { return x > 0 } - 3
 						inheritance: ['int'],
 						nillable: true,
 						value: null,
-						observers: {}
+						observers: []
 					}
 				],
-				observers: [],
+				observers: {
+					chain: [],
+					subscript: []
+				},
 				scope: 0,
 				retains: 1
 			},
@@ -2331,14 +2375,14 @@ function = func (x) { return x > 0 } - 3
 			module: (node) => {
 				let namespace = this.rules.namespace(node);
 
-				if(node.members.length > 0) {
-					this.rules.members(namespace, node.members);
+				if(node.statements.length > 0) {
+					this.rules.statements(namespace, node.statements);
 				}
 			},
 			namespace: (node) => {
 
 			},
-			members: (context, members) => {
+			statements: (context, statements) => {
 
 			}
 		}
