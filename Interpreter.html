@@ -43,7 +43,7 @@ struct Boolean {
 	private const value
 
 	init(value: bool) {
-		self.value = value
+		self.value = value  // .value = value
 	}
 
 	static func ==(lhs: bool & Boolean, rhs: bool & Boolean) -> Boolean {
@@ -60,7 +60,7 @@ struct Number {
 	protected const value
 
 	init(value: int & float) {
-		self.value = value
+		.value = value
 	}
 
 	static func ==(lhs: int & float & Number, rhs: int & float & Number) -> Boolean {
@@ -77,7 +77,7 @@ struct Float: Number {
 			throw 'Value can\'t be integer'
 		}
 
-		self.value = value
+		.value = value
 	}
 }
 
@@ -87,7 +87,7 @@ struct Integer: Number {
 			throw 'Value can\'t be float'
 		}
 
-		self.value = value
+		.value = value
 	}
 }
 
@@ -95,7 +95,7 @@ struct String {
 	private const value
 
 	init(value: string) {
-		self.value = value
+		.value = value
 	}
 
 	static func ==(lhs: string & String, rhs: string & String) -> Boolean {
@@ -442,6 +442,13 @@ function = func (x) { return x > 0 } - 3
 				this.token.value += v;
 
 				let keywords = [
+					// Flow-related words (async, class, for, return...)
+					// Literals (false, nil, true...)
+					// Types (Any, bool, _, ...)
+
+					// Words as Self, arguments, metaSelf or self are not allowed because they all
+					// have dynamic values and it's logical to distinguish them at interpretation stage
+
 					'Any',
 					'Class',
 					'Enumeration',
@@ -449,8 +456,8 @@ function = func (x) { return x > 0 } - 3
 					'Namespace',
 					'Object',
 					'Protocol',
-					'Self', 'Structure',
-					'any', /*'arguments',*/ 'async', 'await',
+					'Structure',
+					'any', 'async', 'await',
 					'bool', 'break',
 					'case', 'catch', 'class', 'const', 'continue',
 					'default', 'do',
@@ -461,7 +468,7 @@ function = func (x) { return x > 0 } - 3
 					'operator',
 					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
 					'return',
-					'self', 'static', 'string', 'struct', 'super', 'switch',
+					'static', 'string', 'struct', 'switch',
 					'throw', 'true', 'try',
 					'var',
 					'while',
@@ -469,7 +476,10 @@ function = func (x) { return x > 0 } - 3
 				]
 
 				if(keywords.includes(this.token.value)) {
-					this.token.type = 'keyword'+this.token.value[0].toUpperCase()+this.token.value.slice(1);
+					let value = this.token.value[0].toUpperCase()+this.token.value.slice(1),
+						capital = this.token.value[0] == value[0]
+
+					this.token.type = 'keyword'+(capital ? 'Capital'+value : value);
 				} else {
 					this.token.type = 'identifier';
 				}
@@ -667,6 +677,33 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			callExpression: (node_) => {
+				let node = {
+					type: 'callExpression',
+					range: {
+						start: node_.range.start
+					},
+					callee: node_,
+					arguments: []
+				}
+
+				if(this.token.type !== 'parenthesisOpen') {
+					return;
+				}
+
+				this.position++;
+			    node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'parenthesisOpen', 'parenthesisClosed');
+
+				if(this.token.type !== 'parenthesisClosed') {
+					this.position = node_.range.end+1;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			caseDeclaration: () => {},
 			chainExpression: (node_) => {
 				let node = {
@@ -799,6 +836,32 @@ function = func (x) { return x > 0 } - 3
 			},
 			compositeStatements: (types) => {
 				return this.ruleHelpers.skippableNodes(types, 'braceOpen', 'braceClosed');
+			},
+			compositeType: () => {
+				let node = {
+					type: 'compositeType',
+					range: {},
+					value: undefined
+				}
+
+				if(![
+					'keywordCapitalAny',
+					'keywordCapitalClass',
+					'keywordCapitalEnumeration',
+					'keywordCapitalFunction',
+					'keywordCapitalNamespace',
+					'keywordCapitalObject',
+					'keywordCapitalProtocol',
+					'keywordCapitalStructure'
+				].includes(this.token.value)) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
 			},
 			declaration: () => {
 				let node =
@@ -973,33 +1036,6 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				return nodes;
-			},
-			functionCallExpression: (node_) => {
-				let node = {
-					type: 'functionCallExpression',
-					range: {
-						start: node_.range.start
-					},
-					callee: node_,
-					arguments: []
-				}
-
-				if(this.token.type !== 'parenthesisOpen') {
-					return;
-				}
-
-				this.position++;
-			    node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'parenthesisOpen', 'parenthesisClosed');
-
-				if(this.token.type !== 'parenthesisClosed') {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				node.range.end = this.position++;
-
-				return node;
 			},
 			functionDeclaration: (anonymous) => {
 				let node = {
@@ -1518,8 +1554,8 @@ function = func (x) { return x > 0 } - 3
 
 				while(!this.tokensEnd) {
 					let node_ =
+						this.rules.callExpression(node.value) ??
 						this.rules.chainExpression(node.value) ??
-						this.rules.functionCallExpression(node.value) ??
 						this.rules.nillableExpression(node.value) ??
 						this.rules.subscriptExpression(node.value);
 
@@ -1616,6 +1652,29 @@ function = func (x) { return x > 0 } - 3
 					this.rules.parenthesizedExpression() ??
 					this.rules.protocolExpression() ??
 					this.rules.structureExpression();
+
+				return node;
+			},
+			primitiveType: () => {
+				let node = {
+					type: 'primitiveType',
+					range: {},
+					value: undefined
+				}
+
+				if(![
+					'keywordAny',
+					'keywordBool',
+					'keywordFloat',
+					'keywordInt',
+					'keywordString'
+				].includes(this.token.type)) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
 
 				return node;
 			},
@@ -1840,7 +1899,7 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNode('functionCallArguments', 'bracketOpen', 'bracketClosed');
+				node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'bracketOpen', 'bracketClosed');
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node_.range.end+1;
@@ -1883,49 +1942,46 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			/*
 			type: () => {
 				let node =
-					this.rules.anyType() ??
-					this.rules.arrayType() ??
-					this.rules.dictionaryType() ??
-					this.rules.functionType() ??
-					this.rules.nillableType() ??
-					this.rules.parenthesizedType() ??
+				//	this.rules.anyType() ??
+				//	this.rules.arrayType() ??
+					this.rules.compositeType() ??
+				//	this.rules.dictionaryType() ??
+				//	this.rules.functionType() ??
+				//	this.rules.nillableType() ??
+				//	this.rules.parenthesizedType() ??
+					this.rules.primitiveType() ??
 					this.rules.typeIdentifier();
 
 				return node;
 			},
 			typeIdentifier: (node_) => {
 				let node = {
-					type: (node_ != null ? 'chainT': 't')+'ypeIdentifier',
-					range: {
-						start: node_?.range.start ?? this.position
-					},
-					type: node_,
-					value: undefined
+					type: 'typeIdentifier',
+					range: {},
+					identifier: undefined,
+					genericArguments: undefined
 				}
 
-				if(!['operatorPrefix', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
-					return;
+				/*
+				if(['operatorPrefix', 'operatorInfix'].includes(this.token.type) && this.token.value !== '.') {
 				}
 
 				this.position++;
-				node.member =
-					this.rules.identifier() ??
-					this.rules.stringLiteral();
+				node.identifier = this.rules.identifier();
 
-				if(node.member == null) {
+				if(node.identifier == null) {
 					this.position = node_.range.end+1;
 
 					return;
 				}
 
-				node.range.end = node.member.range.end;
+				node.range.end = node.identifier.range.end;
 
 				return node;
+				*/
 			},
-			*/
 			variableAssignment: () => {
 				let node = {
 					type: 'variableAssignment',
