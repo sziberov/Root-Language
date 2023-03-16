@@ -476,10 +476,17 @@ function = func (x) { return x > 0 } - 3
 				]
 
 				if(keywords.includes(this.token.value)) {
-					let value = this.token.value[0].toUpperCase()+this.token.value.slice(1),
-						capital = this.token.value[0] == value[0]
+					this.token.type = 'keyword';
 
-					this.token.type = 'keyword'+(capital ? 'Capital'+value : value);
+					if(this.token.value === '_') {
+						this.token.type += 'Underscore';
+
+						return;
+					}
+
+					let value = this.token.value[0].toUpperCase()+this.token.value.slice(1);
+
+					this.token.type += this.token.value[0] === value[0] ? 'Capital'+value : value;
 				} else {
 					this.token.type = 'identifier';
 				}
@@ -636,6 +643,23 @@ function = func (x) { return x > 0 } - 3
 		static reports;
 
 		static rules = {
+			anyType: () => {
+				let node = {
+					type: 'anyType',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordUnderscore') {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			awaitExpression: () => {
 				let node = {
 					type: 'awaitExpression',
@@ -853,7 +877,7 @@ function = func (x) { return x > 0 } - 3
 					'keywordCapitalObject',
 					'keywordCapitalProtocol',
 					'keywordCapitalStructure'
-				].includes(this.token.value)) {
+				].includes(this.token.type)) {
 					return;
 				}
 
@@ -1944,7 +1968,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			type: () => {
 				let node =
-				//	this.rules.anyType() ??
+					this.rules.anyType() ??
 				//	this.rules.arrayType() ??
 					this.rules.compositeType() ??
 				//	this.rules.dictionaryType() ??
@@ -1960,6 +1984,7 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'typeIdentifier',
 					range: {},
+					baseType: undefined,
 					identifier: undefined,
 					genericArguments: undefined
 				}
