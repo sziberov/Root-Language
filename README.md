@@ -223,8 +223,8 @@ var unionVariable: Integer | String | Boolean  Переменная, прини�
 
 ```
 class CustomCompositeA {}
-class CustomCompositeB: CustomCompositeA & CustomProtocolA {}
-class CustomCompositeC: CustomCompositeA & CustomProtocolB {}
+class CustomCompositeB: CustomCompositeA, CustomProtocolA {}
+class CustomCompositeC: CustomCompositeA, CustomProtocolA, CustomProtocolB {}
 
 var intersectionVariable: CustomCompositeA & CustomProtocolB  Переменная, принимающая значения типа CustomCompositeA, соответствующего протоколу CustomProtocolB
 ```
