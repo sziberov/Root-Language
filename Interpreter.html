@@ -23,6 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
+Class & Function | Enumeration & bool | float
+
 ++.a++
 .implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)
 
@@ -1155,6 +1157,7 @@ function = func (x) { return x > 0 } - 3
 			},
 			functionStatements: () => {
 				return this.rules.compositeStatements([
+					'type',
 					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 					'declaration',
 					'forStatement',
@@ -1329,6 +1332,33 @@ function = func (x) { return x > 0 } - 3
 				node.value = this.token.value;
 				node.range.start =
 				node.range.end = this.position++;
+
+				return node;
+			},
+			intersectionType: () => {
+				let node = {
+					type: 'intersectionType',
+					range: {
+						start: this.position
+					},
+					values: this.ruleHelpers.sequentialNodes(
+						['primaryType'],
+						() => this.token.type.startsWith('operator') && this.token.value === '&'
+					)
+				}
+
+				if(node.values.length === 0) {
+					this.position = node.range.start;
+
+					return;
+				}
+				if(node.values.length === 1) {
+					this.position = node.values[0].range.end+1;
+
+					return node.values[0]
+				}
+
+				node.range.end = node.values.at(-1).range.end;
 
 				return node;
 			},
@@ -1562,6 +1592,30 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			parenthesizedType: () => {
+				let node = {
+					type: 'parenthesizedType',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'parenthesisOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.ruleHelpers.skippableNode('type', 'parenthesisOpen', 'parenthesisClosed');
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Parenthesized type doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
 			postfixExpression: () => {
 				let node = {
 					type: 'postfixExpression',
@@ -1676,6 +1730,20 @@ function = func (x) { return x > 0 } - 3
 					this.rules.parenthesizedExpression() ??
 					this.rules.protocolExpression() ??
 					this.rules.structureExpression();
+
+				return node;
+			},
+			primaryType: () => {
+				let node =
+					this.rules.anyType() ??
+				//	this.rules.arrayType() ??
+					this.rules.compositeType() ??
+				//	this.rules.dictionaryType() ??
+				//	this.rules.functionSignature() ??
+				//	this.rules.nillableType() ??
+					this.rules.parenthesizedType() ??
+					this.rules.primitiveType();// ??
+				//	this.rules.typeReference();
 
 				return node;
 			},
@@ -1967,20 +2035,9 @@ function = func (x) { return x > 0 } - 3
 				return node;
 			},
 			type: () => {
-				let node =
-					this.rules.anyType() ??
-				//	this.rules.arrayType() ??
-					this.rules.compositeType() ??
-				//	this.rules.dictionaryType() ??
-				//	this.rules.functionType() ??
-				//	this.rules.nillableType() ??
-				//	this.rules.parenthesizedType() ??
-					this.rules.primitiveType() ??
-					this.rules.typeIdentifier();
-
-				return node;
+				return this.rules.unionType();
 			},
-			typeIdentifier: (node_) => {
+			typeReference: (node_) => {
 				let node = {
 					type: 'typeIdentifier',
 					range: {},
@@ -1988,24 +2045,33 @@ function = func (x) { return x > 0 } - 3
 					identifier: undefined,
 					genericArguments: undefined
 				}
-
-				/*
-				if(['operatorPrefix', 'operatorInfix'].includes(this.token.type) && this.token.value !== '.') {
+			},
+			unionType: () => {
+				let node = {
+					type: 'unionType',
+					range: {
+						start: this.position
+					},
+					values: this.ruleHelpers.sequentialNodes(
+						['intersectionType'],
+						() => this.token.type.startsWith('operator') && this.token.value === '|'
+					)
 				}
 
-				this.position++;
-				node.identifier = this.rules.identifier();
-
-				if(node.identifier == null) {
-					this.position = node_.range.end+1;
+				if(node.values.length === 0) {
+					this.position = node.range.start;
 
 					return;
 				}
+				if(node.values.length === 1) {
+					this.position = node.values[0].range.end+1;
 
-				node.range.end = node.identifier.range.end;
+					return node.values[0]
+				}
+
+				node.range.end = node.values.at(-1).range.end;
 
 				return node;
-				*/
 			},
 			variableAssignment: () => {
 				let node = {
