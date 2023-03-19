@@ -953,6 +953,23 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			defaultType: (node_) => {
+				let node = {
+					type: 'defaultType',
+					range: {
+						start: node_.range.start
+					},
+					value: node_
+				}
+
+				if(this.token.type !== 'operatorPostfix' || this.token.value !== '!') {
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			dictionaryType: () => {
 				let node = {
 					type: 'dictionaryType',
@@ -1783,7 +1800,9 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				while(!this.tokensEnd) {
-					let node_ = this.rules.nillableType(node);
+					let node_ =
+						this.rules.defaultType(node) ??
+						this.rules.nillableType(node);
 
 					if(node_ == null) {
 						break;
