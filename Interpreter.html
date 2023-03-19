@@ -24,9 +24,9 @@ body {
 </style>
 <textarea id="input">
 Class & Function | Enumeration & bool | float
-
+[_?] | ([int: string]?)????
 ++.a++
-.implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)
+.implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)??
 
 // Foundation Source
 
@@ -322,11 +322,20 @@ function = func (x) { return x > 0 } - 3
 				}
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
-				let initializers = [',', '.', ':']  // Create new token if value exists in list and current token doesn't initialized with it
+				let initializers = [',', '.', ':'],	// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+					singletons = ['?']				// Create new token if current (postfix operator) token matches any value in the list
 
-				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator') && (!initializers.includes(v) || this.token.value.startsWith(v))) {
+				let initialize = initializers.includes(v) && !this.token.value.startsWith(v),
+					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value);
+
+				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator') && !initialize && !singleton) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
+
+					return;
+				}
+				if(singleton) {
+					this.addToken(this.token.type);
 
 					return;
 				}
@@ -662,6 +671,30 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			arrayType: () => {
+				let node = {
+					type: 'arrayType',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'bracketOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.type();
+
+				if(this.token.type !== 'bracketClosed') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			awaitExpression: () => {
 				let node = {
 					type: 'awaitExpression',
@@ -900,6 +933,40 @@ function = func (x) { return x > 0 } - 3
 					this.rules.protocolDeclaration() ??
 					this.rules.structureDeclaration() ??
 					this.rules.variableDeclaration();
+
+				return node;
+			},
+			dictionaryType: () => {
+				let node = {
+					type: 'dictionaryType',
+					range: {},
+					key: undefined,
+					value: undefined
+				}
+
+				if(this.token.type !== 'bracketOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.key = this.rules.type();
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.value = this.rules.type();
+
+				if(this.token.type !== 'bracketClosed') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
 
 				return node;
 			},
@@ -1342,7 +1409,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					values: this.ruleHelpers.sequentialNodes(
-						['primaryType'],
+						['postfixType'],
 						() => this.token.type.startsWith('operator') && this.token.value === '&'
 					)
 				}
@@ -1482,6 +1549,23 @@ function = func (x) { return x > 0 } - 3
 			nillableExpression: (node_) => {
 				let node = {
 					type: 'nillableExpression',
+					range: {
+						start: node_.range.start
+					},
+					value: node_
+				}
+
+				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
+			nillableType: (node_) => {
+				let node = {
+					type: 'nillableType',
 					range: {
 						start: node_.range.start
 					},
@@ -1673,6 +1757,25 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			postfixType: () => {
+				let node = this.rules.primaryType();
+
+				if(node == null) {
+					return;
+				}
+
+				while(!this.tokensEnd) {
+					let node_ = this.rules.nillableType(node);
+
+					if(node_ == null) {
+						break;
+					}
+
+					node = node_;
+				}
+
+				return node;
+			},
 			prefixExpression: () => {
 				let node = {
 					type: 'prefixExpression',
@@ -1736,11 +1839,10 @@ function = func (x) { return x > 0 } - 3
 			primaryType: () => {
 				let node =
 					this.rules.anyType() ??
-				//	this.rules.arrayType() ??
+					this.rules.arrayType() ??
 					this.rules.compositeType() ??
-				//	this.rules.dictionaryType() ??
+					this.rules.dictionaryType() ??
 				//	this.rules.functionSignature() ??
-				//	this.rules.nillableType() ??
 					this.rules.parenthesizedType() ??
 					this.rules.primitiveType();// ??
 				//	this.rules.typeReference();
