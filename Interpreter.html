@@ -23,7 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
-Class & Function | Enumeration & bool | float
+A<B: Clazz & Proto, C: Function>
+Clazz.A.B & Function | Enumeration & bool | float
 [_?] | ([int: string]?)????
 ++.a++
 .implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)!
@@ -686,7 +687,7 @@ function = func (x) { return x > 0 } - 3
 				node.value = this.rules.type();
 
 				if(this.token.type !== 'bracketClosed') {
-					this.position = node.range.start;
+					this.position--;
 
 					return;
 				}
@@ -710,7 +711,7 @@ function = func (x) { return x > 0 } - 3
 				node.value = this.rules.expression();
 
 				if(node.value == null) {
-					this.position = node.range.start;
+					this.position--;
 
 					return;
 				}
@@ -751,7 +752,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-			    node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'parenthesisOpen', 'parenthesisClosed');
+				node.arguments = this.ruleHelpers.skippableNode(
+					'functionCallArgumentsSequence',
+					() => this.token.type === 'parenthesisOpen',
+					() => this.token.type === 'parenthesisClosed'
+				);
 
 				if(this.token.type !== 'parenthesisClosed') {
 					this.position = node_.range.end+1;
@@ -793,6 +798,33 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			chainIdentifier: (node_) => {
+				let node = {
+					type: 'chainIdentifier',
+					range: {
+						start: node_.range.start
+					},
+					supervalue: node_,
+					value: undefined
+				}
+
+				if(!['operatorPrefix', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
+					return;
+				}
+
+				this.position++;
+				node.value = this.rules.identifier();
+
+				if(node.value == null) {
+					this.position = node_.range.end+1;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
 			classBody: () => {
 				return this.rules.compositeBody('class');
 			},
@@ -803,7 +835,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -815,19 +847,19 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.classBody();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.id != null) {
+					if(node.modifiers != null || node.identifier != null) {
 						return;
 					} else {
 						delete node.modifiers;
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for class declaration.');
 				}
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
@@ -840,7 +872,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -894,7 +926,11 @@ function = func (x) { return x > 0 } - 3
 				return node;
 			},
 			compositeStatements: (types) => {
-				return this.ruleHelpers.skippableNodes(types, 'braceOpen', 'braceClosed');
+				return this.ruleHelpers.skippableNodes(
+					types,
+					() => this.token.type === 'braceOpen',
+					() => this.token.type === 'braceClosed'
+				);
 			},
 			compositeType: () => {
 				let node = {
@@ -986,7 +1022,7 @@ function = func (x) { return x > 0 } - 3
 				node.key = this.rules.type();
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					this.position = node.range.start;
+					this.position--;
 
 					return;
 				}
@@ -1014,7 +1050,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -1026,18 +1062,18 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.enumerationBody();
 
 				if(anonymous) {
-					if(node.id != null) {
+					if(node.identifier != null) {
 						return;
 					} else {
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for enumeration declaration.');
 				}
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
@@ -1050,7 +1086,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -1082,8 +1118,6 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				if(node.values.length === 0) {
-					this.position = node.range.start;
-
 					return;
 				}
 				if(node.values.length < 3) {
@@ -1171,7 +1205,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					signature: undefined,
 					body: undefined
 				}
@@ -1183,19 +1217,21 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier() ?? this.rules.operator();
+				node.identifier =
+					this.rules.identifier() ??
+					this.rules.operator();
 				node.signature = this.rules.functionSignature();
 				node.body = this.rules.functionBody();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.id != null) {
+					if(node.modifiers != null || node.identifier != null) {
 						return;
 					} else {
 						delete node.modifiers;
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for function declaration.');
 				}
 				if(node.signature == null) {
@@ -1208,7 +1244,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.signature?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -1267,6 +1303,52 @@ function = func (x) { return x > 0 } - 3
 					'whileStatement'
 				]);
 			},
+			genericArgument: () => {},
+			genericParameter: () => {
+				let node = {
+					type: 'genericParameter',
+					range: {
+						start: this.position
+					},
+					identifier: this.rules.identifier(),
+					type_: undefined
+				}
+
+				if(node.identifier == null) {
+					return;
+				}
+
+				node.range.end = node.identifier.range.end;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					return node;
+				}
+
+				this.position++;
+				node.type_ = this.rules.type();
+
+				if(node.type_ == null) {
+					this.position--;
+
+					return node;
+				}
+
+				node.range.end = node.type_.range.end;
+
+				return node;
+			},
+			genericParametersSequence: () => {
+				let nodes = this.ruleHelpers.sequentialNodes(
+					['genericParameter'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(nodes.length === 0) {
+					return;
+				}
+
+				return nodes;
+			},
 			identifier: () => {
 				let node = {
 					type: 'identifier',
@@ -1297,15 +1379,41 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.member = this.rules.identifier();
+				node.member =
+					this.rules.identifier() ??
+					this.rules.stringLiteral();
 
 				if(node.member == null) {
-					this.position = node.range.start;
+					this.position--;
 
 					return;
 				}
 
 				node.range.end = node.member.range.end;
+
+				return node;
+			},
+			implicitChainIdentifier: () => {
+				let node = {
+					type: 'implicitChainIdentifier',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'operatorPrefix' || this.token.value !== '.') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.identifier();
+
+				if(node.value == null) {
+					this.position--;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
 
 				return node;
 			},
@@ -1346,7 +1454,7 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'inheritance',
 					range: {},
-					identifiers: []
+					types: []
 				}
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
@@ -1354,18 +1462,18 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.identifiers = this.ruleHelpers.sequentialNodes(
-					['identifier'],
+				node.types = this.ruleHelpers.sequentialNodes(
+					['typeReference'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(node.identifiers.length === 0) {
-					this.position = node.range.start;
+				if(node.types.length === 0) {
+					this.position--;
 
 					return;
 				}
 
-				node.range.end = node.identifiers.at(-1).range.end;
+				node.range.end = node.types.at(-1).range.end;
 
 				return node;
 			},
@@ -1373,7 +1481,7 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'initializerClause',
 					range: {},
-					id: undefined
+					identifier: undefined
 				}
 
 				if(this.token.type !== 'operator' || this.token.value !== '=') {
@@ -1383,15 +1491,15 @@ function = func (x) { return x > 0 } - 3
 				node.value = this.token.value;
 				node.range.start =
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 
-				if(node.id == null) {
-					this.position = node.range.start;
+				if(node.identifier == null) {
+					this.position--;
 
 					return;
 				}
 
-				node.range.end = node.id.range.end;
+				node.range.end = node.identifier.range.end;
 
 				return node;
 			},
@@ -1399,7 +1507,7 @@ function = func (x) { return x > 0 } - 3
 				let node = {
 					type: 'inoutExpression',
 					range: {},
-					id: undefined
+					identifier: undefined
 				}
 
 				if(this.token.type !== 'operatorPrefix' || this.token.value !== '&') {
@@ -1407,15 +1515,15 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 
-				if(node.id == null) {
-					this.position = node.range.start;
+				if(node.identifier == null) {
+					this.position--;
 
 					return;
 				}
 
-				node.range.end = node.id.range.end;
+				node.range.end = node.identifier.range.end;
 
 				return node;
 			},
@@ -1449,8 +1557,6 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				if(node.values.length === 0) {
-					this.position = node.range.start;
-
 					return;
 				}
 				if(node.values.length === 1) {
@@ -1494,17 +1600,12 @@ function = func (x) { return x > 0 } - 3
 					'keywordStatic'
 				].includes(this.token.type)) {
 					node.values.push(this.token.value);
-
-					this.position++;
+					node.range.end = this.position++;
 				}
 
 				if(node.values.length === 0) {
-					this.position = node.range.start;
-
 					return;
 				}
-
-				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1535,7 +1636,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					body: undefined
 				}
 
@@ -1546,18 +1647,18 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 				node.body = this.rules.namespaceBody();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.id != null) {
+					if(node.modifiers != null || node.identifier != null) {
 						return;
 					} else {
 						delete node.modifiers;
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
 				}
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
@@ -1569,7 +1670,7 @@ function = func (x) { return x > 0 } - 3
 
 				node.range.end =
 					node.body?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -1698,7 +1799,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode('expressionsSequence', 'parenthesisOpen', 'parenthesisClosed');
+				node.value = this.ruleHelpers.skippableNode(
+					'expressionsSequence',
+					() => this.token.type === 'parenthesisOpen',
+					() => this.token.type === 'parenthesisClosed'
+				);
 
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
@@ -1722,7 +1827,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode('type', 'parenthesisOpen', 'parenthesisClosed');
+				node.value = this.ruleHelpers.skippableNode(
+					'type',
+					() => this.token.type === 'parenthesisOpen',
+					() => this.token.type === 'parenthesisClosed'
+				);
 
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
@@ -1881,8 +1990,8 @@ function = func (x) { return x > 0 } - 3
 					this.rules.dictionaryType() ??
 				//	this.rules.functionSignature() ??
 					this.rules.parenthesizedType() ??
-					this.rules.primitiveType();// ??
-				//	this.rules.typeReference();
+					this.rules.primitiveType() ??
+					this.rules.typeReference();
 
 				return node;
 			},
@@ -1919,7 +2028,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -1931,19 +2040,19 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.protocolBody();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.id != null) {
+					if(node.modifiers != null || node.identifier != null) {
 						return;
 					} else {
 						delete node.modifiers;
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
 				}
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
@@ -1956,7 +2065,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -1987,7 +2096,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode('expressionsSequence', 'stringExpressionOpen', 'stringExpressionClosed');
+				node.value = this.ruleHelpers.skippableNode(
+					'expressionsSequence',
+					() => this.token.type === 'stringExpressionOpen',
+					() => this.token.type === 'stringExpressionClosed'
+				);
 
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
@@ -2011,10 +2124,14 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.segments = this.ruleHelpers.skippableNodes([
-					'stringSegment',
-					'stringExpression'
-				], 'stringOpen', 'stringClosed');
+				node.segments = this.ruleHelpers.skippableNodes(
+					[
+						'stringSegment',
+						'stringExpression'
+					],
+					() => this.token.type === 'stringOpen',
+					() => this.token.type === 'stringClosed'
+				);
 
 				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
 					this.position = node.range.start;
@@ -2059,7 +2176,7 @@ function = func (x) { return x > 0 } - 3
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					id: undefined,
+					identifier: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -2071,19 +2188,19 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.end = this.position++;
-				node.id = this.rules.identifier();
+				node.identifier = this.rules.identifier();
 				node.inheritance = this.rules.inheritance();
 				node.body = this.rules.structureBody();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.id != null) {
+					if(node.modifiers != null || node.identifier != null) {
 						return;
 					} else {
 						delete node.modifiers;
-						delete node.id;
+						delete node.identifier;
 					}
 				} else
-				if(node.id == null) {
+				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for structure declaration.');
 				}
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
@@ -2096,7 +2213,7 @@ function = func (x) { return x > 0 } - 3
 				node.range.end =
 					node.body?.range.end ??
 					node.inheritance?.range.end ??
-					node.id?.range.end ??
+					node.identifier?.range.end ??
 					node.range.end;
 
 				return node;
@@ -2130,7 +2247,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNode('functionCallArgumentsSequence', 'bracketOpen', 'bracketClosed');
+				node.arguments = this.ruleHelpers.skippableNode(
+					'functionCallArgumentsSequence',
+					() => this.token.type === 'bracketOpen',
+					() => this.token.type === 'bracketClosed'
+				);
 
 				if(this.token.type !== 'bracketClosed') {
 					this.position = node_.range.end+1;
@@ -2176,14 +2297,54 @@ function = func (x) { return x > 0 } - 3
 			type: () => {
 				return this.rules.unionType();
 			},
-			typeReference: (node_) => {
+			typeReference: () => {
 				let node = {
-					type: 'typeIdentifier',
-					range: {},
-					baseType: undefined,
-					identifier: undefined,
-					genericArguments: undefined
+					type: 'typeReference',
+					range: {
+						start: this.position
+					},
+					identifier:
+						this.rules.identifier() ??
+						this.rules.implicitChainIdentifier(),
+					parameters: []
 				}
+
+				if(node.identifier == null) {
+					return;
+				}
+
+				while(!this.tokensEnd) {
+					let node_ = this.rules.chainIdentifier(node.identifier);
+
+					if(node_ == null) {
+						break;
+					}
+
+					node.identifier = node_;
+				}
+
+				node.range.end = node.identifier.range.end;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
+					return node;
+				}
+
+				this.position++;
+				node.parameters = this.ruleHelpers.skippableNode(
+					'genericParametersSequence',
+					() => this.token.type.startsWith('operator') && this.token.value === '<',
+					() => this.token.type.startsWith('operator') && this.token.value === '>'
+				);
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
+					this.position = node.range.end+1;
+
+					return node;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
 			},
 			unionType: () => {
 				let node = {
@@ -2198,8 +2359,6 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				if(node.values.length === 0) {
-					this.position = node.range.start;
-
 					return;
 				}
 				if(node.values.length === 1) {
@@ -2261,14 +2420,14 @@ function = func (x) { return x > 0 } - 3
 
 				return nodes;
 			},
-			skippableNode: (type, openingTokenType, closingTokenType) => {
+			skippableNode: (type, openingCondition, closingCondition) => {
 				let node,
 					start = this.position,
 					scopeLevel = 1;
 
 				node = this.rules[type]?.();
 
-				if(this.token.type === closingTokenType || this.tokensEnd) {
+				if(closingCondition() || this.tokensEnd) {
 					return node;
 				}
 
@@ -2284,9 +2443,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				while(!this.tokensEnd) {
-					switch(this.token.type) {
-						case openingTokenType: scopeLevel++; break;
-						case closingTokenType: scopeLevel--; break;
+					if(openingCondition()) {
+						scopeLevel++;
+					}
+					if(closingCondition()) {
+						scopeLevel--;
 					}
 					if(scopeLevel === 0) {
 						break;
@@ -2303,7 +2464,7 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			skippableNodes: (types, openingTokenType, closingTokenType) => {
+			skippableNodes: (types, openingCondition, closingCondition) => {
 				let nodes = [],
 					scopeLevel = 1;
 
@@ -2321,7 +2482,7 @@ function = func (x) { return x > 0 } - 3
 					if(node != null) {
 						nodes.push(node);
 
-						if(this.token.type === closingTokenType && scopeLevel === 1 || this.tokensEnd) {
+						if(closingCondition() && scopeLevel === 1 || this.tokensEnd) {
 							break;
 						}
 
@@ -2341,9 +2502,11 @@ function = func (x) { return x > 0 } - 3
 						}
 					}
 
-					switch(this.token.type) {
-						case openingTokenType: scopeLevel++; break;
-						case closingTokenType: scopeLevel--; break;
+					if(openingCondition()) {
+						scopeLevel++;
+					}
+					if(closingCondition()) {
+						scopeLevel--;
 					}
 					if(scopeLevel === 0) {
 						break;
