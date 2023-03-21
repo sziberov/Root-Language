@@ -23,6 +23,13 @@ body {
 }
 </style>
 <textarea id="input">
+Correct<A, B, C, D>
+HalfIntersection<A &, C>
+NoIdentifier<A, , C>
+NoComma<A B, C, D>
+NoComma<A, B C, D>
+NoComma<A B C, D E F>
+
 A<B: Clazz & Proto, C: Function>
 Clazz.A.B & Function | Enumeration & bool | float
 [_?] | ([int: string]?)????
@@ -752,10 +759,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNode(
-					'functionCallArgumentsSequence',
+				node.arguments = this.ruleHelpers.skippableNodes(
+					['functionCallArgument'],
 					() => this.token.type === 'parenthesisOpen',
-					() => this.token.type === 'parenthesisClosed'
+					() => this.token.type === 'parenthesisClosed',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
 				if(this.token.type !== 'parenthesisClosed') {
@@ -1186,18 +1194,6 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			functionCallArgumentsSequence: () => {
-				let nodes = this.ruleHelpers.sequentialNodes(
-					['functionCallArgument'],
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(nodes.length === 0) {
-					return;
-				}
-
-				return nodes;
-			},
 			functionDeclaration: (anonymous) => {
 				let node = {
 					type: 'function'+(!anonymous ? 'Declaration' : 'Expression'),
@@ -1303,7 +1299,18 @@ function = func (x) { return x > 0 } - 3
 					'whileStatement'
 				]);
 			},
-			genericArgument: () => {},
+			genericArgumentsSequence: () => {
+				let nodes = this.ruleHelpers.sequentialNodes(
+					['type'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(nodes.length === 0) {
+					return;
+				}
+
+				return nodes;
+			},
 			genericParameter: () => {
 				let node = {
 					type: 'genericParameter',
@@ -1560,7 +1567,7 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 				if(node.values.length === 1) {
-					this.position = node.values[0].range.end+1;
+				//	this.position = node.values[0].range.end+1;  // Revert to position before trailing separator (disabled)
 
 					return node.values[0]
 				}
@@ -1827,19 +1834,15 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				node.range.start = this.position++;
-				node.value = this.ruleHelpers.skippableNode(
-					'type',
-					() => this.token.type === 'parenthesisOpen',
-					() => this.token.type === 'parenthesisClosed'
-				);
+				node.value = this.rules.type();
 
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
+				if(this.token.type !== 'parenthesisClosed') {
+					this.position--;
 
-					this.report(1, node.range.start, 'Parenthesized type doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+					return;
 				}
+
+				node.range.end = this.position++;
 
 				return node;
 			},
@@ -2247,10 +2250,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNode(
-					'functionCallArgumentsSequence',
+				node.arguments = this.ruleHelpers.skippableNodes(
+					['functionCallArgument'],
 					() => this.token.type === 'bracketOpen',
-					() => this.token.type === 'bracketClosed'
+					() => this.token.type === 'bracketClosed',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
 				if(this.token.type !== 'bracketClosed') {
@@ -2306,7 +2310,7 @@ function = func (x) { return x > 0 } - 3
 					identifier:
 						this.rules.identifier() ??
 						this.rules.implicitChainIdentifier(),
-					parameters: []
+					arguments: []
 				}
 
 				if(node.identifier == null) {
@@ -2330,10 +2334,11 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				this.position++;
-				node.parameters = this.ruleHelpers.skippableNode(
-					'genericParametersSequence',
+				node.arguments = this.ruleHelpers.skippableNodes(
+					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === '<',
-					() => this.token.type.startsWith('operator') && this.token.value === '>'
+					() => this.token.type.startsWith('operator') && this.token.value === '>',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
@@ -2362,7 +2367,7 @@ function = func (x) { return x > 0 } - 3
 					return;
 				}
 				if(node.values.length === 1) {
-					this.position = node.values[0].range.end+1;
+				//	this.position = node.values[0].range.end+1;  // Revert to position before trailing separator (disabled)
 
 					return node.values[0]
 				}
@@ -2392,12 +2397,12 @@ function = func (x) { return x > 0 } - 3
 		}
 
 		static ruleHelpers = {
-			sequentialNodes: (types, delimitingCondition) => {
+			sequentialNodes: (types, separating) => {
 				let nodes = []
 
 				for(let i = 0; i < Infinity; i++) {
-					if(delimitingCondition != null && i > 0) {
-						if(delimitingCondition()) {
+					if(separating != null && i > 0) {
+						if(separating()) {
 							this.position++;
 						} else {
 							break;
@@ -2420,14 +2425,14 @@ function = func (x) { return x > 0 } - 3
 
 				return nodes;
 			},
-			skippableNode: (type, openingCondition, closingCondition) => {
+			skippableNode: (type, opening, closing) => {
 				let node,
 					start = this.position,
 					scopeLevel = 1;
 
 				node = this.rules[type]?.();
 
-				if(closingCondition() || this.tokensEnd) {
+				if(closing() || this.tokensEnd) {
 					return node;
 				}
 
@@ -2443,10 +2448,10 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				while(!this.tokensEnd) {
-					if(openingCondition()) {
+					if(opening()) {
 						scopeLevel++;
 					}
-					if(closingCondition()) {
+					if(closing()) {
 						scopeLevel--;
 					}
 					if(scopeLevel === 0) {
@@ -2464,25 +2469,27 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
-			skippableNodes: (types, openingCondition, closingCondition) => {
+			skippableNodes: (types, opening, closing, separating) => {
 				let nodes = [],
 					scopeLevel = 1;
 
 				while(!this.tokensEnd) {
 					let node;
 
-					for(let type of types) {
-						node = this.rules[type]?.();
+					if(separating == null || nodes.length === 0 || nodes.at(-1)?.type === 'separator') {
+						for(let type of types) {
+							node = this.rules[type]?.();
 
-						if(node != null) {
-							break;
+							if(node != null) {
+								break;
+							}
 						}
 					}
 
 					if(node != null) {
 						nodes.push(node);
 
-						if(closingCondition() && scopeLevel === 1 || this.tokensEnd) {
+						if(closing() && scopeLevel === 1 || this.tokensEnd) {
 							break;
 						}
 
@@ -2490,6 +2497,26 @@ function = func (x) { return x > 0 } - 3
 					}
 
 					node = nodes.at(-1);
+
+					if(separating?.()) {
+						if(node?.type !== 'separator') {
+							node = {
+								type: 'separator',
+								range: {
+									start: this.position,
+									end: this.position
+								}
+							}
+
+							nodes.push(node);
+						} else {
+							node.range.end = this.position;
+						}
+
+						this.position++;
+
+						continue;
+					}
 
 					if(node?.type !== 'unsupported') {
 						node = {
@@ -2502,10 +2529,10 @@ function = func (x) { return x > 0 } - 3
 						}
 					}
 
-					if(openingCondition()) {
+					if(opening()) {
 						scopeLevel++;
 					}
-					if(closingCondition()) {
+					if(closing()) {
 						scopeLevel--;
 					}
 					if(scopeLevel === 0) {
@@ -2520,12 +2547,29 @@ function = func (x) { return x > 0 } - 3
 					}
 				}
 
-				for(let node of nodes.filter(v => v.type === 'unsupported')) {
-					let range = node.range.start !== node.range.end,
-						message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
+				for(let key in nodes) {
+					let node = nodes[key],
+						range = node.range.start !== node.range.end;
 
-					this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+					if(node.type === 'separator') {
+						if(key == 0) {
+							this.report(1, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
+						}
+						if(range) {
+							this.report(1, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
+						}
+						if(key == nodes.length-1) {
+							this.report(1, node.range.start, 'Excess separator at token ['+node.range.start+'].');
+						}
+					}
+					if(node.type === 'unsupported') {
+						let message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
+
+						this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+					}
 				}
+
+				nodes = nodes.filter(v => v.type !== 'separator');
 
 				return nodes;
 			}
