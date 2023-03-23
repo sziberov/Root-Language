@@ -30,7 +30,8 @@ NoComma<A B, C, D>
 NoComma<A, B C, D>
 NoComma<A B C, D E F>
 
-A<B: Clazz & Proto, C: Function>
+class Type<A: Clazz & Proto, B>: A & B | C {}
+
 Clazz.A.B & Function | Enumeration & bool | float
 [_?] | ([int: string]?)????
 ++.a++
@@ -239,6 +240,30 @@ function = (x) { return x > 0 } - 2
 function = func (x) in x > 0
 function = func (x) { x > 0 }
 function = func (x) { return x > 0 } - 3
+
+func getMnemonic(color: Color) =
+    when color {
+        .RED -> "кот"
+        .ORANGE -> "охотник"
+        .YELLOW -> "желает"
+        .GREEN -> "знать"
+        .BLUE -> "где"
+        .INDIGO -> "сидят"
+        .VIOLET -> "фазаны"
+	}
+
+func getWarmth(color: Int) = when(color) {
+    RED, YELLOW -> "warm"
+    GREEN -> "neutral"
+    BLUE -> "cold"
+    else -> "unknown"
+}
+
+when catImageView.visibility {
+    View.VISIBLE -> println('visible')
+    View.INVISIBLE -> println('invisible')
+    else -> println('gone')
+}
 */
 </textarea>
 <div id="output_lint"></div>
@@ -766,13 +791,19 @@ function = func (x) { return x > 0 } - 3
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'parenthesisClosed') {
+				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
 					this.position = node_.range.end+1;
 
 					return;
 				}
 
-				node.range.end = this.position++;
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Call expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+				}
 
 				return node;
 			},
@@ -928,7 +959,7 @@ function = func (x) { return x > 0 } - 3
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -1248,46 +1279,46 @@ function = func (x) { return x > 0 } - 3
 			functionExpression: () => {
 				return this.rules.functionDeclaration(true);
 			},
-			functionParameter: () => {},
 			functionSignature: () => {
 				let node = {
 					type: 'functionSignature',
 					range: {},
-					parameters: undefined
+					genericParameters: [],
+					parameters: [],
+					asynchronous: undefined,
+					throws: undefined,
+					return: undefined
 				}
 
 				if(this.token.type !== 'parenthesisOpen') {
 					return;
 				}
 
-				node.range.start = this.position++;
+				this.position++;
+				node.parameters = this.ruleHelpers.skippableNodes(
+					['functionSignatureParameter'],
+					() => this.token.type === 'parenthesisOpen',
+					() => this.token.type === 'parenthesisClosed',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
 
-				while(true) {
-					let node_ = this.rules.functionParameter();
-
-					if(node_ == null) {
-						break;
-					}
-
-					node.parameters.push(node_);
-
-					if(this.token.type !== 'operator' || this.token.value !== ',') {
-						break;
-					}
-
-					this.position++;
-				}
-
-				if(this.token.type !== 'parenthesisClosed') {
-					this.position = node.range.start;
+				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
+					this.position = node_.range.end+1;
 
 					return;
 				}
 
-				node.range.end = this.position++;
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Function signature parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
+				}
 
 				return node;
 			},
+			functionSignatureParameter: () => {},
 			functionStatements: () => {
 				return this.rules.compositeStatements([
 					'type',
@@ -1298,18 +1329,6 @@ function = func (x) { return x > 0 } - 3
 					'variableAssignment',
 					'whileStatement'
 				]);
-			},
-			genericArgumentsSequence: () => {
-				let nodes = this.ruleHelpers.sequentialNodes(
-					['type'],
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(nodes.length === 0) {
-					return;
-				}
-
-				return nodes;
 			},
 			genericParameter: () => {
 				let node = {
@@ -1343,18 +1362,6 @@ function = func (x) { return x > 0 } - 3
 				node.range.end = node.type_.range.end;
 
 				return node;
-			},
-			genericParametersSequence: () => {
-				let nodes = this.ruleHelpers.sequentialNodes(
-					['genericParameter'],
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(nodes.length === 0) {
-					return;
-				}
-
-				return nodes;
 			},
 			identifier: () => {
 				let node = {
@@ -1812,12 +1819,18 @@ function = func (x) { return x > 0 } - 3
 					() => this.token.type === 'parenthesisClosed'
 				);
 
+				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
+					this.position = node.range.start;
+
+					return;
+				}
+
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Parenthesized expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, 'Parenthesized expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -2105,6 +2118,12 @@ function = func (x) { return x > 0 } - 3
 					() => this.token.type === 'stringExpressionClosed'
 				);
 
+				if(this.token.type !== 'stringExpressionClosed' && !this.tokensEnd) {
+					this.position = node.range.start;
+
+					return;
+				}
+
 				if(!this.tokensEnd) {
 					node.range.end = this.position++;
 				} else {
@@ -2257,13 +2276,19 @@ function = func (x) { return x > 0 } - 3
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'bracketClosed') {
+				if(this.token.type !== 'bracketClosed' && !this.tokensEnd) {
 					this.position = node_.range.end+1;
 
 					return;
 				}
 
-				node.range.end = this.position++;
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Subscript expression doesn\'t have the closing bracket and decided to be autoclosed at the end of stream.');
+				}
 
 				return node;
 			},
@@ -2341,13 +2366,19 @@ function = func (x) { return x > 0 } - 3
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
+				if((!this.token.type.startsWith('operator') || this.token.value !== '>') && !this.tokensEnd) {
 					this.position = node.range.end+1;
 
 					return node;
 				}
 
-				node.range.end = this.position++;
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Type reference\'s generic arguments don\'t have the closing bracket and were decided to be autoclosed at the end of stream.');
+				}
 
 				return node;
 			},
@@ -2397,6 +2428,15 @@ function = func (x) { return x > 0 } - 3
 		}
 
 		static ruleHelpers = {
+			/*
+			 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
+			 *
+			 * Additionally a separator between the nodes can be set.
+			 *
+			 * Stops when an unsupported type occurs.
+			 *
+			 * Useful for precise sequences lookup.
+			 */
 			sequentialNodes: (types, separating) => {
 				let nodes = []
 
@@ -2425,6 +2465,15 @@ function = func (x) { return x > 0 } - 3
 
 				return nodes;
 			},
+			/*
+			 * Returns a node of the type or the "unsupported" node otherwise.
+			 *
+			 * Stops immediately if node found, otherwise at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
+			 *
+			 * Warns about "unsupported" nodes.
+			 *
+			 * Useful for imprecise single enclosed(ing) nodes lookup.
+			 */
 			skippableNode: (type, opening, closing) => {
 				let node,
 					start = this.position,
@@ -2432,7 +2481,7 @@ function = func (x) { return x > 0 } - 3
 
 				node = this.rules[type]?.();
 
-				if(closing() || this.tokensEnd) {
+				if(node != null) {
 					return node;
 				}
 
@@ -2448,12 +2497,9 @@ function = func (x) { return x > 0 } - 3
 				}
 
 				while(!this.tokensEnd) {
-					if(opening()) {
-						scopeLevel++;
-					}
-					if(closing()) {
-						scopeLevel--;
-					}
+					scopeLevel += opening();
+					scopeLevel -= closing();
+
 					if(scopeLevel === 0) {
 						break;
 					}
@@ -2469,6 +2515,17 @@ function = func (x) { return x > 0 } - 3
 
 				return node;
 			},
+			/*
+			 * Returns a list of nodes of the types, including the "unsupported" nodes if any occur.
+			 *
+			 * Additionally a separator between the nodes can be set.
+			 *
+			 * Stops at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
+			 *
+			 * Warns about invalid separators and "unsupported" nodes.
+			 *
+			 * Useful for imprecise multiple enclosed(ing) nodes lookup.
+			 */
 			skippableNodes: (types, opening, closing, separating) => {
 				let nodes = [],
 					scopeLevel = 1;
@@ -2529,12 +2586,9 @@ function = func (x) { return x > 0 } - 3
 						}
 					}
 
-					if(opening()) {
-						scopeLevel++;
-					}
-					if(closing()) {
-						scopeLevel--;
-					}
+					scopeLevel += opening();
+					scopeLevel -= closing();
+
 					if(scopeLevel === 0) {
 						break;
 					}
