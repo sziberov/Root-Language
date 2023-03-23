@@ -23,19 +23,7 @@ body {
 }
 </style>
 <textarea id="input">
-Correct<A, B, C, D>
-HalfIntersection<A &, C>
-NoIdentifier<A, , C>
-NoComma<A B, C, D>
-NoComma<A, B C, D>
-NoComma<A B C, D E F>
-
-class Type<A: Clazz & Proto, B>: A & B | C {}
-
-Clazz.A.B & Function | Enumeration & bool | float
-[_?] | ([int: string]?)????
-++.a++
-.implicit.chaining.'with\(dynamically)titled'.member(andCall: 1+1, abc)!
+class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
 // Foundation Source
 
@@ -791,13 +779,7 @@ when catImageView.visibility {
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type === 'parenthesisClosed') {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
@@ -1302,13 +1284,7 @@ when catImageView.visibility {
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type === 'parenthesisClosed') {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
@@ -1321,7 +1297,6 @@ when catImageView.visibility {
 			functionSignatureParameter: () => {},
 			functionStatements: () => {
 				return this.rules.compositeStatements([
-					'type',
 					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 					'declaration',
 					'forStatement',
@@ -1362,6 +1337,30 @@ when catImageView.visibility {
 				node.range.end = node.type_.range.end;
 
 				return node;
+			},
+			genericParametersClause: () => {
+				let nodes = [],
+					start = this.position;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
+					return nodes;
+				}
+
+				this.position++;
+				nodes = this.ruleHelpers.skippableNodes(
+					['genericParameter'],
+					() => this.token.type.startsWith('operator') && this.token.value === '<',
+					() => this.token.type.startsWith('operator') && this.token.value === '>',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(this.token.type.startsWith('operator') && this.token.value === '>') {
+					this.position++;
+				} else {
+					this.report(1, start, 'Generic parameters clause doesn\'t have the closing angle and decided to be autoclosed at the end of stream.');
+				}
+
+				return nodes;
 			},
 			identifier: () => {
 				let node = {
@@ -1574,7 +1573,7 @@ when catImageView.visibility {
 					return;
 				}
 				if(node.values.length === 1) {
-				//	this.position = node.values[0].range.end+1;  // Revert to position before trailing separator (disabled)
+				//	this.position = node.values[0].range.end+1;  // Allow trailing separator (enabled)
 
 					return node.values[0]
 				}
@@ -1819,18 +1818,17 @@ when catImageView.visibility {
 					() => this.token.type === 'parenthesisClosed'
 				);
 
-				if(this.token.type !== 'parenthesisClosed' && !this.tokensEnd) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type === 'parenthesisClosed') {
 					node.range.end = this.position++;
-				} else {
+				} else
+				if(this.tokensEnd) {
 					node.range.end = this.position-1;
 
 					this.report(1, node.range.start, 'Parenthesized expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+				} else {
+					this.position = node.range.start;
+
+					return;
 				}
 
 				return node;
@@ -2118,18 +2116,17 @@ when catImageView.visibility {
 					() => this.token.type === 'stringExpressionClosed'
 				);
 
-				if(this.token.type !== 'stringExpressionClosed' && !this.tokensEnd) {
+				if(this.token.type === 'stringExpressionClosed') {
+					node.range.end = this.position++;
+				} else
+				if(this.tokensEnd) {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+				} else {
 					this.position = node.range.start;
 
 					return;
-				}
-
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -2155,13 +2152,7 @@ when catImageView.visibility {
 					() => this.token.type === 'stringClosed'
 				);
 
-				if(this.token.type !== 'stringClosed' && !this.tokensEnd) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type === 'stringClosed') {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
@@ -2276,13 +2267,7 @@ when catImageView.visibility {
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'bracketClosed' && !this.tokensEnd) {
-					this.position = node_.range.end+1;
-
-					return;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type === 'bracketClosed') {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
@@ -2366,13 +2351,7 @@ when catImageView.visibility {
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if((!this.token.type.startsWith('operator') || this.token.value !== '>') && !this.tokensEnd) {
-					this.position = node.range.end+1;
-
-					return node;
-				}
-
-				if(!this.tokensEnd) {
+				if(this.token.type.startsWith('operator') && this.token.value === '>') {
 					node.range.end = this.position++;
 				} else {
 					node.range.end = this.position-1;
@@ -2398,7 +2377,7 @@ when catImageView.visibility {
 					return;
 				}
 				if(node.values.length === 1) {
-				//	this.position = node.values[0].range.end+1;  // Revert to position before trailing separator (disabled)
+				//	this.position = node.values[0].range.end+1;  // Allow trailing separator (enabled)
 
 					return node.values[0]
 				}
@@ -3106,7 +3085,7 @@ when catImageView.visibility {
 			for(let i = 0; i < value.length; i++) {
 				if(value[i] !== '\n') {
 					element ??= document.createElement('span');
-					element.innerHTML += value[i]
+					element.innerText += value[i]
 
 					if(value[i+1] === '\n' || i === value.length-1) {
 						elements.push(element);
@@ -3120,20 +3099,20 @@ when catImageView.visibility {
 		} else {
 			elements.push(document.createElement('span'));
 
-			elements[0].innerHTML = value;
+			elements[0].innerText = value;
 
 			if(type.startsWith('comment')) {
 				elements[0].style.color = 'rgb(95 179 63 / 1)';
 			}
 			if(type.startsWith('string')) {
 				if(type === 'string') {
-					elements[0].innerHTML = '\''+value+'\'';
+					elements[0].innerText = '\''+value+'\'';
 				}
 				if(type === 'stringSegmentFirst') {
-					elements[0].innerHTML = '\''+value;
+					elements[0].innerText = '\''+value;
 				}
 				if(type === 'stringSegmentLast') {
-					elements[0].innerHTML = value+'\'';
+					elements[0].innerText = value+'\'';
 				}
 				if(!type.startsWith('stringExpression')) {
 					elements[0].style.color = 'rgb(191 127 95 / 1)';
