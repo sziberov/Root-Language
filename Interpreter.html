@@ -23,6 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
+['123': 123]([1, (), 3])
+
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
 // Foundation Source
@@ -479,7 +481,7 @@ when catImageView.visibility {
 					// Types (Any, bool, _, ...)
 
 					// Words as Self, arguments, metaSelf or self are not allowed because they all
-					// have dynamic values and it's logical to distinguish them at interpretation stage
+					// have dynamic values and it's logical to distinguish them at the interpretation stage
 
 					'Any',
 					'Class',
@@ -692,6 +694,33 @@ when catImageView.visibility {
 
 				return node;
 			},
+			arrayLiteral: () => {
+				let node = {
+					type: 'arrayLiteral',
+					range: {},
+					values: []
+				}
+
+				if(this.token.type !== 'bracketOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.values = this.ruleHelpers.sequentialNodes(
+					['expression'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(this.token.type !== 'bracketClosed') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			arrayType: () => {
 				let node = {
 					type: 'arrayType',
@@ -773,7 +802,7 @@ when catImageView.visibility {
 
 				this.position++;
 				node.arguments = this.ruleHelpers.skippableNodes(
-					['functionCallArgument'],
+					['functionArgument'],
 					() => this.token.type === 'parenthesisOpen',
 					() => this.token.type === 'parenthesisClosed',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
@@ -1027,6 +1056,64 @@ when catImageView.visibility {
 
 				return node;
 			},
+			dictionaryLiteral: () => {
+				let node = {
+					type: 'dictionaryLiteral',
+					range: {},
+					records: []
+				}
+
+				if(this.token.type !== 'bracketOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.records = this.ruleHelpers.sequentialNodes(
+					['dictionaryRecord'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(node.records.length === 0 && this.token.type.startsWith('operator') && this.token.value === ':') {
+					this.position++;
+				}
+
+				if(this.token.type === 'bracketClosed') {
+					node.range.end = this.position++;
+				} else {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				return node;
+			},
+			dictionaryRecord: () => {
+				let node = {
+					type: 'dictionaryRecord',
+					range: {
+						start: this.position
+					},
+					key: this.rules.expression(),
+					value: undefined
+				}
+
+				if(node.key == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
+					return;
+				}
+
+				this.position++;
+				node.value = this.rules.expression();
+
+				if(node.value == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
 			dictionaryType: () => {
 				let node = {
 					type: 'dictionaryType',
@@ -1174,12 +1261,9 @@ when catImageView.visibility {
 				return node;
 			},
 			forStatement: () => {},
-			functionBody: () => {
-				return this.rules.compositeBody('function');
-			},
-			functionCallArgument: () => {
+			functionArgument: () => {
 				let node = {
-					type: 'functionCallArgument',
+					type: 'functionArgument',
 					range: {
 						start: this.position
 					},
@@ -1206,6 +1290,9 @@ when catImageView.visibility {
 					node.range.end;
 
 				return node;
+			},
+			functionBody: () => {
+				return this.rules.compositeBody('function');
 			},
 			functionDeclaration: (anonymous) => {
 				let node = {
@@ -1584,9 +1671,9 @@ when catImageView.visibility {
 			},
 			literalExpression: () => {
 				let node =
-				//  this.rules.arrayLiteral() ??
+					this.rules.arrayLiteral() ??
 					this.rules.booleanLiteral() ??
-				//  this.rules.dictionaryLiteral() ??
+					this.rules.dictionaryLiteral() ??
 					this.rules.floatLiteral() ??
 					this.rules.integerLiteral() ??
 					this.rules.nilLiteral() ??
@@ -1903,7 +1990,7 @@ when catImageView.visibility {
 					value: undefined
 				}
 
-				let exceptions = [',']  // Enclosing nodes can use trailing operators from the list
+				let exceptions = [',', ':']  // Enclosing nodes can use trailing operators from the list
 
 				if(this.token.type !== 'operatorPostfix' || exceptions.includes(this.token.value)) {
 					return;
@@ -2261,7 +2348,7 @@ when catImageView.visibility {
 
 				this.position++;
 				node.arguments = this.ruleHelpers.skippableNodes(
-					['functionCallArgument'],
+					['functionArgument'],
 					() => this.token.type === 'bracketOpen',
 					() => this.token.type === 'bracketClosed',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
@@ -2445,9 +2532,9 @@ when catImageView.visibility {
 				return nodes;
 			},
 			/*
-			 * Returns a node of the type or the "unsupported" node otherwise.
+			 * Returns a node of the type or the "unsupported" node if not closed immediately.
 			 *
-			 * Stops immediately if node found, otherwise at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
+			 * Stops if node found, at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
 			 *
 			 * Warns about "unsupported" nodes.
 			 *
@@ -2460,11 +2547,9 @@ when catImageView.visibility {
 
 				node = this.rules[type]?.();
 
-				if(node != null) {
+				if(node != null || closing() || this.tokensEnd) {
 					return node;
 				}
-
-				this.position = start;
 
 				node = {
 					type: 'unsupported',
