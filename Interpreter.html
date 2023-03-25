@@ -1511,7 +1511,41 @@ when catImageView.visibility {
 
 				return node;
 			},
-			importDeclaration: () => {},
+			importDeclaration: () => {
+				let node = {
+					type: 'importDeclaration',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordImport') {
+					return;
+				}
+
+				node.range.start =
+				node.range.end = this.position++;
+				node.value = this.rules.identifier();
+
+				while(!this.tokensEnd) {
+					let node_ = this.rules.chainIdentifier(node.value);
+
+					if(node_ == null) {
+						break;
+					}
+
+					node.value = node_;
+				}
+
+				if(node.value == null) {
+					this.report(1, node.range.start, 'Import declaration doesn\'t have value.');
+				}
+
+				node.range.end =
+					node.value?.range.end ??
+					node.range.end;
+
+				return node;
+			},
 			infixExpression: (left, operator, right) => {
 				let node = {
 					type: 'infixExpression',
@@ -1860,7 +1894,7 @@ when catImageView.visibility {
 					return;
 				}
 
-				this.position++;
+				node.range.end = this.position++;
 				node.operator = this.rules.operator();
 				node.body = this.rules.operatorBody();
 
@@ -1877,8 +1911,7 @@ when catImageView.visibility {
 				node.range.end =
 					node.body?.range.end ??
 					node.operator?.range.end ??
-					node.modifiers?.range.end ??
-					node.range.start;
+					node.range.end;
 
 				return node;
 			},
@@ -2084,7 +2117,7 @@ when catImageView.visibility {
 					this.rules.arrayType() ??
 					this.rules.compositeType() ??
 					this.rules.dictionaryType() ??
-				//	this.rules.functionSignature() ??
+				//	this.rules.functionType() ??
 					this.rules.parenthesizedType() ??
 					this.rules.primitiveType() ??
 					this.rules.typeReference();
@@ -2499,7 +2532,6 @@ when catImageView.visibility {
 
 				node.range.end =
 					node.initializers?.at(-1).range.end ??
-					node.modifiers?.range.end ??
 					node.range.end;
 
 				return node;
