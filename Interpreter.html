@@ -41,7 +41,7 @@ prefix operator --
 }
 
 struct Boolean {
-	private const value
+	private final var value
 
 	init(value: bool) {
 		self.value = value  // .value = value
@@ -56,9 +56,9 @@ struct Boolean {
 }
 
 struct Number {
-	static const Pi = 3.141592653589793
+	static final var Pi = 3.141592653589793
 
-	protected const value
+	protected final var value
 
 	init(value: int & float) {
 		.value = value
@@ -93,7 +93,7 @@ struct Integer: Number {
 }
 
 struct String {
-	private const value
+	private final var value
 
 	init(value: string) {
 		.value = value
@@ -121,15 +121,15 @@ class Dictionary {}
 
 import Foundation
 
-const Boolean = Foundation.Boolean,
-	  Number = Foundation.Number,
-	  Decimal = Foundation.Decimal,
-	  Integer = Foundation.Integer,
-	  String = Foundation.String,
-	  Array = Foundation.Array,
-	  Dictionary = Foundation.Dictionary
+final var Boolean = Foundation.Boolean,
+	  	  Number = Foundation.Number,
+	  	  Decimal = Foundation.Decimal,
+	  	  Integer = Foundation.Integer,
+	  	  String = Foundation.String,
+	  	  Array = Foundation.Array,
+	  	  Dictionary = Foundation.Dictionary
 
-const constant = Number.Pi
+final var constant = Number.Pi
 
 var variable
 
@@ -138,7 +138,7 @@ if constant > 0 {
 }
 
 class A {
-	private const constant: Number = 0.5
+	private final var constant: Number = 0.5
 
 	protected var variable: Integer = 1
 
@@ -493,10 +493,10 @@ when catImageView.visibility {
 					'Structure',
 					'any', 'async', 'await',
 					'bool', 'break',
-					'case', 'catch', 'class', 'const', 'continue',
+					'case', 'catch', 'class', 'continue',
 					'default', 'do',
 					'else', 'enum', 'extension',
-					'false', 'float', 'for', 'func',
+					'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
 					'namespace', 'nil',
 					'operator',
@@ -912,11 +912,11 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for class declaration.');
 				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for class.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Class doesn\'t have body.');
+					this.report(0, node.range.start, 'Class doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -956,13 +956,7 @@ when catImageView.visibility {
 				node.statements = this.rules[type+'Statements']?.();
 
 				if(node.statements.length === 0) {
-					this.report(1, node.range.start, 'Body is empty.');
-				}
-
-				if(this.token.type !== 'braceClosed' && !this.tokensEnd) {
-					this.position = node.range.start;
-
-					return;
+					this.report(0, node.range.start, 'Body is empty.');
 				}
 
 				if(!this.tokensEnd) {
@@ -1184,11 +1178,11 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for enumeration declaration.');
 				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for enumeration.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Enumeration doesn\'t have body.');
+					this.report(0, node.range.start, 'Enumeration doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -1334,7 +1328,7 @@ when catImageView.visibility {
 					this.report(2, node.range.start, 'Function lacks of signature.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Function doesn\'t have body.');
+					this.report(0, node.range.start, 'Function doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -1697,7 +1691,8 @@ when catImageView.visibility {
 					'keywordPrivate',
 					'keywordProtected',
 					'keywordPublic',
-					'keywordStatic'
+					'keywordStatic',
+					'keywordFinal'
 				].includes(this.token.type)) {
 					node.values.push(this.token.value);
 					node.range.end = this.position++;
@@ -1761,11 +1756,11 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
 				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for namespace.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Namespace doesn\'t have body.');
+					this.report(0, node.range.start, 'Namespace doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -1876,7 +1871,7 @@ when catImageView.visibility {
 					this.report(2, node.range.start, 'Operator declaration should have specific modifier (infix, postfix, prefix).');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Operator doesn\'t have body.');
+					this.report(0, node.range.start, 'Operator doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -2156,11 +2151,11 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
 				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for protocol.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Protocol doesn\'t have body.');
+					this.report(0, node.range.start, 'Protocol doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -2303,11 +2298,11 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for structure declaration.');
 				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for structure.');
 				}
 				if(node.body == null) {
-					this.report(1, node.range.start, 'Structure doesn\'t have body.');
+					this.report(0, node.range.start, 'Structure doesn\'t have body.');
 				}
 
 				node.range.end =
@@ -2473,22 +2468,41 @@ when catImageView.visibility {
 
 				return node;
 			},
-			variableAssignment: () => {
-				let node = {
-					type: 'variableAssignment',
-					range: {},
-					identifier: undefined,
-					operator: undefined,
-					value: undefined
-				}
-			},
 			variableDeclaration: () => {
 				let node = {
 					type: 'variableDeclaration',
-					range: {},
-					kind: undefined,
+					range: {
+						start: this.position
+					},
+					modifiers: this.rules.modifiers(),
 					initializers: []
 				}
+
+				if(this.token.type !== 'keywordVar') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+				node.initializers = this.ruleHelpers.sequentialNodes(
+					['expressionsSequence'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for variable.');
+				}
+				if(node.initializers.length === 0) {
+					this.report(0, node.range.start, 'Variable doesn\'t have initializers.');
+				}
+
+				node.range.end =
+					node.initializers?.at(-1).range.end ??
+					node.modifiers?.range.end ??
+					node.range.end;
+
+				return node;
 			},
 			whileStatement: () => {}
 		}
@@ -2671,13 +2685,13 @@ when catImageView.visibility {
 
 					if(node.type === 'separator') {
 						if(key == 0) {
-							this.report(1, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
+							this.report(0, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
 						}
 						if(range) {
-							this.report(1, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
+							this.report(0, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
 						}
 						if(key == nodes.length-1) {
-							this.report(1, node.range.start, 'Excess separator at token ['+node.range.start+'].');
+							this.report(0, node.range.start, 'Excess separator at token ['+node.range.start+'].');
 						}
 					}
 					if(node.type === 'unsupported') {
@@ -2798,7 +2812,6 @@ when catImageView.visibility {
 				members: [
 					{
 						modifiers: ['public', 'static'],
-						constant: false,
 						identifier: 'TestClass',
 						typed: true,
 						inheritance: [1],
@@ -2807,8 +2820,7 @@ when catImageView.visibility {
 						observers: []
 					},
 					{
-						modifiers: ['public', 'static'],
-						constant: true,
+						modifiers: ['public', 'static', 'final'],
 						identifier: 'testPi',
 						typed: true,
 						inheritance: ['float'],
@@ -2818,7 +2830,6 @@ when catImageView.visibility {
 					},
 					{
 						modifiers: ['public', 'static'],
-						constant: false,
 						identifier: 'testClassInstance',
 						typed: true,
 						inheritance: [2],
@@ -2828,7 +2839,6 @@ when catImageView.visibility {
 					},
 					{
 						modifiers: ['public'],
-						constant: false,
 						identifier: 'computedInstanceProperty',
 						typed: false,
 						inheritance: [],
@@ -2860,8 +2870,7 @@ when catImageView.visibility {
 				generics: [],
 				members: [
 					{
-						modifiers: ['public', 'static'],
-						constant: true,
+						modifiers: ['public', 'static', 'final'],
 						identifier: 'init',
 						typed: true,
 						inheritance: [
@@ -2900,7 +2909,6 @@ when catImageView.visibility {
 					},
 					{
 						modifiers: ['public'],
-						constant: false,
 						identifier: 'testVariable',
 						typed: true,
 						inheritance: ['int'],
@@ -3057,7 +3065,6 @@ when catImageView.visibility {
 				member = {
 					/*
 					modifiers: modifiers,
-					constant: constant,
 					identifier: identifier,
 					typed: typed,
 					inheritance: inheritance,
