@@ -37,6 +37,7 @@ prefix operator --
 
 /* private */ infix operator == {
 	associativity: left
+	class A {}
 	precedence: 64
 }
 
@@ -255,6 +256,22 @@ when catImageView.visibility {
     else -> println('gone')
 }
 */
+
+var A = 1
+
+print(A)		// 1
+
+if true {		// If statements have local scopes
+	print(A)	// class (Declarations execute first)
+
+	class A {}
+}
+
+print(A)		// 1
+
+A = class {}
+
+print(A)		// class
 </textarea>
 <div id="output_lint"></div>
 <script>
@@ -498,6 +515,7 @@ when catImageView.visibility {
 					'else', 'enum', 'extension',
 					'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
+					'lazy',
 					'namespace', 'nil',
 					'operator',
 					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
@@ -694,6 +712,36 @@ when catImageView.visibility {
 
 				return node;
 			},
+			argument: () => {
+				let node = {
+					type: 'argument',
+					range: {
+						start: this.position
+					},
+					label: this.rules.identifier(),
+					value: undefined
+				}
+
+				if(node.label == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
+					this.position = node.range.start;
+					node.label = undefined;
+				} else {
+					this.position++;
+				}
+
+				node.range.end = this.position;
+				node.value = this.rules.expressionsSequence();
+
+				if(node.label == null && node.value == null) {
+					return;
+				}
+
+				node.range.end =
+					node.value?.range.end ??
+					node.range.end;
+
+				return node;
+			},
 			arrayLiteral: () => {
 				let node = {
 					type: 'arrayLiteral',
@@ -707,7 +755,7 @@ when catImageView.visibility {
 
 				node.range.start = this.position++;
 				node.values = this.ruleHelpers.sequentialNodes(
-					['expression'],
+					['expressionsSequence'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
@@ -769,6 +817,34 @@ when catImageView.visibility {
 
 				return node;
 			},
+			body: (type) => {
+				let node = {
+					type: type+'Body',
+					range: {},
+					statements: []
+				}
+
+				if(this.token.type !== 'braceOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.statements = this.rules[type+'Statements']?.();
+
+				if(node.statements.length === 0) {
+					this.report(0, node.range.start, 'Body is empty.');
+				}
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
 			booleanLiteral: () => {
 				let node = {
 					type: 'booleanLiteral',
@@ -802,7 +878,7 @@ when catImageView.visibility {
 
 				this.position++;
 				node.arguments = this.ruleHelpers.skippableNodes(
-					['functionArgument'],
+					['argument'],
 					() => this.token.type === 'parenthesisOpen',
 					() => this.token.type === 'parenthesisClosed',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
@@ -876,7 +952,7 @@ when catImageView.visibility {
 				return node;
 			},
 			classBody: () => {
-				return this.rules.compositeBody('class');
+				return this.rules.body('class');
 			},
 			classDeclaration: (anonymous) => {
 				let node = {
@@ -898,11 +974,11 @@ when catImageView.visibility {
 
 				node.range.end = this.position++;
 				node.identifier = this.rules.identifier();
-				node.inheritance = this.rules.inheritance();
-				node.body = this.rules.classBody();
 
 				if(anonymous) {
 					if(node.modifiers != null || node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.modifiers;
@@ -915,15 +991,15 @@ when catImageView.visibility {
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for class.');
 				}
+
+				node.inheritance = this.rules.inheritance();
+				node.body = this.rules.classBody();
+
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Class doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -931,7 +1007,7 @@ when catImageView.visibility {
 				return this.rules.classDeclaration(true);
 			},
 			classStatements: () => {
-				return this.rules.compositeStatements([
+				return this.rules.statements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -940,41 +1016,6 @@ when catImageView.visibility {
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
-			},
-			compositeBody: (type) => {
-				let node = {
-					type: type+'Body',
-					range: {},
-					statements: []
-				}
-
-				if(this.token.type !== 'braceOpen') {
-					return;
-				}
-
-				node.range.start = this.position++;
-				node.statements = this.rules[type+'Statements']?.();
-
-				if(node.statements.length === 0) {
-					this.report(0, node.range.start, 'Body is empty.');
-				}
-
-				if(!this.tokensEnd) {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
-				}
-
-				return node;
-			},
-			compositeStatements: (types) => {
-				return this.ruleHelpers.skippableNodes(
-					types,
-					() => this.token.type === 'braceOpen',
-					() => this.token.type === 'braceClosed'
-				);
 			},
 			compositeType: () => {
 				let node = {
@@ -1016,6 +1057,35 @@ when catImageView.visibility {
 
 				return node;
 			},
+			declarator: () => {
+				let node = {
+					type: 'declarator',
+					range: {
+						start: this.position
+					},
+					identifier: this.rules.identifier(),
+					type_: undefined,
+					value: undefined
+				}
+
+				if(node.identifier == null) {
+					return;
+				}
+
+				if(this.token.type.startsWith('operator') && this.token.value === ':') {
+					this.position++;
+					node.type_ = this.rules.type();
+				}
+
+				if(this.token.type.startsWith('operator') && this.token.value === '=') {
+					this.position++;
+					node.value = this.rules.expressionsSequence();
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			defaultExpression: (node_) => {
 				let node = {
 					type: 'defaultExpression',
@@ -1054,7 +1124,7 @@ when catImageView.visibility {
 				let node = {
 					type: 'dictionaryLiteral',
 					range: {},
-					records: []
+					entries: []
 				}
 
 				if(this.token.type !== 'bracketOpen') {
@@ -1062,12 +1132,12 @@ when catImageView.visibility {
 				}
 
 				node.range.start = this.position++;
-				node.records = this.ruleHelpers.sequentialNodes(
-					['dictionaryRecord'],
+				node.entries = this.ruleHelpers.sequentialNodes(
+					['entry'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(node.records.length === 0 && this.token.type.startsWith('operator') && this.token.value === ':') {
+				if(node.entries.length === 0 && this.token.type.startsWith('operator') && this.token.value === ':') {
 					this.position++;
 				}
 
@@ -1078,33 +1148,6 @@ when catImageView.visibility {
 
 					return;
 				}
-
-				return node;
-			},
-			dictionaryRecord: () => {
-				let node = {
-					type: 'dictionaryRecord',
-					range: {
-						start: this.position
-					},
-					key: this.rules.expression(),
-					value: undefined
-				}
-
-				if(node.key == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
-					return;
-				}
-
-				this.position++;
-				node.value = this.rules.expression();
-
-				if(node.value == null) {
-					this.position = node.range.start;
-
-					return;
-				}
-
-				node.range.end = node.value.range.end;
 
 				return node;
 			},
@@ -1142,8 +1185,36 @@ when catImageView.visibility {
 
 				return node;
 			},
+			entry: () => {
+				let node = {
+					type: 'entry',
+					range: {
+						start: this.position
+					},
+					key: this.rules.expressionsSequence(),
+					value: undefined
+				}
+				if(node.key == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.value = this.rules.expressionsSequence();
+
+				if(node.value == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
+
+				return node;
+			},
 			enumerationBody: () => {
-				return this.rules.compositeBody('enumeration');
+				return this.rules.body('enumeration');
 			},
 			enumerationDeclaration: (anonymous) => {
 				let node = {
@@ -1165,11 +1236,11 @@ when catImageView.visibility {
 
 				node.range.end = this.position++;
 				node.identifier = this.rules.identifier();
-				node.inheritance = this.rules.inheritance();
-				node.body = this.rules.enumerationBody();
 
 				if(anonymous) {
 					if(node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.identifier;
@@ -1181,15 +1252,15 @@ when catImageView.visibility {
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for enumeration.');
 				}
+
+				node.inheritance = this.rules.inheritance();
+				node.body = this.rules.enumerationBody();
+
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Enumeration doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1197,7 +1268,7 @@ when catImageView.visibility {
 				return this.rules.enumerationDeclaration(true);
 			},
 			enumerationStatements: () => {
-				return this.rules.compositeStatements(['caseDeclaration']);
+				return this.rules.statements(['caseDeclaration']);
 			},
 			expression: () => {
 				let node =
@@ -1222,15 +1293,13 @@ when catImageView.visibility {
 				if(node.values.length === 0) {
 					return;
 				}
-				if(node.values.length < 3) {
-					this.position = node.values[0].range.end+1;
-
-					return node.values[0]
-				}
 				if(node.values.length%2 === 0) {
-					this.position = node.values.at(-2).range.end+1;
+					this.position = node.values.at(-1).range.start;
 
 					node.values.pop();
+				}
+				if(node.values.length === 1) {
+					return node.values[0]
 				}
 
 				node.range.end = node.values.at(-1).range.end;
@@ -1255,38 +1324,8 @@ when catImageView.visibility {
 				return node;
 			},
 			forStatement: () => {},
-			functionArgument: () => {
-				let node = {
-					type: 'functionArgument',
-					range: {
-						start: this.position
-					},
-					label: this.rules.identifier(),
-					value: undefined
-				}
-
-				if(node.label == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
-					node.label = undefined;
-					this.position = node.range.start;
-				} else {
-					this.position++;
-				}
-
-				node.range.end = this.position;
-				node.value = this.rules.expressionsSequence();
-
-				if(node.label == null && node.value == null) {
-					return;
-				}
-
-				node.range.end =
-					node.value?.range.end ??
-					node.range.end;
-
-				return node;
-			},
 			functionBody: () => {
-				return this.rules.compositeBody('function');
+				return this.rules.body('function');
 			},
 			functionDeclaration: (anonymous) => {
 				let node = {
@@ -1310,11 +1349,11 @@ when catImageView.visibility {
 				node.identifier =
 					this.rules.identifier() ??
 					this.rules.operator();
-				node.signature = this.rules.functionSignature();
-				node.body = this.rules.functionBody();
 
 				if(anonymous) {
 					if(node.modifiers != null || node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.modifiers;
@@ -1324,6 +1363,10 @@ when catImageView.visibility {
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for function declaration.');
 				}
+
+				node.signature = this.rules.functionSignature();
+				node.body = this.rules.functionBody();
+
 				if(node.signature == null) {
 					this.report(2, node.range.start, 'Function lacks of signature.');
 				}
@@ -1331,11 +1374,7 @@ when catImageView.visibility {
 					this.report(0, node.range.start, 'Function doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.signature?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1357,9 +1396,9 @@ when catImageView.visibility {
 					return;
 				}
 
-				this.position++;
+				node.range.start = this.position++;
 				node.parameters = this.ruleHelpers.skippableNodes(
-					['functionSignatureParameter'],
+					['parameter'],
 					() => this.token.type === 'parenthesisOpen',
 					() => this.token.type === 'parenthesisClosed',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
@@ -1375,14 +1414,12 @@ when catImageView.visibility {
 
 				return node;
 			},
-			functionSignatureParameter: () => {},
 			functionStatements: () => {
-				return this.rules.compositeStatements([
+				return this.rules.statements([
 					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 					'declaration',
 					'forStatement',
 					'ifStatement',
-					'variableAssignment',
 					'whileStatement'
 				]);
 			},
@@ -1605,32 +1642,6 @@ when catImageView.visibility {
 
 				return node;
 			},
-			initializerClause: () => {
-				let node = {
-					type: 'initializerClause',
-					range: {},
-					identifier: undefined
-				}
-
-				if(this.token.type !== 'operator' || this.token.value !== '=') {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
-				node.identifier = this.rules.identifier();
-
-				if(node.identifier == null) {
-					this.position--;
-
-					return;
-				}
-
-				node.range.end = node.identifier.range.end;
-
-				return node;
-			},
 			inoutExpression: () => {
 				let node = {
 					type: 'inoutExpression',
@@ -1678,22 +1689,22 @@ when catImageView.visibility {
 					range: {
 						start: this.position
 					},
-					values: this.ruleHelpers.sequentialNodes(
+					subtypes: this.ruleHelpers.sequentialNodes(
 						['postfixType'],
 						() => this.token.type.startsWith('operator') && this.token.value === '&'
 					)
 				}
 
-				if(node.values.length === 0) {
+				if(node.subtypes.length === 0) {
 					return;
 				}
-				if(node.values.length === 1) {
-				//	this.position = node.values[0].range.end+1;  // Allow trailing separator (enabled)
+				if(node.subtypes.length === 1) {
+				//	this.position = node.subtypes[0].range.end+1;  // Allow trailing separator (enabled)
 
-					return node.values[0]
+					return node.subtypes[0]
 				}
 
-				node.range.end = node.values.at(-1).range.end;
+				node.range.end = node.subtypes.at(-1).range.end;
 
 				return node;
 			},
@@ -1726,6 +1737,7 @@ when catImageView.visibility {
 					'keywordProtected',
 					'keywordPublic',
 					'keywordStatic',
+					'keywordLazy',
 					'keywordFinal'
 				].includes(this.token.type)) {
 					node.values.push(this.token.value);
@@ -1756,7 +1768,7 @@ when catImageView.visibility {
 				return node;
 			},
 			namespaceBody: () => {
-				return this.rules.compositeBody('namespace');
+				return this.rules.body('namespace');
 			},
 			namespaceDeclaration: (anonymous) => {
 				let node = {
@@ -1777,10 +1789,11 @@ when catImageView.visibility {
 
 				node.range.end = this.position++;
 				node.identifier = this.rules.identifier();
-				node.body = this.rules.namespaceBody();
 
 				if(anonymous) {
 					if(node.modifiers != null || node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.modifiers;
@@ -1793,14 +1806,14 @@ when catImageView.visibility {
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for namespace.');
 				}
+
+				node.body = this.rules.namespaceBody();
+
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Namespace doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1808,7 +1821,7 @@ when catImageView.visibility {
 				return this.rules.namespaceDeclaration(true);
 			},
 			namespaceStatements: () => {
-				return this.rules.compositeStatements(['declaration']);
+				return this.rules.statements(['declaration']);
 			},
 			nillableExpression: (node_) => {
 				let node = {
@@ -1876,7 +1889,9 @@ when catImageView.visibility {
 
 				return node;
 			},
-			operatorBody: () => {},
+			operatorBody: () => {
+				return this.rules.body('operator');
+			},
 			operatorDeclaration: () => {
 				let node = {
 					type: 'operatorDeclaration',
@@ -1906,15 +1921,34 @@ when catImageView.visibility {
 				}
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Operator doesn\'t have body.');
+				} else {
+					for(let entry of node.body.statements.filter(v => v.type === 'entry')) {
+						if(entry.key.type !== 'identifier' || !['associativity', 'precedence'].includes(entry.key.value)) {
+							this.report(1, entry.range.start, 'Operator body should have only identifiers as keys (associativity, precedence).');
+						} else {
+							if(entry.key.value === 'associativity') {
+								if(entry.value.type !== 'identifier') {
+									this.report(2, entry.range.start, 'Operator associativity value should be identifier.');
+								}
+								if(!['left', 'right', 'none'].includes(entry.value.value)) {
+									this.report(2, entry.range.start, 'Operator associativity accepts only one of following values: left, right, none.');
+								}
+							}
+							if(entry.key.value === 'precedence' && entry.value.type !== 'integerLiteral') {
+								this.report(2, entry.range.start, 'Operator precedence value should be integer.');
+							}
+						}
+					}
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.operator?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
+			operatorStatements: () => {
+				return this.rules.statements(['entry']);
+			},
+			parameter: () => {},
 			parenthesizedExpression: () => {
 				let node = {
 					type: 'parenthesizedExpression',
@@ -2148,7 +2182,7 @@ when catImageView.visibility {
 				return node;
 			},
 			protocolBody: () => {
-				return this.rules.compositeBody('protocol');
+				return this.rules.body('protocol');
 			},
 			protocolDeclaration: (anonymous) => {
 				let node = {
@@ -2170,11 +2204,11 @@ when catImageView.visibility {
 
 				node.range.end = this.position++;
 				node.identifier = this.rules.identifier();
-				node.inheritance = this.rules.inheritance();
-				node.body = this.rules.protocolBody();
 
 				if(anonymous) {
 					if(node.modifiers != null || node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.modifiers;
@@ -2187,15 +2221,15 @@ when catImageView.visibility {
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for protocol.');
 				}
+
+				node.inheritance = this.rules.inheritance();
+				node.body = this.rules.protocolBody();
+
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Protocol doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -2203,7 +2237,7 @@ when catImageView.visibility {
 				return this.rules.protocolDeclaration(true);
 			},
 			protocolStatements: () => {
-				return this.rules.compositeStatements([
+				return this.rules.statements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -2212,6 +2246,13 @@ when catImageView.visibility {
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
+			},
+			statements: (types) => {
+				return this.ruleHelpers.skippableNodes(
+					types,
+					() => this.token.type === 'braceOpen',
+					() => this.token.type === 'braceClosed'
+				);
 			},
 			stringExpression: () => {
 				let node = {
@@ -2295,7 +2336,7 @@ when catImageView.visibility {
 				return node;
 			},
 			structureBody: () => {
-				return this.rules.compositeBody('structure');
+				return this.rules.body('structure');
 			},
 			structureDeclaration: (anonymous) => {
 				let node = {
@@ -2317,11 +2358,11 @@ when catImageView.visibility {
 
 				node.range.end = this.position++;
 				node.identifier = this.rules.identifier();
-				node.inheritance = this.rules.inheritance();
-				node.body = this.rules.structureBody();
 
 				if(anonymous) {
 					if(node.modifiers != null || node.identifier != null) {
+						this.position = node.range.start;
+
 						return;
 					} else {
 						delete node.modifiers;
@@ -2334,15 +2375,15 @@ when catImageView.visibility {
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, 'Wrong modifier(s) set for structure.');
 				}
+
+				node.inheritance = this.rules.inheritance();
+				node.body = this.rules.structureBody();
+
 				if(node.body == null) {
 					this.report(0, node.range.start, 'Structure doesn\'t have body.');
 				}
 
-				node.range.end =
-					node.body?.range.end ??
-					node.inheritance?.range.end ??
-					node.identifier?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -2350,7 +2391,7 @@ when catImageView.visibility {
 				return this.rules.structureDeclaration(true);
 			},
 			structureStatements: () => {
-				return this.rules.compositeStatements([
+				return this.rules.statements([
 					'classDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
@@ -2376,7 +2417,7 @@ when catImageView.visibility {
 
 				this.position++;
 				node.arguments = this.ruleHelpers.skippableNodes(
-					['functionArgument'],
+					['argument'],
 					() => this.token.type === 'bracketOpen',
 					() => this.token.type === 'bracketClosed',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
@@ -2435,7 +2476,7 @@ when catImageView.visibility {
 					identifier:
 						this.rules.identifier() ??
 						this.rules.implicitChainIdentifier(),
-					arguments: []
+					genericArguments: []
 				}
 
 				if(node.identifier == null) {
@@ -2459,7 +2500,7 @@ when catImageView.visibility {
 				}
 
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNodes(
+				node.genericArguments = this.ruleHelpers.skippableNodes(
 					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === '<',
 					() => this.token.type.startsWith('operator') && this.token.value === '>',
@@ -2482,22 +2523,22 @@ when catImageView.visibility {
 					range: {
 						start: this.position
 					},
-					values: this.ruleHelpers.sequentialNodes(
+					subtypes: this.ruleHelpers.sequentialNodes(
 						['intersectionType'],
 						() => this.token.type.startsWith('operator') && this.token.value === '|'
 					)
 				}
 
-				if(node.values.length === 0) {
+				if(node.subtypes.length === 0) {
 					return;
 				}
-				if(node.values.length === 1) {
-				//	this.position = node.values[0].range.end+1;  // Allow trailing separator (enabled)
+				if(node.subtypes.length === 1) {
+				//	this.position = node.subtypes[0].range.end+1;  // Allow trailing separator (enabled)
 
-					return node.values[0]
+					return node.subtypes[0]
 				}
 
-				node.range.end = node.values.at(-1).range.end;
+				node.range.end = node.subtypes.at(-1).range.end;
 
 				return node;
 			},
@@ -2508,7 +2549,7 @@ when catImageView.visibility {
 						start: this.position
 					},
 					modifiers: this.rules.modifiers(),
-					initializers: []
+					declarators: []
 				}
 
 				if(this.token.type !== 'keywordVar') {
@@ -2518,21 +2559,19 @@ when catImageView.visibility {
 				}
 
 				node.range.end = this.position++;
-				node.initializers = this.ruleHelpers.sequentialNodes(
-					['expressionsSequence'],
+				node.declarators = this.ruleHelpers.sequentialNodes(
+					['declarator'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for variable.');
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'lazy', 'final'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for variable(s).');
 				}
-				if(node.initializers.length === 0) {
-					this.report(0, node.range.start, 'Variable doesn\'t have initializers.');
+				if(node.declarators.length === 0) {
+					this.report(0, node.range.start, 'Variable(s) declaration doesn\'t have initializer(s).');
 				}
 
-				node.range.end =
-					node.initializers?.at(-1).range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -2648,18 +2687,17 @@ when catImageView.visibility {
 							node = this.rules[type]?.();
 
 							if(node != null) {
+								nodes.push(node);
+
 								break;
 							}
 						}
 					}
 
+					if(closing() && scopeLevel === 1 || this.tokensEnd) {
+						break;
+					}
 					if(node != null) {
-						nodes.push(node);
-
-						if(closing() && scopeLevel === 1 || this.tokensEnd) {
-							break;
-						}
-
 						continue;
 					}
 
