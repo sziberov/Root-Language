@@ -23,8 +23,6 @@ body {
 }
 </style>
 <textarea id="input">
-['123': 123]([1, (), 3])
-
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
 // Foundation Source
@@ -37,7 +35,6 @@ prefix operator --
 
 /* private */ infix operator == {
 	associativity: left
-	class A {}
 	precedence: 64
 }
 
@@ -1286,7 +1283,7 @@ print(A)		// class
 					},
 					values: this.ruleHelpers.sequentialNodes([
 						'expression',
-						'infixOperator'
+						'infixExpression'
 					])
 				}
 
@@ -1411,6 +1408,14 @@ print(A)		// class
 
 					this.report(1, node.range.start, 'Function signature parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
 				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '->') {
+					return node;
+				}
+
+				this.position++;
+				node.return = this.rules.type();
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1583,16 +1588,11 @@ print(A)		// class
 
 				return node;
 			},
-			infixExpression: (left, operator, right) => {
-				let node = {
-					type: 'infixExpression',
-					range: {
-						start: left.range.start,
-						end: right.range.end
-					},
-					operator: operator,
-					values: {}
-				}
+			infixExpression: () => {
+				let node =
+					this.rules.infixOperator(); //??
+				//	this.rules.ternaryOperator() ??
+				//	this.rules.typeCheckingOperator();
 
 				return node;
 			},
