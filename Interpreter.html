@@ -2,24 +2,63 @@
 <body>
 <style>
 body {
-	display: flex;
+	display: grid;
+	grid-template-columns: 5fr 4fr;
+	grid-template-rows: 2fr 1fr;
+	grid-template-areas:
+		'code abstract'
+		'console console';
+
+	margin: 0;
+}
+
+#input,
+#output_lint,
+#output_ast,
+#output_console {
+	overflow: auto;
+
+	font: 12px monospace;
+	tab-size: 4;
+	white-space: pre;
 }
 
 #input,
 #output_lint {
-	width: 768px;
-	height: 512px;
-	overflow: auto;
+	grid-area: code;
+
+	box-sizing: border-box;
+
+	padding: 2px;
 
 	border: none;
-	border-radius: 2px;
 	background: rgb(63 63 63 / 1);
-	box-shadow: 0 2px 4px gray;
+
+	color: transparent;
+	caret-color: white;
+}
+
+#output_lint {
+	background: none;
 
 	color: rgb(191 191 191 / 1);
-	font: 12px monospace;
-	tab-size: 4;
-	white-space: pre;
+
+	pointer-events: none;
+}
+
+#output_ast,
+#output_console {
+	grid-area: abstract;
+
+	background: rgb(223 223 223 / 1);;
+
+	font-size: 10px;
+}
+
+#output_console {
+	grid-area: console;
+
+	background: none;
 }
 </style>
 <textarea id="input">
@@ -273,9 +312,9 @@ A = class {}
 print(A)		// class
 </textarea>
 <div id="output_lint"></div>
+<div id="output_ast"></div>
+<div id="output_console"></div>
 <script>
-	let code = document.getElementById('input').value;
-
 	class Lexer {
 		static code;
 		static position;
@@ -3367,105 +3406,124 @@ print(A)		// class
 		}
 	}
 
-	let lexerResult = Lexer.tokenize(code),
-		parserResult = Parser.parse(lexerResult),
-		tokens = lexerResult.rawTokens,
-		reports = [...lexerResult.reports, ...parserResult.reports]
-					.sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
+	let input = document.getElementById('input'),
+		output_lint = document.getElementById('output_lint'),
+		output_ast = document.getElementById('output_ast'),
+		output_console = document.getElementById('output_console');
 
-	for(let k = 0; k < tokens.length; k++) {
-		let textbox = document.getElementById('output_lint'),
-			position = tokens[k].position,
-			type = tokens[k].type,
-			value = tokens[k].value,
-			length = value.length,
-			elements = []
+	function parse() {
+		let lexerResult = Lexer.tokenize(input.value),
+			parserResult = Parser.parse(lexerResult),
+			tokens = lexerResult.rawTokens,
+			reports = [...lexerResult.reports, ...parserResult.reports]
+					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
-		if(type === 'delimiter') {
-			let element;
+		let lintHTML = '';
 
-			for(let i = 0; i < value.length; i++) {
-				if(value[i] !== '\n') {
-					element ??= document.createElement('span');
-					element.innerText += value[i]
+		for(let k = 0; k < tokens.length; k++) {
+			let position = tokens[k].position,
+				type = tokens[k].type,
+				value = tokens[k].value,
+				length = value.length,
+				element;
 
-					if(value[i+1] === '\n' || i === value.length-1) {
-						elements.push(element);
-						element = undefined;
+			if(type === 'delimiter') {
+				for(let i = 0; i < value.length; i++) {
+					if(value[i] !== '\n') {
+						element ??= document.createElement('span');
+						element.innerText += value[i]
+
+						if(value[i+1] === '\n' || i === value.length-1) {
+							lintHTML += element.outerHTML;
+							element = undefined;
+						}
+					}
+					if(value[i] === '\n') {
+						lintHTML += document.createElement('br').outerHTML;
 					}
 				}
-				if(value[i] === '\n') {
-					elements.push(document.createElement('br'));
-				}
-			}
-		} else {
-			elements.push(document.createElement('span'));
+			} else {
+				element = document.createElement('span');
+				element.innerText = value;
 
-			elements[0].innerText = value;
+				if(type.startsWith('comment')) {
+					element.style.color = 'rgb(95 179 63 / 1)';
+				}
+				if(type.startsWith('string')) {
+					if(type === 'string') {
+						element.innerText = '\''+value+'\'';
+					}
+					if(type === 'stringSegmentFirst') {
+						element.innerText = '\''+value;
+					}
+					if(type === 'stringSegmentLast') {
+						element.innerText = value+'\'';
+					}
+					if(!type.startsWith('stringExpression')) {
+						element.style.color = 'rgb(191 127 95 / 1)';
+					}
+				}
+				if(type.startsWith('operator')) {
+					element.style.color = 'rgb(255 191 0 / 1)';
 
-			if(type.startsWith('comment')) {
-				elements[0].style.color = 'rgb(95 179 63 / 1)';
-			}
-			if(type.startsWith('string')) {
-				if(type === 'string') {
-					elements[0].innerText = '\''+value+'\'';
+					if(type.endsWith('Prefix')) {
+						element.style.color = 'rgb(255 63 0 / 1)';
+					}
+					if(type.endsWith('Infix')) {
+						element.style.color = 'rgb(255 95 0 / 1)';
+					}
+					if(type.endsWith('Postfix')) {
+						element.style.color = 'rgb(255 127 0 / 1)';
+					}
 				}
-				if(type === 'stringSegmentFirst') {
-					elements[0].innerText = '\''+value;
-				}
-				if(type === 'stringSegmentLast') {
-					elements[0].innerText = value+'\'';
-				}
-				if(!type.startsWith('stringExpression')) {
-					elements[0].style.color = 'rgb(191 127 95 / 1)';
-				}
-			}
-			if(type.startsWith('operator')) {
-				elements[0].style.color = 'rgb(255 191 0 / 1)';
+				if(type.startsWith('keyword')) {
+					element.style.color = 'cornflowerblue';
 
-				if(type.endsWith('Prefix')) {
-					elements[0].style.color = 'rgb(255 63 0 / 1)';
+					if([
+						'nil',
+						'true',
+						'false'
+					].includes(value)) {
+						element.style.color = 'rgb(223 127 223 / 1)';
+					}
 				}
-				if(type.endsWith('Infix')) {
-					elements[0].style.color = 'rgb(255 95 0 / 1)';
+				if(type.startsWith('number')) {
+					element.style.color = 'rgb(223 127 223 / 1)';
 				}
-				if(type.endsWith('Postfix')) {
-					elements[0].style.color = 'rgb(255 127 0 / 1)';
-				}
-			}
-			if(type.startsWith('keyword')) {
-				elements[0].style.color = 'cornflowerblue';
 
-				if([
-					'nil',
-					'true',
-					'false'
-				].includes(value)) {
-					elements[0].style.color = 'rgb(223 127 223 / 1)';
-				}
-			}
-			if(type.startsWith('number')) {
-				elements[0].style.color = 'rgb(223 127 223 / 1)';
+				lintHTML += element.outerHTML;
 			}
 		}
 
-		for(let element of elements) {
-			textbox.appendChild(element);
-		}
-	}
-	for(let report of reports) {
-		let level = report.level.toString()
-						.replace('0', 'Info')
-						.replace('1', 'Warning')
-						.replace('2', 'Error'),
-			line = report.location.line+1,
-			column = report.location.column+1,
-			string = report.string;
+		let consoleHTML = '';
 
-		console.log(line+':'+column+': '+level+': '+string);
+		console.clear();
+		for(let report of reports) {
+			let level = report.level.toString()
+									.replace('0', 'Info')
+									.replace('1', 'Warning')
+									.replace('2', 'Error'),
+				line = report.location.line+1,
+				column = report.location.column+1,
+				string = report.string,
+				message = line+':'+column+': '+level+': '+string;
+
+			consoleHTML += message+'\n';
+			console.log(message);
+		}
+		console.log(lexerResult.tokens);
+		console.log(parserResult.tree);
+
+		output_lint.innerHTML = lintHTML;
+		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
+		output_console.innerText = consoleHTML;
 	}
-	console.log(lexerResult.tokens);
-	console.log(parserResult.tree);
+
+	input.oninput = parse;
+	input.onscroll = () => output_lint.scrollTop = input.scrollTop;
+	input.value = input.value.trim();
+
+	parse();
 </script>
 </body>
 </html>
