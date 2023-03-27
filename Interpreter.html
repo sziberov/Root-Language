@@ -23,6 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
+a is B ? 1 : 2
+
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
 // Foundation Source
@@ -1040,6 +1042,30 @@ print(A)		// class
 
 				return node;
 			},
+			conditionalOperator: () => {
+				let node = {
+					type: 'conditionalOperator',
+					range: {},
+					expression: undefined
+				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '?') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.expression = this.rules.expressionsSequence();
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position++;
+
+				return node;
+			},
 			declaration: () => {
 				let node =
 					this.rules.classDeclaration() ??
@@ -1290,7 +1316,7 @@ print(A)		// class
 				if(node.values.length === 0) {
 					return;
 				}
-				if(node.values.length%2 === 0) {
+				if(node.values.filter(v => !v.noOffsetInSequence).length%2 === 0) {
 					this.position = node.values.at(-1).range.start;
 
 					node.values.pop();
@@ -1590,9 +1616,9 @@ print(A)		// class
 			},
 			infixExpression: () => {
 				let node =
-					this.rules.infixOperator(); //??
-				//	this.rules.ternaryOperator() ??
-				//	this.rules.typeCheckingOperator();
+					this.rules.conditionalOperator() ??
+					this.rules.isOperator() ??
+					this.rules.infixOperator();
 
 				return node;
 			},
@@ -1603,7 +1629,7 @@ print(A)		// class
 					value: undefined
 				}
 
-				let exceptions = [',']  // Enclosing nodes can use operators from the list as delimiters
+				let exceptions = [',', ':']  // Enclosing nodes can use operators from the list as delimiters
 
 				if(!['operator', 'operatorInfix'].includes(this.token.type) || exceptions.includes(this.token.value)) {
 					return;
@@ -1705,6 +1731,41 @@ print(A)		// class
 				}
 
 				node.range.end = node.subtypes.at(-1).range.end;
+
+				return node;
+			},
+			isOperator: () => {
+				let node = {
+					type: 'isOperator',
+					range: {
+						start: this.position
+					},
+					type_: undefined,
+					negatiated: false,
+					noOffsetInSequence: true
+				}
+
+				if(this.token.type === 'prefixOperator' && this.token.value === '!') {
+					this.position++;
+					node.negatiated = true;
+				}
+
+				if(this.token.type !== 'keywordIs') {
+					this.postion = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.type_ = this.rules.type();
+
+				if(node.type_ == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -2583,16 +2644,18 @@ print(A)		// class
 			 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
 			 *
 			 * Additionally a separator between the nodes can be set.
+			 * Also nodes can have .noOffsetInSequence set to true to mark that they shouldn't have impact on type offset in next iteration.
 			 *
 			 * Stops when an unsupported type occurs.
 			 *
 			 * Useful for precise sequences lookup.
 			 */
 			sequentialNodes: (types, separating) => {
-				let nodes = []
+				let nodes = [],
+					offset = 0;
 
-				for(let i = 0; i < Infinity; i++) {
-					if(separating != null && i > 0) {
+				while(!this.tokensEnd) {
+					if(separating != null && offset > 0) {
 						if(separating()) {
 							this.position++;
 						} else {
@@ -2600,7 +2663,7 @@ print(A)		// class
 						}
 					}
 
-					let type = types[i%types.length],
+					let type = types[offset%types.length],
 						node = this.rules[type]?.();
 
 					if(node == null) {
@@ -2609,8 +2672,8 @@ print(A)		// class
 
 					nodes.push(node);
 
-					if(this.tokensEnd) {
-						break;
+					if(!node.noOffsetInSequence) {
+						offset++;
 					}
 				}
 
