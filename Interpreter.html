@@ -23,7 +23,8 @@ body {
 }
 </style>
 <textarea id="input">
-a is B ? 1 : 2
+var leftValue = lhs is Boolean ? lhs : lhs.value
+var leftValue = lhs !is Boolean ? lhs : lhs.value
 
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
@@ -1066,6 +1067,16 @@ print(A)		// class
 
 				return node;
 			},
+			controlTransferStatement: () => {
+				let node =
+				//	this.rules.breakStatement() ??
+				//	this.rules.continueStatement() ??
+				//	this.rules.fallthroughStatement() ??
+					this.rules.returnStatement(); //??
+				//	this.rules.throwStatement();
+
+				return node;
+			},
 			declaration: () => {
 				let node =
 					this.rules.classDeclaration() ??
@@ -1307,16 +1318,23 @@ print(A)		// class
 					range: {
 						start: this.position
 					},
-					values: this.ruleHelpers.sequentialNodes([
-						'expression',
-						'infixExpression'
-					])
+					values: []
 				}
+
+				let subsequentialTypes = [
+					'inOperator',
+					'isOperator'
+				]
+
+				node.values = this.ruleHelpers.sequentialNodes([
+					'expression',
+					'infixExpression'
+				], undefined, subsequentialTypes);
 
 				if(node.values.length === 0) {
 					return;
 				}
-				if(node.values.filter(v => !v.noOffsetInSequence).length%2 === 0) {
+				if(node.values.filter(v => !subsequentialTypes.includes(v.type)).length%2 === 0) {
 					this.position = node.values.at(-1).range.start;
 
 					node.values.pop();
@@ -1449,6 +1467,7 @@ print(A)		// class
 				return this.rules.statements([
 					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 					'declaration',
+					'controlTransferStatement',
 					'forStatement',
 					'ifStatement',
 					'whileStatement'
@@ -1617,6 +1636,7 @@ print(A)		// class
 			infixExpression: () => {
 				let node =
 					this.rules.conditionalOperator() ??
+					this.rules.inOperator() ??
 					this.rules.isOperator() ??
 					this.rules.infixOperator();
 
@@ -1665,6 +1685,40 @@ print(A)		// class
 				}
 
 				node.range.end = node.types.at(-1).range.end;
+
+				return node;
+			},
+			inOperator: () => {
+				let node = {
+					type: 'inOperator',
+					range: {
+						start: this.position
+					},
+					negatiated: false,
+					composite: undefined
+				}
+
+				if(this.token.type === 'operatorPrefix' && this.token.value === '!') {
+					this.position++;
+					node.negatiated = true;
+				}
+
+				if(this.token.type !== 'keywordIn') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.composite = this.rules.expressionsSequence();
+
+				if(node.composite == null) {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1741,17 +1795,16 @@ print(A)		// class
 						start: this.position
 					},
 					type_: undefined,
-					negatiated: false,
-					noOffsetInSequence: true
+					negatiated: false
 				}
 
-				if(this.token.type === 'prefixOperator' && this.token.value === '!') {
+				if(this.token.type === 'operatorPrefix' && this.token.value === '!') {
 					this.position++;
 					node.negatiated = true;
 				}
 
 				if(this.token.type !== 'keywordIs') {
-					this.postion = node.range.start;
+					this.position = node.range.start;
 
 					return;
 				}
@@ -2308,6 +2361,23 @@ print(A)		// class
 					'variableDeclaration'
 				]);
 			},
+			returnStatement: () => {
+				let node = {
+					type: 'returnStatement',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordReturn') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.expressionsSequence();
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			statements: (types) => {
 				return this.ruleHelpers.skippableNodes(
 					types,
@@ -2644,13 +2714,13 @@ print(A)		// class
 			 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
 			 *
 			 * Additionally a separator between the nodes can be set.
-			 * Also nodes can have .noOffsetInSequence set to true to mark that they shouldn't have impact on type offset in next iteration.
+			 * Also types can be marked subsequential and therefore have no impact on offset in iterations.
 			 *
 			 * Stops when an unsupported type occurs.
 			 *
 			 * Useful for precise sequences lookup.
 			 */
-			sequentialNodes: (types, separating) => {
+			sequentialNodes: (types, separating, subsequentialTypes) => {
 				let nodes = [],
 					offset = 0;
 
@@ -2672,7 +2742,7 @@ print(A)		// class
 
 					nodes.push(node);
 
-					if(!node.noOffsetInSequence) {
+					if(!subsequentialTypes?.includes(node.type)) {
 						offset++;
 					}
 				}
