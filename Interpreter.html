@@ -34,7 +34,7 @@ body {
 	border: none;
 	background: rgb(63 63 63 / 1);
 
-	color: transparent;
+	color: rgba(255 255 255 / 0.25);
 	caret-color: white;
 }
 
@@ -356,6 +356,8 @@ print(A)		// class
 					return;
 				}
 				if(!this.atStringLevel) {
+					this.ruleHelpers.reportSkip(v);
+
 					return;
 				}
 				if(v === '\\(') {
@@ -589,7 +591,7 @@ print(A)		// class
 					return;
 				}
 
-				this.report(0, 'No token of an appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
+				this.ruleHelpers.reportSkip(v);
 			}]
 		]
 
@@ -604,6 +606,9 @@ print(A)		// class
 					case 'operator':		this.token.type = 'operatorPrefix';	break;
 					case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
 				}
+			},
+			reportSkip: (v) => {
+				this.report(0, 'No token of an appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 			}
 		}
 
@@ -3449,19 +3454,8 @@ print(A)		// class
 				if(type.startsWith('comment')) {
 					element.style.color = 'rgb(95 179 63 / 1)';
 				}
-				if(type.startsWith('string')) {
-					if(type === 'string') {
-						element.innerText = '\''+value+'\'';
-					}
-					if(type === 'stringSegmentFirst') {
-						element.innerText = '\''+value;
-					}
-					if(type === 'stringSegmentLast') {
-						element.innerText = value+'\'';
-					}
-					if(!type.startsWith('stringExpression')) {
-						element.style.color = 'rgb(191 127 95 / 1)';
-					}
+				if(type.startsWith('string') && !type.startsWith('stringExpression')) {
+					element.style.color = 'rgb(191 127 95 / 1)';
 				}
 				if(type.startsWith('operator')) {
 					element.style.color = 'rgb(255 191 0 / 1)';
