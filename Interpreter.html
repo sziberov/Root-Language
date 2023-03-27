@@ -23,8 +23,7 @@ body {
 }
 </style>
 <textarea id="input">
-var leftValue = lhs is Boolean ? lhs : lhs.value
-var leftValue = lhs !is Boolean ? lhs : lhs.value
+var c = a is B ? b !is A : d.e
 
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
@@ -1072,8 +1071,8 @@ print(A)		// class
 				//	this.rules.breakStatement() ??
 				//	this.rules.continueStatement() ??
 				//	this.rules.fallthroughStatement() ??
-					this.rules.returnStatement(); //??
-				//	this.rules.throwStatement();
+					this.rules.returnStatement() ??
+					this.rules.throwStatement();
 
 				return node;
 			},
@@ -1321,15 +1320,9 @@ print(A)		// class
 					values: []
 				}
 
-				let subsequentialTypes = [
-					'inOperator',
-					'isOperator'
-				]
+				let subsequentialTypes = ['inOperator', 'isOperator']
 
-				node.values = this.ruleHelpers.sequentialNodes([
-					'expression',
-					'infixExpression'
-				], undefined, subsequentialTypes);
+				node.values = this.ruleHelpers.sequentialNodes(['expression', 'infixExpression'], undefined, subsequentialTypes);
 
 				if(node.values.length === 0) {
 					return;
@@ -2431,10 +2424,7 @@ print(A)		// class
 
 				node.range.start = this.position++;
 				node.segments = this.ruleHelpers.skippableNodes(
-					[
-						'stringSegment',
-						'stringExpression'
-					],
+					['stringSegment', 'stringExpression'],
 					() => this.token.type === 'stringOpen',
 					() => this.token.type === 'stringClosed'
 				);
@@ -2561,6 +2551,23 @@ print(A)		// class
 
 					this.report(1, node.range.start, 'Subscript expression doesn\'t have the closing bracket and decided to be autoclosed at the end of stream.');
 				}
+
+				return node;
+			},
+			throwStatement: () => {
+				let node = {
+					type: 'throwStatement',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordThrow') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.expressionsSequence();
+				node.range.end = this.position-1;
 
 				return node;
 			},
