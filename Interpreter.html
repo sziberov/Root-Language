@@ -62,6 +62,12 @@ body {
 }
 </style>
 <textarea id="input">
+class A<B>: C<D>, E<F>, G<H> {}
+
+func a<A: B<C>>() {}
+
+g<a, b>(c)
+
 var c = a is B ? b !is A : d.e
 
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
@@ -392,7 +398,7 @@ print(A)		// class
 						}
 					break;
 					case ')':
-						if(this.atStringExpressionLevel && this.levels.stringExpressionParenthesis === 0) {
+						if(this.atStringExpressionLevel && this.levels.parenthesis === 0) {
 							this.addToken('stringExpressionClosed');
 							this.levels.stringExpression--;
 						} else {
@@ -400,6 +406,62 @@ print(A)		// class
 						}
 					break;
 				}
+			}],
+			[['(', ')', '<', '>', '[', ']', '{', '}'], (v) => {
+				if(this.atCommentLevel || this.atStringLevel) {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+
+					return;
+				}
+
+				let type = ({
+					'(': 'parenthesisOpen',
+					')': 'parenthesisClosed',
+					'<': 'angleOpen',
+					'>': 'angleClosed',
+					'[': 'bracketOpen',
+					']': 'bracketClosed',
+					'{': 'braceOpen',
+					'}': 'braceClosed'
+				})[v]
+
+				if(v === '<') {
+					let compositeDeclarationPattern = [
+							{ type: /^keyword/ },
+							{ type: /^delimiter$/, optional: true },
+							{ type: /^identifier$/ },
+							{ type: /^delimiter$/, optional: true }
+						],
+						inheritancePattern = [
+							{ type: /^operator/, value: /^[:&|,]$/ },
+							{ type: /^delimiter$/, optional: true },
+							{ type: /^identifier$/ },
+							{ type: /^delimiter$/, optional: true }
+						]
+
+					if(!this.atPattern(compositeDeclarationPattern) && !this.atPattern(inheritancePattern)) {
+						return true;
+					}
+
+					this.levels.angle++;
+				}
+				if(v === '>') {
+					if(this.levels.angle === 0) {
+						return true;
+					}
+
+					this.levels.angle--;
+				}
+				if(this.atStringExpressionLevel) {
+					this.levels.parenthesis += v === '(';
+					this.levels.parenthesis -= v === ')';
+				}
+				if(type.endsWith('Open')) {
+					this.ruleHelpers.specifyOperatorType();
+				}
+
+				this.addToken(type);
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
 				let initializers = [',', '.', ':'],	// Create new token if value exists in the list and current (operator) token doesn't initialized with it
@@ -432,37 +494,6 @@ print(A)		// class
 				}
 
 				this.ruleHelpers.specifyOperatorType();
-				this.addToken(type);
-			}],
-			[['(', ')', '{', '}', '[', ']'], (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
-					this.ruleHelpers.continueString();
-					this.token.value += v;
-
-					return;
-				}
-
-				let type = ({
-					'(': 'parenthesisOpen',
-					')': 'parenthesisClosed',
-					'{': 'braceOpen',
-					'}': 'braceClosed',
-					'[': 'bracketOpen',
-					']': 'bracketClosed'
-				})[v]
-
-				if(this.atStringExpressionLevel) {
-					if(v === '(') {
-						this.levels.stringExpressionParenthesis++;
-					}
-					if(v === ')') {
-						this.levels.stringExpressionParenthesis--;
-					}
-				}
-				if(type.endsWith('Open')) {
-					this.ruleHelpers.specifyOperatorType();
-				}
-
 				this.addToken(type);
 			}],
 			['\'', (v) => {
@@ -628,6 +659,27 @@ print(A)		// class
 			return this.levels.string > 0 && this.levels.string === this.levels.stringExpression;
 		}
 
+		static atPattern(pattern, offset = 0) {
+			for(let i = pattern.length-1; i >= 0; i--) {
+				let condition = pattern[i]
+
+				if(
+					condition.type != null && !condition.type.test(this.getToken(offset).type) ||
+					condition.value != null && !condition.value.test(this.getToken(offset).value)
+				) {
+					if(!condition.optional) {
+						return false;
+					} else {
+						continue;
+					}
+				}
+
+				offset--;
+			}
+
+			return true;
+		}
+
 		static getToken(offset = 0) {
 			return this.tokens[this.tokens.length-1+offset] ?? {
 				position: undefined,
@@ -670,7 +722,8 @@ print(A)		// class
 				comment: 0,
 				string: 0,
 				stringExpression: 0,
-				stringExpressionParenthesis: 0
+				parenthesis: 0,  // Could be mixed with stringExpression but cannot for readability reasons
+				angle: 0
 			}
 			this.reports = []
 		}
@@ -765,23 +818,19 @@ print(A)		// class
 					value: undefined
 				}
 
-				if(node.label == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
+				if(node.label != null && this.token.type.startsWith('operator') && this.token.value === ':') {
+					this.position++;
+				} else {
 					this.position = node.range.start;
 					node.label = undefined;
-				} else {
-					this.position++;
 				}
 
-				node.range.end = this.position;
 				node.value = this.rules.expressionsSequence();
-
 				if(node.label == null && node.value == null) {
 					return;
 				}
 
-				node.range.end =
-					node.value?.range.end ??
-					node.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -912,10 +961,27 @@ print(A)		// class
 						start: node_.range.start
 					},
 					callee: node_,
+					genericArguments: [],
 					arguments: []
 				}
 
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+					this.position++;
+					node.genericArguments = this.ruleHelpers.sequentialNodes(
+						['type'],
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+						this.position++;
+					} else {
+						this.position = node_.range.end+1;
+					}
+				}
+
 				if(this.token.type !== 'parenthesisOpen') {
+					this.position = node_.range.end+1;
+
 					return;
 				}
 
@@ -1023,10 +1089,10 @@ print(A)		// class
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.modifiers;
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for class declaration.');
@@ -1433,10 +1499,10 @@ print(A)		// class
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.modifiers;
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for function declaration.');
@@ -1462,40 +1528,81 @@ print(A)		// class
 			functionSignature: () => {
 				let node = {
 					type: 'functionSignature',
-					range: {},
+					range: {
+						start: this.position
+					},
 					genericParameters: [],
 					parameters: [],
-					asynchronous: undefined,
-					throws: undefined,
+					asynchronous: false,
+					throws: false,
 					return: undefined
 				}
 
-				if(this.token.type !== 'parenthesisOpen') {
-					return;
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+					this.position++;
+					node.genericParameters = this.ruleHelpers.skippableNodes(
+						['genericParameter'],
+						() => this.token.type.startsWith('operator') && this.token.value === '<',
+						() => this.token.type.startsWith('operator') && this.token.value === '>',
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+						this.position++;
+					} else {
+						node.range.end = this.position-1;
+
+						this.report(1, node.range.start, 'Function signature\'s generic parameters doesn\'t have the closing angle and decided to be autoclosed at the end of stream.');
+
+						return node;
+					}
+				}
+				if(this.token.type === 'parenthesisOpen') {
+					this.position++;
+					node.parameters = this.ruleHelpers.skippableNodes(
+						['parameter'],
+						() => this.token.type === 'parenthesisOpen',
+						() => this.token.type === 'parenthesisClosed',
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type === 'parenthesisClosed') {
+						this.position++;
+					} else {
+						node.range.end = this.position-1;
+
+						this.report(1, node.range.start, 'Function signature\'s parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
+
+						return node;
+					}
 				}
 
-				node.range.start = this.position++;
-				node.parameters = this.ruleHelpers.skippableNodes(
-					['parameter'],
-					() => this.token.type === 'parenthesisOpen',
-					() => this.token.type === 'parenthesisClosed',
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
+				while(['keywordAsync', 'keywordThrows'].includes(this.token.type)) {
+					if(this.token.type === 'keywordAsync') {
+						this.position++;
+						node.asynchronous = true;
 
-				if(this.token.type === 'parenthesisClosed') {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
+						if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
+							this.position++;
+							node.asynchronous = undefined;
+						}
+					}
+					if(this.token.type === 'keywordThrows') {
+						this.position++;
+						node.throws = true;
 
-					this.report(1, node.range.start, 'Function signature parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
+						if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
+							this.position++;
+							node.throws = undefined;
+						}
+					}
 				}
 
-				if(!this.token.type.startsWith('operator') || this.token.value !== '->') {
-					return node;
+				if(this.token.type.startsWith('operator') && this.token.value === '->') {
+					this.position++;
+					node.return = this.rules.type();
 				}
 
-				this.position++;
-				node.return = this.rules.type();
 				node.range.end = this.position-1;
 
 				return node;
@@ -1542,30 +1649,6 @@ print(A)		// class
 				node.range.end = node.type_.range.end;
 
 				return node;
-			},
-			genericParametersClause: () => {
-				let nodes = [],
-					start = this.position;
-
-				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
-					return nodes;
-				}
-
-				this.position++;
-				nodes = this.ruleHelpers.skippableNodes(
-					['genericParameter'],
-					() => this.token.type.startsWith('operator') && this.token.value === '<',
-					() => this.token.type.startsWith('operator') && this.token.value === '>',
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(this.token.type.startsWith('operator') && this.token.value === '>') {
-					this.position++;
-				} else {
-					this.report(1, start, 'Generic parameters clause doesn\'t have the closing angle and decided to be autoclosed at the end of stream.');
-				}
-
-				return nodes;
 			},
 			identifier: () => {
 				let node = {
@@ -1946,10 +2029,10 @@ print(A)		// class
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.modifiers;
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
@@ -2148,7 +2231,7 @@ print(A)		// class
 				node.value = this.rules.type();
 
 				if(this.token.type !== 'parenthesisClosed') {
-					this.position--;
+					this.position = node.range.start;
 
 					return;
 				}
@@ -2361,10 +2444,10 @@ print(A)		// class
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.modifiers;
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
@@ -2529,10 +2612,10 @@ print(A)		// class
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.modifiers;
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, 'No identifier set for structure declaration.');
@@ -2675,26 +2758,23 @@ print(A)		// class
 					node.identifier = node_;
 				}
 
-				node.range.end = node.identifier.range.end;
+				node.range.end = this.position-1;
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
 					return node;
 				}
 
 				this.position++;
-				node.genericArguments = this.ruleHelpers.skippableNodes(
+				node.genericArguments = this.ruleHelpers.sequentialNodes(
 					['type'],
-					() => this.token.type.startsWith('operator') && this.token.value === '<',
-					() => this.token.type.startsWith('operator') && this.token.value === '>',
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type.startsWith('operator') && this.token.value === '>') {
-					node.range.end = this.position++;
+				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
+					this.position = node.range.end+1;
+					node.genericArguments = []
 				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, 'Type reference\'s generic arguments don\'t have the closing bracket and were decided to be autoclosed at the end of stream.');
+					node.range.end = this.position++;
 				}
 
 				return node;
@@ -3469,6 +3549,14 @@ print(A)		// class
 					if(type.endsWith('Postfix')) {
 						element.style.color = 'rgb(255 127 0 / 1)';
 					}
+				}
+				if(
+					type.startsWith('parenthesis') ||
+					type.startsWith('brace') ||
+					type.startsWith('bracket') ||
+					type.startsWith('angle')
+				) {
+					element.style.color = 'rgb(255 255 255 / 1)';
 				}
 				if(type.startsWith('keyword')) {
 					element.style.color = 'cornflowerblue';
