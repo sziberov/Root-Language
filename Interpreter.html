@@ -62,15 +62,18 @@ body {
 }
 </style>
 <textarea id="input">
+a(ArrayList<List<A>>())
+
+var theAnyList: List<List<A>> = ArrayList<List<A>>(),
+	a: B<C> & D<E> | F<G>
+
+class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 class A<B>: C<D>, E<F>, G<H> {}
 
 func a<A: B<C>>() {}
 
+j((g<a), b>(c))
 g<a, b>(c)
-
-var c = a is B ? b !is A : d.e
-
-class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
 
 // Foundation Source
 
@@ -428,7 +431,7 @@ print(A)		// class
 
 				if(v === '<') {
 					let genericsPattern = [
-						{ condition: (t, v) => t.startsWith('keyword') || t.startsWith('operator') && /^[:&|,]$/.test(v) },
+						{ condition: (t, v) => t.startsWith('keyword') || t.startsWith('operator') && /^[:&|,=]$/.test(v) || t === 'angleOpen' },
 						{ condition: (t) => t === 'delimiter', optional: true },
 						{ condition: (t) => t === 'identifier' },
 						{ condition: (t) => t === 'delimiter', optional: true }
@@ -437,26 +440,6 @@ print(A)		// class
 					if(!this.atPattern(genericsPattern)) {
 						return true;
 					}
-
-					/*
-					let offset = 0;
-
-					offset -= this.getToken(offset).type === 'delimiter';
-
-					if(this.getToken(offset).type === 'identifier') {
-						offset--;
-					} else {
-						return true;
-					}
-
-					offset -= this.getToken(offset).type === 'delimiter';
-
-					if(this.getToken(offset).type.startsWith('keyword') || this.getToken(offset).type.startsWith('operator') && /^[:&|,]$/.test(this.getToken(offset).value)) {
-						offset--;
-					} else {
-						return true;
-					}
-					*/
 
 					this.levels.angle++;
 				}
@@ -977,14 +960,14 @@ print(A)		// class
 					arguments: []
 				}
 
-				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+				if(this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<') {
 					this.position++;
 					node.genericArguments = this.ruleHelpers.sequentialNodes(
 						['type'],
 						() => this.token.type.startsWith('operator') && this.token.value === ','
 					);
 
-					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+					if(this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>') {
 						this.position++;
 					} else {
 						this.position = node_.range.end+1;
@@ -1550,16 +1533,16 @@ print(A)		// class
 					return: undefined
 				}
 
-				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+				if(this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<') {
 					this.position++;
 					node.genericParameters = this.ruleHelpers.skippableNodes(
 						['genericParameter'],
-						() => this.token.type.startsWith('operator') && this.token.value === '<',
-						() => this.token.type.startsWith('operator') && this.token.value === '>',
+						() => this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<',
+						() => this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>',
 						() => this.token.type.startsWith('operator') && this.token.value === ','
 					);
 
-					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+					if(this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>') {
 						this.position++;
 					} else {
 						node.range.end = this.position-1;
@@ -2772,7 +2755,7 @@ print(A)		// class
 
 				node.range.end = this.position-1;
 
-				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
+				if(this.token.type !== 'angleOpen' && (!this.token.type.startsWith('operator') || this.token.value !== '<')) {
 					return node;
 				}
 
@@ -2782,7 +2765,7 @@ print(A)		// class
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
+				if(this.token.type !== 'angleClosed' && (!this.token.type.startsWith('operator') || this.token.value !== '>')) {
 					this.position = node.range.end+1;
 					node.genericArguments = []
 				} else {
