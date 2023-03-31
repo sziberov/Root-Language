@@ -427,22 +427,36 @@ print(A)		// class
 				})[v]
 
 				if(v === '<') {
-					let compositeDeclarationPattern = [
-							{ type: /^keyword/ },
-							{ type: /^delimiter$/, optional: true },
-							{ type: /^identifier$/ },
-							{ type: /^delimiter$/, optional: true }
-						],
-						inheritancePattern = [
-							{ type: /^operator/, value: /^[:&|,]$/ },
-							{ type: /^delimiter$/, optional: true },
-							{ type: /^identifier$/ },
-							{ type: /^delimiter$/, optional: true }
-						]
+					let genericsPattern = [
+						{ condition: (t, v) => t.startsWith('keyword') || t.startsWith('operator') && /^[:&|,]$/.test(v) },
+						{ condition: (t) => t === 'delimiter', optional: true },
+						{ condition: (t) => t === 'identifier' },
+						{ condition: (t) => t === 'delimiter', optional: true }
+					]
 
-					if(!this.atPattern(compositeDeclarationPattern) && !this.atPattern(inheritancePattern)) {
+					if(!this.atPattern(genericsPattern)) {
 						return true;
 					}
+
+					/*
+					let offset = 0;
+
+					offset -= this.getToken(offset).type === 'delimiter';
+
+					if(this.getToken(offset).type === 'identifier') {
+						offset--;
+					} else {
+						return true;
+					}
+
+					offset -= this.getToken(offset).type === 'delimiter';
+
+					if(this.getToken(offset).type.startsWith('keyword') || this.getToken(offset).type.startsWith('operator') && /^[:&|,]$/.test(this.getToken(offset).value)) {
+						offset--;
+					} else {
+						return true;
+					}
+					*/
 
 					this.levels.angle++;
 				}
@@ -661,17 +675,15 @@ print(A)		// class
 
 		static atPattern(pattern, offset = 0) {
 			for(let i = pattern.length-1; i >= 0; i--) {
-				let condition = pattern[i]
+				let rule = pattern[i],
+					token = this.getToken(offset);
 
-				if(
-					condition.type != null && !condition.type.test(this.getToken(offset).type) ||
-					condition.value != null && !condition.value.test(this.getToken(offset).value)
-				) {
-					if(!condition.optional) {
-						return false;
-					} else {
+				if(!rule.condition(token.type, token.value)) {
+					if(rule.optional) {
 						continue;
 					}
+
+					return false;
 				}
 
 				offset--;
