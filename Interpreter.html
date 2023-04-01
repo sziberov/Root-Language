@@ -62,6 +62,12 @@ body {
 }
 </style>
 <textarea id="input">
+a(ArrayList<List<A, 2>>())
+
+a<a<a>>+1
+
+a<a<a>>1
+
 a(ArrayList<List<A>>())
 
 var theAnyList: List<List<A>> = ArrayList<List<A>>(),
@@ -410,65 +416,22 @@ print(A)		// class
 					break;
 				}
 			}],
-			[['(', ')', '<', '>', '[', ']', '{', '}'], (v) => {
+			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
+				let initializers = [',', '.', ':'],	// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+					singletons = ['!', '?']			// Create new token if current (postfix operator) token matches any value in the list
+
+				let initializer = initializers.includes(v) && !this.token.value.startsWith(v),
+					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
+					closingAngle = this.levels.angle > 0 && v === '>';
+
 				if(this.atCommentLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
 					return;
 				}
-
-				let type = ({
-					'(': 'parenthesisOpen',
-					')': 'parenthesisClosed',
-					'<': 'angleOpen',
-					'>': 'angleClosed',
-					'[': 'bracketOpen',
-					']': 'bracketClosed',
-					'{': 'braceOpen',
-					'}': 'braceClosed'
-				})[v]
-
-				if(v === '<') {
-					let genericsPattern = [
-						{ condition: (t, v) => t.startsWith('keyword') || t.startsWith('operator') && /^[:&|,=]$/.test(v) || t === 'angleOpen' },
-						{ condition: (t) => t === 'delimiter', optional: true },
-						{ condition: (t) => t === 'identifier' },
-						{ condition: (t) => t === 'delimiter', optional: true }
-					]
-
-					if(!this.atPattern(genericsPattern)) {
-						return true;
-					}
-
-					this.levels.angle++;
-				}
-				if(v === '>') {
-					if(this.levels.angle === 0) {
-						return true;
-					}
-
-					this.levels.angle--;
-				}
-				if(this.atStringExpressionLevel) {
-					this.levels.parenthesis += v === '(';
-					this.levels.parenthesis -= v === ')';
-				}
-				if(type.endsWith('Open')) {
-					this.ruleHelpers.specifyOperatorType();
-				}
-
-				this.addToken(type);
-			}],
-			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
-				let initializers = [',', '.', ':'],	// Create new token if value exists in the list and current (operator) token doesn't initialized with it
-					singletons = ['!', '?']			// Create new token if current (postfix operator) token matches any value in the list
-
-				let initialize = initializers.includes(v) && !this.token.value.startsWith(v),
-					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value);
-
-				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('operator') && !initialize && !singleton) {
-					this.ruleHelpers.continueString();
+				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
+					this.ruleHelpers.finalizeOperator(true);
 					this.token.value += v;
 
 					return;
@@ -490,7 +453,37 @@ print(A)		// class
 					type += 'Postfix';
 				}
 
-				this.ruleHelpers.specifyOperatorType();
+				this.levels.angle += v === '<';
+				this.levels.angle -= v === '>';
+
+				this.ruleHelpers.finalizeOperator();
+				this.addToken(type);
+			}],
+			[['(', ')', '[', ']', '{', '}'], (v) => {
+				if(this.atCommentLevel || this.atStringLevel) {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+
+					return;
+				}
+
+				let type = ({
+					'(': 'parenthesisOpen',
+					')': 'parenthesisClosed',
+					'[': 'bracketOpen',
+					']': 'bracketClosed',
+					'{': 'braceOpen',
+					'}': 'braceClosed'
+				})[v]
+
+				if(this.atStringExpressionLevel) {
+					this.levels.parenthesis += v === '(';
+					this.levels.parenthesis -= v === ')';
+				}
+				if(type.endsWith('Open')) {
+					this.ruleHelpers.finalizeOperator(v.startsWith('bracket'));
+				}
+
 				this.addToken(type);
 			}],
 			['\'', (v) => {
@@ -501,7 +494,7 @@ print(A)		// class
 				}
 
 				if(!this.atStringLevel) {
-					this.ruleHelpers.specifyOperatorType();
+					this.ruleHelpers.finalizeOperator(true);
 					this.addToken('stringOpen');
 					this.levels.string++;
 				} else {
@@ -543,7 +536,7 @@ print(A)		// class
 					return;
 				}
 
-				this.ruleHelpers.specifyOperatorType();
+				this.ruleHelpers.finalizeOperator(true);
 				this.addToken('numberInteger');
 			}],
 			[/[a-z_]/i, (v) => {
@@ -555,7 +548,7 @@ print(A)		// class
 				}
 
 				if(this.token.type !== 'identifier' && !this.token.type.startsWith('keyword')) {
-					this.ruleHelpers.specifyOperatorType();
+					this.ruleHelpers.finalizeOperator();
 					this.addToken('identifier', '');
 				}
 				this.token.value += v;
@@ -629,7 +622,20 @@ print(A)		// class
 					this.addToken('stringSegment', '');
 				}
 			},
-			specifyOperatorType: () => {
+			finalizeOperator: (merge) => {
+				if(merge) {
+					this.levels.angle = 0;
+
+					for(let i = this.tokens.length; i >= 0; i--) {
+						if(!this.token.type.startsWith('operator') || !this.getToken(-1).type.startsWith('operator')) {
+							break;
+						}
+
+						this.getToken(-1).value += this.token.value;
+						this.removeToken();
+					}
+				}
+
 				switch(this.token.type) {
 					case 'operator':		this.token.type = 'operatorPrefix';	break;
 					case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
@@ -654,25 +660,6 @@ print(A)		// class
 
 		static get atStringExpressionLevel() {
 			return this.levels.string > 0 && this.levels.string === this.levels.stringExpression;
-		}
-
-		static atPattern(pattern, offset = 0) {
-			for(let i = pattern.length-1; i >= 0; i--) {
-				let rule = pattern[i],
-					token = this.getToken(offset);
-
-				if(!rule.condition(token.type, token.value)) {
-					if(rule.optional) {
-						continue;
-					}
-
-					return false;
-				}
-
-				offset--;
-			}
-
-			return true;
 		}
 
 		static getToken(offset = 0) {
@@ -717,8 +704,8 @@ print(A)		// class
 				comment: 0,
 				string: 0,
 				stringExpression: 0,
-				parenthesis: 0,  // Could be mixed with stringExpression but cannot for readability reasons
-				angle: 0
+				parenthesis: 0,	// Used in string expressions, could be mixed with it but done differently for readability reasons
+				angle: 0		// Used to distinguish between common operator and generic type's closing >
 			}
 			this.reports = []
 		}
@@ -751,6 +738,8 @@ print(A)		// class
 						trigger = this.code[this.position]
 					}
 
+					let angleStart = this.levels.angle;
+
 					if(trigger != null && !actions(trigger)) {
 						this.position += trigger.length-1;
 
@@ -763,6 +752,7 @@ print(A)		// class
 							}
 						}
 
+						console.log(trigger, angleStart, this.levels.angle);
 						break;
 					}
 				}
@@ -3486,6 +3476,16 @@ print(A)		// class
 		}
 	}
 
+	console.log(Lexer.tokenize('a<a<a>>').tokens);
+	console.log(Lexer.tokenize('a<a<a>>+').tokens);
+	console.log(Lexer.tokenize('a<a<a>>+1').tokens);
+	console.log(Lexer.tokenize('a<a<a>1').tokens);
+	console.log(Lexer.tokenize('a<a<1').tokens);
+	console.log(Lexer.tokenize('a<>1').tokens);
+	console.log(Lexer.tokenize('a<<>1').tokens);
+
+	/*
+
 	let input = document.getElementById('input'),
 		output_lint = document.getElementById('output_lint'),
 		output_ast = document.getElementById('output_ast'),
@@ -3601,6 +3601,7 @@ print(A)		// class
 	input.value = input.value.trim();
 
 	parse();
+	*/
 </script>
 </body>
 </html>
