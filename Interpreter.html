@@ -738,8 +738,6 @@ print(A)		// class
 						trigger = this.code[this.position]
 					}
 
-					let angleStart = this.levels.angle;
-
 					if(trigger != null && !actions(trigger)) {
 						this.position += trigger.length-1;
 
@@ -752,7 +750,6 @@ print(A)		// class
 							}
 						}
 
-						console.log(trigger, angleStart, this.levels.angle);
 						break;
 					}
 				}
@@ -950,14 +947,14 @@ print(A)		// class
 					arguments: []
 				}
 
-				if(this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<') {
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
 					this.position++;
 					node.genericArguments = this.ruleHelpers.sequentialNodes(
 						['type'],
 						() => this.token.type.startsWith('operator') && this.token.value === ','
 					);
 
-					if(this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>') {
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
 						this.position++;
 					} else {
 						this.position = node_.range.end+1;
@@ -1523,16 +1520,16 @@ print(A)		// class
 					return: undefined
 				}
 
-				if(this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<') {
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
 					this.position++;
 					node.genericParameters = this.ruleHelpers.skippableNodes(
 						['genericParameter'],
-						() => this.token.type === 'angleOpen' || this.token.type.startsWith('operator') && this.token.value === '<',
-						() => this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>',
+						() => this.token.type.startsWith('operator') && this.token.value === '<',
+						() => this.token.type.startsWith('operator') && this.token.value === '>',
 						() => this.token.type.startsWith('operator') && this.token.value === ','
 					);
 
-					if(this.token.type === 'angleClosed' || this.token.type.startsWith('operator') && this.token.value === '>') {
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
 						this.position++;
 					} else {
 						node.range.end = this.position-1;
@@ -2745,7 +2742,7 @@ print(A)		// class
 
 				node.range.end = this.position-1;
 
-				if(this.token.type !== 'angleOpen' && (!this.token.type.startsWith('operator') || this.token.value !== '<')) {
+				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
 					return node;
 				}
 
@@ -2755,7 +2752,7 @@ print(A)		// class
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(this.token.type !== 'angleClosed' && (!this.token.type.startsWith('operator') || this.token.value !== '>')) {
+				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
 					this.position = node.range.end+1;
 					node.genericArguments = []
 				} else {
@@ -3476,16 +3473,6 @@ print(A)		// class
 		}
 	}
 
-	console.log(Lexer.tokenize('a<a<a>>').tokens);
-	console.log(Lexer.tokenize('a<a<a>>+').tokens);
-	console.log(Lexer.tokenize('a<a<a>>+1').tokens);
-	console.log(Lexer.tokenize('a<a<a>1').tokens);
-	console.log(Lexer.tokenize('a<a<1').tokens);
-	console.log(Lexer.tokenize('a<>1').tokens);
-	console.log(Lexer.tokenize('a<<>1').tokens);
-
-	/*
-
 	let input = document.getElementById('input'),
 		output_lint = document.getElementById('output_lint'),
 		output_ast = document.getElementById('output_ast'),
@@ -3548,8 +3535,7 @@ print(A)		// class
 				if(
 					type.startsWith('parenthesis') ||
 					type.startsWith('brace') ||
-					type.startsWith('bracket') ||
-					type.startsWith('angle')
+					type.startsWith('bracket')
 				) {
 					element.style.color = 'rgb(255 255 255 / 1)';
 				}
@@ -3597,11 +3583,13 @@ print(A)		// class
 	}
 
 	input.oninput = parse;
-	input.onscroll = () => output_lint.scrollTop = input.scrollTop;
+	input.onscroll = () => {
+		output_lint.scrollTop = input.scrollTop;
+		output_lint.scrollLeft = input.scrollLeft;
+	}
 	input.value = input.value.trim();
 
 	parse();
-	*/
 </script>
 </body>
 </html>
