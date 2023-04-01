@@ -502,7 +502,7 @@ print(A)		// class
 					this.levels.string--;
 				}
 			}],
-			[/\s|;/, (v) => {
+			[/\s|;/g, (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
 					if(v === '\n' && this.token.type === 'commentLine') {
 						this.addToken('delimiter');
@@ -521,8 +521,8 @@ print(A)		// class
 					this.token.value += v;
 				}
 			}],
-			[/[0-9]/, (v) => {
-				if(this.atCommentLevel || this.atStringLevel || this.token.type.startsWith('number') || this.token.type === 'identifier') {
+			[/[0-9]+/g, (v) => {
+				if(this.atCommentLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -537,21 +537,15 @@ print(A)		// class
 				}
 
 				this.ruleHelpers.finalizeOperator(true);
-				this.addToken('numberInteger');
+				this.addToken('numberInteger', v);
 			}],
-			[/[a-z_]/i, (v) => {
+			[/[a-z_][a-z0-9_]*/gi, (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
 					return;
 				}
-
-				if(this.token.type !== 'identifier' && !this.token.type.startsWith('keyword')) {
-					this.ruleHelpers.finalizeOperator();
-					this.addToken('identifier', '');
-				}
-				this.token.value += v;
 
 				let keywords = [
 					// Flow-related words (async, class, for, return...)
@@ -588,23 +582,24 @@ print(A)		// class
 					'_'
 				]
 
-				if(keywords.includes(this.token.value)) {
-					this.token.type = 'keyword';
+				let type = 'identifier';
 
-					if(this.token.value === '_') {
-						this.token.type += 'Underscore';
+				if(keywords.includes(v)) {
+					type = 'keyword';
 
-						return;
+					if(v === '_') {
+						type += 'Underscore';
 					}
 
-					let value = this.token.value[0].toUpperCase()+this.token.value.slice(1);
+					let value = v[0].toUpperCase()+v.slice(1);
 
-					this.token.type += this.token.value[0] === value[0] ? 'Capital'+value : value;
-				} else {
-					this.token.type = 'identifier';
+					type += v[0] === value[0] ? 'Capital'+value : value;
 				}
+
+				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
+				this.addToken(type, v);
 			}],
-			[/.|\n/i, (v) => {
+			[/.|\n/gi, (v) => {
 				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
@@ -734,8 +729,14 @@ print(A)		// class
 					if(array) {
 						trigger = triggers.find(v => this.atPosition(v));
 					}
-					if(regex && triggers.test(this.code[this.position])) {
-						trigger = this.code[this.position]
+					if(regex) {
+						if(!triggers.global) {
+							triggers = new RegExp(triggers.source, 'g');
+						}
+
+						triggers.lastIndex = this.position;
+						trigger = triggers.exec(this.code);
+						trigger = trigger?.index === this.position ? trigger[0] : undefined;
 					}
 
 					if(trigger != null && !actions(trigger)) {
