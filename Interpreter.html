@@ -480,10 +480,8 @@ print(A)		// class
 					this.levels.parenthesis += v === '(';
 					this.levels.parenthesis -= v === ')';
 				}
-				if(type.endsWith('Open')) {
-					this.ruleHelpers.finalizeOperator(v.startsWith('bracket'));
-				}
 
+				this.ruleHelpers.finalizeOperator(true, type.endsWith('Open'));
 				this.addToken(type);
 			}],
 			['\'', (v) => {
@@ -568,7 +566,7 @@ print(A)		// class
 					'case', 'catch', 'class', 'continue',
 					'default', 'do',
 					'else', 'enum', 'extension',
-					'false', 'final', 'float', 'for', 'func',
+					'fallthrough', 'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
 					'lazy',
 					'namespace', 'nil',
@@ -617,7 +615,7 @@ print(A)		// class
 					this.addToken('stringSegment', '');
 				}
 			},
-			finalizeOperator: (merge) => {
+			finalizeOperator: (merge, specifyType = true) => {
 				if(merge) {
 					this.levels.angle = 0;
 
@@ -630,10 +628,11 @@ print(A)		// class
 						this.removeToken();
 					}
 				}
-
-				switch(this.token.type) {
-					case 'operator':		this.token.type = 'operatorPrefix';	break;
-					case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
+				if(specifyType) {
+					switch(this.token.type) {
+						case 'operator':		this.token.type = 'operatorPrefix';	break;
+						case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
+					}
 				}
 			},
 			reportSkip: (v) => {
@@ -937,6 +936,23 @@ print(A)		// class
 
 				return node;
 			},
+			breakStatement: () => {
+				let node = {
+					type: 'breakStatement',
+					range: {},
+					label: undefined
+				}
+
+				if(this.token.type !== 'keywordBreak') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.label = this.rules.identifier();
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			callExpression: (node_) => {
 				let node = {
 					type: 'callExpression',
@@ -1159,11 +1175,28 @@ print(A)		// class
 
 				return node;
 			},
+			continueStatement: () => {
+				let node = {
+					type: 'continueStatement',
+					range: {},
+					label: undefined
+				}
+
+				if(this.token.type !== 'keywordContinue') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.label = this.rules.identifier();
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			controlTransferStatement: () => {
 				let node =
-				//	this.rules.breakStatement() ??
-				//	this.rules.continueStatement() ??
-				//	this.rules.fallthroughStatement() ??
+					this.rules.breakStatement() ??
+					this.rules.continueStatement() ??
+					this.rules.fallthroughStatement() ??
 					this.rules.returnStatement() ??
 					this.rules.throwStatement();
 
@@ -1430,6 +1463,23 @@ print(A)		// class
 				}
 
 				node.range.end = node.values.at(-1).range.end;
+
+				return node;
+			},
+			fallthroughStatement: () => {
+				let node = {
+					type: 'fallthroughStatement',
+					range: {},
+					label: undefined
+				}
+
+				if(this.token.type !== 'keywordFallthrough') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.label = this.rules.identifier();
+				node.range.end = this.position-1;
 
 				return node;
 			},
