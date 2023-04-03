@@ -431,7 +431,7 @@ print(A)		// class
 					return;
 				}
 				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
-					this.ruleHelpers.finalizeOperator(true);
+					this.ruleHelpers.finalizeOperator();
 					this.token.value += v;
 
 					return;
@@ -456,7 +456,7 @@ print(A)		// class
 				this.levels.angle += v === '<';
 				this.levels.angle -= v === '>';
 
-				this.ruleHelpers.finalizeOperator();
+				this.ruleHelpers.finalizeOperator(false);
 				this.addToken(type);
 			}],
 			[['(', ')', '[', ']', '{', '}'], (v) => {
@@ -481,7 +481,8 @@ print(A)		// class
 					this.levels.parenthesis -= v === ')';
 				}
 
-				this.ruleHelpers.finalizeOperator(true, type.endsWith('Open'));
+				this.levels.angle = 0;  // Balanced tokens except </> are allowed right after generic types but not inside them
+				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
 				this.addToken(type);
 			}],
 			['\'', (v) => {
@@ -492,7 +493,7 @@ print(A)		// class
 				}
 
 				if(!this.atStringLevel) {
-					this.ruleHelpers.finalizeOperator(true);
+					this.ruleHelpers.finalizeOperator();
 					this.addToken('stringOpen');
 					this.levels.string++;
 				} else {
@@ -534,7 +535,7 @@ print(A)		// class
 					return;
 				}
 
-				this.ruleHelpers.finalizeOperator(true);
+				this.ruleHelpers.finalizeOperator();
 				this.addToken('numberInteger', v);
 			}],
 			[/[a-z_][a-z0-9_]*/gi, (v) => {
@@ -615,7 +616,7 @@ print(A)		// class
 					this.addToken('stringSegment', '');
 				}
 			},
-			finalizeOperator: (merge, specifyType = true) => {
+			finalizeOperator: (merge = true, specifyType = true) => {
 				if(merge) {
 					this.levels.angle = 0;
 
