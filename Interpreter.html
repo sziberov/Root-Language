@@ -50,7 +50,7 @@ body {
 #output_console {
 	grid-area: abstract;
 
-	background: rgb(223 223 223 / 1);;
+	background: rgb(223 223 223 / 1);
 
 	font-size: 10px;
 }
@@ -62,6 +62,12 @@ body {
 }
 </style>
 <textarea id="input">
+Thread(clazz: class: Runnable {
+	func run() {
+		// ...
+	}
+}()).start()
+
 a(ArrayList<List<A, 2>>())
 
 a<a<a>>+1
@@ -74,7 +80,6 @@ var theAnyList: List<List<A>> = ArrayList<List<A>>(),
 	a: B<C> & D<E> | F<G>
 
 class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
-class A<B>: C<D>, E<F>, G<H> {}
 
 func a<A: B<C>>() {}
 
@@ -101,9 +106,9 @@ struct Boolean {
 		self.value = value  // .value = value
 	}
 
-	static func ==(lhs: bool & Boolean, rhs: bool & Boolean) -> Boolean {
-		var leftValue = lhs !is Boolean ? lhs : lhs.value,
-			rightValue = rhs !is Boolean ? rhs : rhs.value
+	static func ==(lhs: bool & Self, rhs: bool & Self) -> Self {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
 
 		return leftValue == rightValue
 	}
@@ -118,9 +123,9 @@ struct Number {
 		.value = value
 	}
 
-	static func ==(lhs: int & float & Number, rhs: int & float & Number) -> Boolean {
-		var leftValue = lhs !is Number ? lhs : lhs.value,
-			rightValue = rhs !is Number ? rhs : rhs.value
+	static func ==(lhs: int & float & Self, rhs: int & float & Self) -> Boolean {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
 
 		return leftValue == rightValue
 	}
@@ -153,9 +158,9 @@ struct String {
 		.value = value
 	}
 
-	static func ==(lhs: string & String, rhs: string & String) -> Boolean {
-		var leftValue = lhs !is String ? lhs : lhs.value,
-			rightValue = rhs !is String ? rhs : rhs.value
+	static func ==(lhs: string & Self, rhs: string & Self) -> Boolean {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
 
 		return leftValue == rightValue
 	}
@@ -431,7 +436,7 @@ print(A)		// class
 					return;
 				}
 				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
-					this.ruleHelpers.finalizeOperator();
+					this.ruleHelpers.finalizeOperator(true, false);
 					this.token.value += v;
 
 					return;
