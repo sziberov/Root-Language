@@ -1015,7 +1015,31 @@ print(A)		// class
 
 				return node;
 			},
-			caseDeclaration: () => {},
+			caseDeclaration: () => {
+				let node = {
+					type: 'caseDeclaration',
+					range: {},
+					identifiers: []
+				}
+
+				if(this.token.type !== 'keywordCase') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.identifiers = this.ruleHelpers.sequentialNodes(
+					['identifier'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(node.identifiers.length === 0) {
+					this.report(0, node.range.start, 'Case declaration doesn\'t have identifiers(s).');
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			chainExpression: (node_) => {
 				let node = {
 					type: 'chainExpression',
@@ -1094,7 +1118,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
@@ -1132,8 +1156,10 @@ print(A)		// class
 			classStatements: () => {
 				return this.rules.statements([
 					'classDeclaration',
+					'deinitializerDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
+					'initializerDeclaration',
 					'namespaceDeclaration',
 					'protocolDeclaration',
 					'structureDeclaration',
@@ -1246,16 +1272,8 @@ print(A)		// class
 					return;
 				}
 
-				if(this.token.type.startsWith('operator') && this.token.value === ':') {
-					this.position++;
-					node.type_ = this.rules.type();
-				}
-
-				if(this.token.type.startsWith('operator') && this.token.value === '=') {
-					this.position++;
-					node.value = this.rules.expressionsSequence();
-				}
-
+				node.type_ = this.rules.typeClause();
+				node.value = this.rules.initializerClause();
 				node.range.end = this.position-1;
 
 				return node;
@@ -1291,6 +1309,28 @@ print(A)		// class
 				}
 
 				node.range.end = this.position++;
+
+				return node;
+			},
+			deinitializerDeclaration: () => {
+				let node = {
+					type: 'deinitializerDeclaration',
+					range: {},
+					body: undefined
+				}
+
+				if(this.token.type !== 'identifier' || this.token.value !== 'deinit') {
+					return;
+				}
+
+				this.position++;
+				node.body = this.rules.functionBody();
+
+				if(node.body == null) {
+					this.report(0, node.range.start, 'Denitializer doesn\'t have body.');
+				}
+
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1360,7 +1400,8 @@ print(A)		// class
 				return node;
 			},
 			elseClause: () => {
-				let node;
+				let node,
+					start = this.position;
 
 				if(this.token.type !== 'keywordElse') {
 					return;
@@ -1370,6 +1411,10 @@ print(A)		// class
 				node =
 					this.rules.functionBody() ??
 					this.rules.ifStatement();
+
+				if(node == null) {
+					this.report(0, start, 'If statement doesn\'t have an "else" body.');
+				}
 
 				return node;
 			},
@@ -1422,7 +1467,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
@@ -1552,7 +1597,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier =
 					this.rules.identifier() ??
 					this.rules.operator();
@@ -1747,22 +1792,8 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = node.identifier.range.end;
-
-				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					return node;
-				}
-
-				this.position++;
-				node.type_ = this.rules.type();
-
-				if(node.type_ == null) {
-					this.position--;
-
-					return node;
-				}
-
-				node.range.end = node.type_.range.end;
+				node.type_ = this.rules.typeClause();
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1831,7 +1862,7 @@ print(A)		// class
 					this.report(2, node.range.start, 'No condition set for if statement.');
 				}
 				if(node.then == null) {
-					this.report(0, node.range.start, 'If statement doesn\'t have "then" body.');
+					this.report(0, node.range.start, 'If statement doesn\'t have a "then" body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1952,7 +1983,8 @@ print(A)		// class
 				return node;
 			},
 			inheritanceClause: () => {
-				let nodes = []
+				let nodes = [],
+					start = this.position;
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
 					return;
@@ -1965,12 +1997,62 @@ print(A)		// class
 				);
 
 				if(nodes.length === 0) {
-					this.position--;
+					this.report(0, start, 'Inheritance clause doesn\'t have a types.');
+				}
+
+				return nodes;
+			},
+			initializerClause: () => {
+				let node,
+					start = this.position;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '=') {
+					return;
+				}
+
+				this.position++;
+				node = this.rules.expressionsSequence();
+
+				if(node == null) {
+					this.report(0, start, 'Initializer clause doesn\'t have a value.');
+				}
+
+				return node;
+			},
+			initializerDeclaration: () => {
+				let node = {
+					type: 'initializerDeclaration',
+					range: {
+						start: this.position
+					},
+					modifiers: this.rules.modifiers(),
+					signature: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'identifier' || this.token.value !== 'init') {
+					this.position = node.range.start;
 
 					return;
 				}
 
-				return nodes;
+				this.position++;
+				node.signature = this.rules.functionSignature();
+				node.body = this.rules.functionBody();
+
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public'].includes(v))) {
+					this.report(1, node.range.start, 'Wrong modifier(s) set for initializer.');
+				}
+				if(node.signature == null) {
+					this.report(0, node.range.start, 'Initializer lacks of signature.');
+				}
+				if(node.body == null) {
+					this.report(0, node.range.start, 'Initializer doesn\'t have body.');
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
 			},
 			inOperator: () => {
 				let node = {
@@ -2185,7 +2267,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
@@ -2346,7 +2428,35 @@ print(A)		// class
 			operatorStatements: () => {
 				return this.rules.statements(['entry']);
 			},
-			parameter: () => {},
+			parameter: () => {
+				let node = {
+					type: 'parameter',
+					range: {
+						start: this.position
+					},
+					label: this.rules.identifier(),
+					identifier: undefined,
+					type_: undefined,
+					value: undefined
+				}
+
+				if(node.label == null) {
+					return;
+				}
+
+				node.identifier = this.rules.identifier();
+
+				if(node.identifier == null) {
+					node.identifier = node.label;
+					node.label = undefined;
+				}
+
+				node.type_ = this.rules.typeClause();
+				node.value = this.rules.initializerClause();
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			parenthesizedExpression: () => {
 				let node = {
 					type: 'parenthesizedExpression',
@@ -2601,7 +2711,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
@@ -2773,7 +2883,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
@@ -2811,8 +2921,10 @@ print(A)		// class
 			structureStatements: () => {
 				return this.rules.statements([
 					'classDeclaration',
+					'deinitializerDeclaration',
 					'enumerationDeclaration',
 					'functionDeclaration',
+					'initializerDeclaration',
 					'namespaceDeclaration',
 					'protocolDeclaration',
 					'structureDeclaration',
@@ -2901,6 +3013,23 @@ print(A)		// class
 			},
 			type: () => {
 				return this.rules.unionType();
+			},
+			typeClause: () => {
+				let node,
+					start = this.position;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
+					return;
+				}
+
+				this.position++;
+				node = this.rules.type();
+
+				if(node == null) {
+					this.report(0, start, 'Type clause doesn\'t have a value.');
+				}
+
+				return node;
 			},
 			typeReference: () => {
 				let node = {
