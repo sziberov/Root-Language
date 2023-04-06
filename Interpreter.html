@@ -62,6 +62,12 @@ body {
 }
 </style>
 <textarea id="input">
+var a: { var b func c }? = nil
+
+func a() awaits throws -> A {}
+
+try await async a()
+
 Thread(clazz: class: Runnable {
 	func run() {
 		// ...
@@ -567,7 +573,7 @@ print(A)		// class
 					'Object',
 					'Protocol',
 					'Structure',
-					'any', 'async', 'await',
+					'any', 'async', 'await', 'awaits',
 					'bool', 'break',
 					'case', 'catch', 'class', 'continue',
 					'default', 'do',
@@ -580,7 +586,7 @@ print(A)		// class
 					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
 					'return',
 					'static', 'string', 'struct', 'switch',
-					'throw', 'true', 'try',
+					'throw', 'throws', 'true', 'try',
 					'var',
 					'while',
 					'_'
@@ -870,6 +876,30 @@ print(A)		// class
 				}
 
 				node.range.end = this.position++;
+
+				return node;
+			},
+			asyncExpression: () => {
+				let node = {
+					type: 'asyncExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordAsync') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.expression();
+
+				if(node.value == null) {
+					this.position--;
+
+					return;
+				}
+
+				node.range.end = node.value.range.end;
 
 				return node;
 			},
@@ -1437,6 +1467,7 @@ print(A)		// class
 			},
 			expression: () => {
 				let node =
+					this.rules.asyncExpression() ??
 					this.rules.awaitExpression() ??
 					this.rules.tryExpression() ??
 					this.rules.prefixExpression();
@@ -1572,7 +1603,7 @@ print(A)		// class
 					},
 					genericParameters: [],
 					parameters: [],
-					asynchronous: false,
+					awaits: false,
 					throws: false,
 					return: undefined
 				}
@@ -1616,14 +1647,96 @@ print(A)		// class
 					}
 				}
 
+				while(['keywordAwaits', 'keywordThrows'].includes(this.token.type)) {
+					if(this.token.type === 'keywordAwaits') {
+						this.position++;
+						node.awaits = true;
+					}
+					if(this.token.type === 'keywordThrows') {
+						this.position++;
+						node.throws = true;
+					}
+				}
+
+				if(this.token.type.startsWith('operator') && this.token.value === '->') {
+					this.position++;
+					node.return = this.rules.type();
+				}
+
+				node.range.end = this.position-1;
+
+				if(node.range.end < node.range.start) {
+					return;
+				}
+
+				return node;
+			},
+			functionStatements: () => {
+				return this.rules.statements([
+					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
+					'declaration',
+					'controlTransferStatement',
+					'forStatement',
+					'ifStatement',
+					'whileStatement'
+				]);
+			},
+			functionType: () => {
+				let node = {
+					type: 'functionType',
+					range: {
+						start: this.position,
+						end: this.position
+					},
+					genericParameters: [],
+					parameters: [],
+					awaits: false,
+					throws: false,
+					return: undefined
+				}
+
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+					this.position++;
+					node.genericParameters = this.ruleHelpers.sequentialNodes(
+						['type'],
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+						node.range.end = this.position++;
+					} else {
+						this.position = node.range.start;
+
+						return;
+					}
+				}
+
+				if(this.token.type !== 'parenthesisOpen') {
+					this.position = node.range.start;
+
+					return;
+				}
+
+				this.position++;
+				node.parameters = this.ruleHelpers.sequentialNodes(
+					['type'],
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(this.token.type !== 'parenthesisClosed') {
+					this.position = node.range.start;
+
+					return;
+				}
+
 				while(['keywordAsync', 'keywordThrows'].includes(this.token.type)) {
 					if(this.token.type === 'keywordAsync') {
 						this.position++;
-						node.asynchronous = true;
+						node.awaits = true;
 
 						if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
 							this.position++;
-							node.asynchronous = undefined;
+							node.awaits = undefined;
 						}
 					}
 					if(this.token.type === 'keywordThrows') {
@@ -1645,16 +1758,6 @@ print(A)		// class
 				node.range.end = this.position-1;
 
 				return node;
-			},
-			functionStatements: () => {
-				return this.rules.statements([
-					'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
-					'declaration',
-					'controlTransferStatement',
-					'forStatement',
-					'ifStatement',
-					'whileStatement'
-				]);
 			},
 			genericParameter: () => {
 				let node = {
@@ -2424,9 +2527,10 @@ print(A)		// class
 					this.rules.arrayType() ??
 					this.rules.compositeType() ??
 					this.rules.dictionaryType() ??
-				//	this.rules.functionType() ??
+					this.rules.functionType() ??
 					this.rules.parenthesizedType() ??
 					this.rules.primitiveType() ??
+					this.rules.protocolType() ??
 					this.rules.typeReference();
 
 				return node;
@@ -2519,6 +2623,9 @@ print(A)		// class
 					'structureDeclaration',
 					'variableDeclaration'
 				]);
+			},
+			protocolType: () => {
+				return this.rules.protocolBody();
 			},
 			returnStatement: () => {
 				let node = {
@@ -3265,7 +3372,7 @@ print(A)		// class
 										variadic: true
 									}
 								],
-								asynchronous: 0,  // -1 - Unspecified, 0 - False, 1 - True
+								awaits: 0,  // -1 - Unspecified, 0 - False, 1 - True
 								throws: 0,
 								return: {
 									typed: true,
@@ -3330,14 +3437,14 @@ print(A)		// class
 						variadic: false
 					}
 				],
-				asynchronous: 0,
-				throws: 0,
+				awaits: false,
+				throws: false,
 				return: {
 					typed: true,
 					inheritance: ['bool'],
 					nillable: true
 				},
-				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument', // Function body from Parser result
+				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument',  // Body node from Parser's result
 				members: [
 					{
 						identifier: 'parametersCount',
