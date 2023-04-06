@@ -1380,6 +1380,20 @@ print(A)		// class
 
 				return node;
 			},
+			elseClause: () => {
+				let node;
+
+				if(this.token.type !== 'keywordElse') {
+					return;
+				}
+
+				this.position++;
+				node =
+					this.rules.functionBody() ??
+					this.rules.ifStatement();
+
+				return node;
+			},
 			entry: () => {
 				let node = {
 					type: 'entry',
@@ -1809,7 +1823,35 @@ print(A)		// class
 
 				return node;
 			},
-			ifStatement: () => {},
+			ifStatement: () => {
+				let node = {
+					type: 'ifStatement',
+					range: {},
+					condition: undefined,
+					then: undefined,
+					else: undefined
+				}
+
+				if(this.token.type !== 'keywordIf') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.condition = this.rules.expressionsSequence();
+				node.then = this.rules.functionBody();
+				node.else = this.rules.elseClause();
+
+				if(node.condition == null) {
+					this.report(2, node.range.start, 'No condition set for if statement.');
+				}
+				if(node.then == null) {
+					this.report(0, node.range.start, 'If statement doesn\'t have "then" body.');
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			implicitChainExpression: () => {
 				let node = {
 					type: 'implicitChainExpression',
@@ -2983,7 +3025,33 @@ print(A)		// class
 
 				return node;
 			},
-			whileStatement: () => {}
+			whileStatement: () => {
+				let node = {
+					type: 'whileStatement',
+					range: {},
+					condition: undefined,
+					body: undefined
+				}
+
+				if(this.token.type !== 'keywordWhile') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.condition = this.rules.expressionsSequence();
+				node.body = this.rules.functionBody();
+
+				if(node.condition == null) {
+					this.report(2, node.range.start, 'No condition set for while statement.');
+				}
+				if(node.body == null) {
+					this.report(0, node.range.start, 'While statement doesn\'t have body.');
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			}
 		}
 
 		static ruleHelpers = {
