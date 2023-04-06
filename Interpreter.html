@@ -62,35 +62,12 @@ body {
 }
 </style>
 <textarea id="input">
-var a: { var b func c }? = nil
-
-func a() awaits throws -> A {}
-
-try await async a()
-
-Thread(clazz: class: Runnable {
-	func run() {
-		// ...
-	}
-}()).start()
-
-a(ArrayList<List<A, 2>>())
-
-a<a<a>>+1
-
-a<a<a>>1
-
-a(ArrayList<List<A>>())
-
 var theAnyList: List<List<A>> = ArrayList<List<A>>(),
 	a: B<C> & D<E> | F<G>
 
-class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
+class Type<A: B & C, D>: A<B & C, D>, E, F {}
 
 func a<A: B<C>>() {}
-
-j((g<a), b>(c))
-g<a, b>(c)
 
 // Foundation Source
 
@@ -1106,6 +1083,7 @@ print(A)		// class
 					},
 					modifiers: this.rules.modifiers(),
 					identifier: undefined,
+					genericParameters: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -1136,7 +1114,8 @@ print(A)		// class
 					this.report(1, node.range.start, 'Wrong modifier(s) set for class.');
 				}
 
-				node.inheritance = this.rules.inheritance();
+				node.genericParameters = this.rules.genericParametersClause();
+				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.classBody();
 
 				if(node.body == null) {
@@ -1462,7 +1441,7 @@ print(A)		// class
 					this.report(1, node.range.start, 'Wrong modifier(s) set for enumeration.');
 				}
 
-				node.inheritance = this.rules.inheritance();
+				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.enumerationBody();
 
 				if(node.body == null) {
@@ -1615,32 +1594,13 @@ print(A)		// class
 					range: {
 						start: this.position
 					},
-					genericParameters: [],
+					genericParameters: this.rules.genericParametersClause(),
 					parameters: [],
 					awaits: false,
 					throws: false,
 					return: undefined
 				}
 
-				if(this.token.type.startsWith('operator') && this.token.value === '<') {
-					this.position++;
-					node.genericParameters = this.ruleHelpers.skippableNodes(
-						['genericParameter'],
-						() => this.token.type.startsWith('operator') && this.token.value === '<',
-						() => this.token.type.startsWith('operator') && this.token.value === '>',
-						() => this.token.type.startsWith('operator') && this.token.value === ','
-					);
-
-					if(this.token.type.startsWith('operator') && this.token.value === '>') {
-						this.position++;
-					} else {
-						node.range.end = this.position-1;
-
-						this.report(1, node.range.start, 'Function signature\'s generic parameters doesn\'t have the closing angle and decided to be autoclosed at the end of stream.');
-
-						return node;
-					}
-				}
 				if(this.token.type === 'parenthesisOpen') {
 					this.position++;
 					node.parameters = this.ruleHelpers.skippableNodes(
@@ -1806,6 +1766,32 @@ print(A)		// class
 
 				return node;
 			},
+			genericParametersClause: () => {
+				let nodes = [],
+					start = this.position;
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '<') {
+					return nodes;
+				}
+
+				this.position++;
+				nodes = this.ruleHelpers.skippableNodes(
+					['genericParameter'],
+					() => this.token.type.startsWith('operator') && this.token.value === '<',
+					() => this.token.type.startsWith('operator') && this.token.value === '>',
+					() => this.token.type.startsWith('operator') && this.token.value === ','
+				);
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
+					this.report(1, start, 'Generic parameters don\'t have the closing angle and were decided to be autoclosed at the end of stream.');
+
+					return nodes;
+				}
+
+				this.position++;
+
+				return nodes;
+			},
 			identifier: () => {
 				let node = {
 					type: 'identifier',
@@ -1965,32 +1951,26 @@ print(A)		// class
 
 				return node;
 			},
-			inheritance: () => {
-				let node = {
-					type: 'inheritance',
-					range: {},
-					types: []
-				}
+			inheritanceClause: () => {
+				let nodes = []
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
 					return;
 				}
 
-				node.range.start = this.position++;
-				node.types = this.ruleHelpers.sequentialNodes(
+				this.position++;
+				nodes = this.ruleHelpers.sequentialNodes(
 					['typeReference'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(node.types.length === 0) {
+				if(nodes.length === 0) {
 					this.position--;
 
 					return;
 				}
 
-				node.range.end = node.types.at(-1).range.end;
-
-				return node;
+				return nodes;
 			},
 			inOperator: () => {
 				let node = {
@@ -2641,7 +2621,7 @@ print(A)		// class
 					this.report(1, node.range.start, 'Wrong modifier(s) set for protocol.');
 				}
 
-				node.inheritance = this.rules.inheritance();
+				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.protocolBody();
 
 				if(node.body == null) {
@@ -2782,6 +2762,7 @@ print(A)		// class
 					},
 					modifiers: this.rules.modifiers(),
 					identifier: undefined,
+					genericParameters: undefined,
 					inheritance: undefined,
 					body: undefined
 				}
@@ -2812,7 +2793,8 @@ print(A)		// class
 					this.report(1, node.range.start, 'Wrong modifier(s) set for structure.');
 				}
 
-				node.inheritance = this.rules.inheritance();
+				node.genericParameters = this.rules.genericParametersClause();
+				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.structureBody();
 
 				if(node.body == null) {
