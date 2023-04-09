@@ -62,7 +62,6 @@ body {
 }
 </style>
 <textarea id="input">
-	import
 var theAnyList: List<List<A>> = ArrayList<List<A>>(),
 	a: B<C> & D<E> | F<G>
 
@@ -1314,16 +1313,9 @@ print(A)		// class
 
 				node.type_ = this.rules.typeClause();
 				node.value = this.rules.initializerClause();
-				this.levels.nillable++;
-				node.body = this.rules.chainBody();
-				this.levels.nillable--;
-
-				if(node.body != null && !node.body.statements.some(v => v.type !== 'unsupported')) {
-					this.position = node.body.range.start;
-					node.body = undefined;
-				}
-
-				node.body ??= this.rules.functionBody();
+				node.body =
+					this.ruleHelpers.unreportableNode('chainBody', (v) => v.statements.some(v_ => v_.type !== 'unsupported')) ??
+					this.rules.functionBody();
 				node.range.end = this.position-1;
 
 				return node;
@@ -3451,33 +3443,48 @@ print(A)		// class
 					}
 				}
 
-				if(this.levels.nillable === 0) {
-					for(let key in nodes) {
-						let node = nodes[key],
-							range = node.range.start !== node.range.end;
+				for(let key in nodes) {
+					let node = nodes[key],
+						range = node.range.start !== node.range.end;
 
-						if(node.type === 'separator') {
-							if(key == 0) {
-								this.report(0, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
-							}
-							if(range) {
-								this.report(0, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
-							}
-							if(key == nodes.length-1) {
-								this.report(0, node.range.start, 'Excess separator at token ['+node.range.start+'].');
-							}
+					if(node.type === 'separator') {
+						if(key == 0) {
+							this.report(0, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
 						}
-						if(node.type === 'unsupported') {
-							let message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
+						if(range) {
+							this.report(0, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
+						}
+						if(key == nodes.length-1) {
+							this.report(0, node.range.start, 'Excess separator at token ['+node.range.start+'].');
+						}
+					}
+					if(node.type === 'unsupported') {
+						let message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
 
-							this.report(1, node.range.start, 'Unsupported type at '+message+'.');
-						}
+						this.report(1, node.range.start, 'Unsupported type at '+message+'.');
 					}
 				}
 
 				nodes = nodes.filter(v => v.type !== 'separator');
 
 				return nodes;
+			},
+			/*
+			 * Returns a node of the type or deletes its reports if any was created (for nothing).
+			 *
+			 * Additionally a condition can be set.
+			 */
+			unreportableNode: (type, condition) => {
+				let start = this.position,
+					reportsCount = this.reports.length,
+					node = this.rules[type]?.();
+
+				if(node != null && (condition == null || condition(node))) {
+					return node;
+				}
+
+				this.position = start;
+				this.reports.length = reportsCount;
 			}
 		}
 
@@ -3519,9 +3526,7 @@ print(A)		// class
 		static reset() {
 			this.tokens = []
 			this.position = 0;
-			this.levels = {
-				nillable: 0
-			}
+			this.levels = {}
 			this.reports = []
 		}
 
