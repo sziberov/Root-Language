@@ -554,7 +554,7 @@ print(A)		// class
 					'any', 'async', 'await', 'awaits',
 					'bool', 'break',
 					'case', 'catch', 'class', 'continue',
-					'default', 'do',
+					'default', 'delete', 'do',
 					'else', 'enum', 'extension',
 					'fallthrough', 'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
@@ -909,9 +909,7 @@ print(A)		// class
 			body: (type) => {
 				let node = {
 					type: type+'Body',
-					range: {
-						start: this.position
-					},
+					range: {},
 					statements: []
 				}
 
@@ -919,7 +917,7 @@ print(A)		// class
 					return;
 				}
 
-				this.position++;
+				node.range.start = this.position++;
 				node.statements = this.rules[type+'Statements']?.();
 
 				if(node.statements.length === 0) {
@@ -978,7 +976,8 @@ print(A)		// class
 					},
 					callee: node_,
 					genericArguments: [],
-					arguments: []
+					arguments: [],
+					closure: undefined
 				}
 
 				if(this.token.type.startsWith('operator') && this.token.value === '<') {
@@ -995,27 +994,33 @@ print(A)		// class
 					}
 				}
 
-				if(this.token.type !== 'parenthesisOpen') {
-					this.position = node_.range.end+1;
+				if(this.token.type === 'parenthesisOpen') {
+					this.position++;
+					node.arguments = this.ruleHelpers.skippableNodes(
+						['argument'],
+						() => this.token.type === 'parenthesisOpen',
+						() => this.token.type === 'parenthesisClosed',
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
 
+					if(this.token.type === 'parenthesisClosed') {
+						this.position++;
+					} else {
+						node.range.end = this.position-1;
+
+						this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+
+						return node;
+					}
+				}
+
+				node.closure = this.rules.closureExpression();
+
+				if(node.closure == null && node.arguments.length === 0) {
 					return;
 				}
 
-				this.position++;
-				node.arguments = this.ruleHelpers.skippableNodes(
-					['argument'],
-					() => this.token.type === 'parenthesisOpen',
-					() => this.token.type === 'parenthesisClosed',
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(this.token.type === 'parenthesisClosed') {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
-				}
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1214,6 +1219,49 @@ print(A)		// class
 					'variableDeclaration'
 				]);
 			},
+			closureExpression: () => {
+				let node = {
+					type: 'closureExpression',
+					range: {},
+					signature: undefined,
+					statements: []
+				}
+
+				if(this.token.type !== 'braceOpen') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.signature = this.rules.functionSignature();
+
+				if(node.signature != null) {
+					if(this.token.type !== 'keywordIn') {
+						this.position = node.range.start;
+
+						return;
+					}
+
+					this.position++;
+				} else {
+					this.report(0, node.range.start, node.type, 'No signature.');
+				}
+
+				node.statements = this.rules.functionStatements();
+
+				if(node.statements.length === 0) {
+					this.report(0, node.range.start, node.type, 'No statements.');
+				}
+
+				if(!this.tokensEnd) {
+					node.range.end = this.position++;
+				} else {
+					node.range.end = this.position-1;
+
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
+				}
+
+				return node;
+			},
 			compositeType: () => {
 				let node = {
 					type: 'compositeType',
@@ -1390,6 +1438,30 @@ print(A)		// class
 
 				return node;
 			},
+			deleteExpression: () => {
+				let node = {
+					type: 'deleteExpression',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordDelete') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.expression();
+
+				if(node.value == null) {
+					this.position--;
+
+					return;
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			dictionaryLiteral: () => {
 				let node = {
 					type: 'dictionaryLiteral',
@@ -1498,7 +1570,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = node.value.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1563,6 +1635,7 @@ print(A)		// class
 				let node =
 					this.rules.asyncExpression() ??
 					this.rules.awaitExpression() ??
+					this.rules.deleteExpression() ??
 					this.rules.tryExpression() ??
 					this.rules.prefixExpression();
 
@@ -1593,7 +1666,7 @@ print(A)		// class
 					return node.values[0]
 				}
 
-				node.range.end = node.values.at(-1).range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -1912,6 +1985,25 @@ print(A)		// class
 				node.range.start = this.position++;
 				node.condition = this.rules.expressionsSequence();
 				node.then = this.rules.functionBody();
+
+				if(node.then == null && node.condition != null) {
+					let sequence = node.condition.type === 'expressionsSequence',
+						node_ = sequence ? node.condition.values.at(-1) : node.condition;
+
+					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
+						this.position = node_.closure.range.start;
+
+						if(sequence) {
+							node.condition.values.pop();
+							node.condition.values.push(node_.callee);
+						} else {
+							node.condition = node_.callee;
+						}
+
+						node.then = this.rules.functionBody();
+					}
+				}
+
 				node.else = this.rules.elseClause();
 
 				if(node.condition == null) {
@@ -2726,6 +2818,7 @@ print(A)		// class
 			primaryExpression: () => {
 				let node =
 					this.rules.classExpression() ??
+					this.rules.closureExpression() ??
 					this.rules.enumerationExpression() ??
 					this.rules.functionExpression() ??
 					this.rules.identifier() ??
@@ -3500,7 +3593,9 @@ print(A)		// class
 				return nodes;
 			},
 			/*
-			 * Returns a node of the type or deletes its reports if any was created (for nothing).
+			 * Returns a node of the type or deletes its reports.
+			 *
+			 * Useful when a rule can't be designed a way that will not report for nothing (e.g. nillable skippable nodes).
 			 */
 			unreportableNode: (type, ...arguments_) => {
 				let start = this.position,
