@@ -221,11 +221,11 @@ class A {
 		}
 	}
 
-	init(with number: Integer = 0, and string: String) {
-		print('Intitializing with \(number) and \(string)')
+	init(with number: Integer = 0, and string_: String) {
+		print('Intitializing with \(number) and \(string_)')
 
 		variable = number
-		variable_01a = string
+		variable_01a = string_
 	}
 
 	deinit {
@@ -878,7 +878,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = node.value.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -902,7 +902,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = node.value.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -923,7 +923,7 @@ print(A)		// class
 				node.statements = this.rules[type+'Statements']?.();
 
 				if(node.statements.length === 0) {
-					this.report(0, node.range.start, 'Body is empty.');
+					this.report(0, node.range.start, node.type, 'No statements.');
 				}
 
 				if(!this.tokensEnd) {
@@ -931,7 +931,7 @@ print(A)		// class
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Body doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -1014,7 +1014,7 @@ print(A)		// class
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Call expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -1037,32 +1037,46 @@ print(A)		// class
 				);
 
 				if(node.identifiers.length === 0) {
-					this.report(0, node.range.start, 'Case declaration doesn\'t have identifiers(s).');
+					this.report(0, node.range.start, node.type, 'No identifiers(s).');
 				}
 
 				node.range.end = this.position-1;
 
 				return node;
 			},
-			chainBody: () => {
-				return this.rules.body('chain');
+			chainBody: (strict) => {
+				let node = this.rules.body('chain');
+
+				if(strict && !node?.statements.some(v => v.type !== 'unsupported')) {
+					return;
+				}
+
+				return node;
 			},
 			chainDeclaration: () => {
 				let node = {
 					type: 'chainDeclaration',
-					range: {},
+					range: {
+						start: this.position
+					},
+					modifiers: this.rules.modifiers(),
 					body: undefined
 				}
 
 				if(this.token.type !== 'identifier' || this.token.value !== 'chain') {
+					this.position = node.range.start;
+
 					return;
 				}
 
 				node.range.start = this.position++;
 				node.body = this.rules.chainBody();
 
+				if(node.modifiers?.values.some(v => v !== 'static')) {
+					this.report(1, node.range.start, node.type, 'Can only have specific modifier (static).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Chain doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1164,18 +1178,18 @@ print(A)		// class
 					delete node.identifier;
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for class declaration.');
-				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for class.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.genericParameters = this.rules.genericParametersClause();
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.classBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Class doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1314,7 +1328,7 @@ print(A)		// class
 				node.type_ = this.rules.typeClause();
 				node.value = this.rules.initializerClause();
 				node.body =
-					this.ruleHelpers.unreportableNode('chainBody', (v) => v.statements.some(v_ => v_.type !== 'unsupported')) ??
+					this.ruleHelpers.unreportableNode('chainBody', true) ??
 					this.rules.functionBody();
 				node.range.end = this.position-1;
 
@@ -1369,7 +1383,7 @@ print(A)		// class
 				node.body = this.rules.functionBody();
 
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Denitializer doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1455,7 +1469,7 @@ print(A)		// class
 					this.rules.ifStatement();
 
 				if(node == null) {
-					this.report(0, start, 'If statement doesn\'t have an "else" body.');
+					this.report(0, start, 'elseClause', 'No body.');
 				}
 
 				return node;
@@ -1522,17 +1536,17 @@ print(A)		// class
 					}
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for enumeration declaration.');
-				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for enumeration.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.enumerationBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Enumeration doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1655,17 +1669,17 @@ print(A)		// class
 					delete node.identifier;
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for function declaration.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.signature = this.rules.functionSignature();
 				node.body = this.rules.functionBody();
 
 				if(node.signature == null) {
-					this.report(2, node.range.start, 'Function lacks of signature.');
+					this.report(2, node.range.start, node.type, 'No signature.');
 				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Function doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1702,7 +1716,7 @@ print(A)		// class
 					} else {
 						node.range.end = this.position-1;
 
-						this.report(1, node.range.start, 'Function signature\'s parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
+						this.report(1, node.range.start, node.type, 'Parameters don\'t have the closing parenthesis and were decided to be autoclosed at the end of stream.');
 
 						return node;
 					}
@@ -1856,7 +1870,7 @@ print(A)		// class
 				);
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== '>') {
-					this.report(1, start, 'Generic parameters don\'t have the closing angle and were decided to be autoclosed at the end of stream.');
+					this.report(1, start, 'genericParametersClause', 'Node doesn\'t have the closing angle and was decided to be autoclosed at the end of stream.');
 
 					return nodes;
 				}
@@ -1901,10 +1915,10 @@ print(A)		// class
 				node.else = this.rules.elseClause();
 
 				if(node.condition == null) {
-					this.report(2, node.range.start, 'No condition set for if statement.');
+					this.report(2, node.range.start, node.type, 'No condition.');
 				}
 				if(node.then == null) {
-					this.report(0, node.range.start, 'If statement doesn\'t have a "then" body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -1987,7 +2001,7 @@ print(A)		// class
 						node.value = node_;
 					}
 				} else {
-					this.report(1, node.range.start, 'Import declaration doesn\'t have a value.');
+					this.report(1, node.range.start, node.type, 'No value.');
 				}
 
 				node.range.end =
@@ -2039,7 +2053,7 @@ print(A)		// class
 				);
 
 				if(nodes.length === 0) {
-					this.report(0, start, 'Inheritance clause doesn\'t have a types.');
+					this.report(0, start, 'inheritanceClause', 'No types.');
 				}
 
 				return nodes;
@@ -2056,7 +2070,7 @@ print(A)		// class
 				node = this.rules.expressionsSequence();
 
 				if(node == null) {
-					this.report(0, start, 'Initializer clause doesn\'t have a value.');
+					this.report(0, start, 'initializerClause', 'No value.');
 				}
 
 				return node;
@@ -2083,13 +2097,13 @@ print(A)		// class
 				node.body = this.rules.functionBody();
 
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for initializer.');
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.signature == null) {
-					this.report(0, node.range.start, 'Initializer lacks of signature.');
+					this.report(0, node.range.start, node.type, 'No signature.');
 				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Initializer doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -2317,16 +2331,16 @@ print(A)		// class
 					delete node.identifier;
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for namespace declaration.');
-				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for namespace.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.body = this.rules.namespaceBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Namespace doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -2417,7 +2431,7 @@ print(A)		// class
 				node.body = this.rules.functionBody();
 
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Observer doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -2461,33 +2475,33 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.operator = this.rules.operator();
 				node.body = this.rules.operatorBody();
 
-				if(node.operator == null) {
-					this.report(2, node.range.start, 'No operator set for operator declaration.');
-				}
 				if(!node.modifiers?.values.some(v => ['infix', 'postfix', 'prefix'].includes(v))) {
-					this.report(2, node.range.start, 'Operator declaration should have specific modifier (infix, postfix, prefix).');
+					this.report(2, node.range.start, node.type, 'Should have specific modifier (infix, postfix, prefix).');
+				}
+				if(node.operator == null) {
+					this.report(2, node.range.start, node.type, 'No operator.');
 				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Operator doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				} else {
 					for(let entry of node.body.statements.filter(v => v.type === 'entry')) {
 						if(entry.key.type !== 'identifier' || !['associativity', 'precedence'].includes(entry.key.value)) {
-							this.report(1, entry.range.start, 'Operator body should have only identifiers as keys (associativity, precedence).');
+							this.report(1, entry.range.start, node.type, 'Should have only identifiers as keys (associativity, precedence).');
 						} else {
 							if(entry.key.value === 'associativity') {
 								if(entry.value.type !== 'identifier') {
-									this.report(2, entry.range.start, 'Operator associativity value should be identifier.');
+									this.report(2, entry.range.start, node.type, 'Associativity value should be identifier.');
 								}
 								if(!['left', 'right', 'none'].includes(entry.value.value)) {
-									this.report(2, entry.range.start, 'Operator associativity accepts only one of following values: left, right, none.');
+									this.report(2, entry.range.start, node.type, 'Associativity accepts only one of following values: left, right, none.');
 								}
 							}
 							if(entry.key.value === 'precedence' && entry.value.type !== 'integerLiteral') {
-								this.report(2, entry.range.start, 'Operator precedence value should be integer.');
+								this.report(2, entry.range.start, node.type, 'Precedence value should be integer.');
 							}
 						}
 					}
@@ -2553,7 +2567,7 @@ print(A)		// class
 				if(this.tokensEnd) {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Parenthesized expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
 				} else {
 					this.position = node.range.start;
 
@@ -2797,17 +2811,17 @@ print(A)		// class
 					delete node.identifier;
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for protocol declaration.');
-				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for protocol.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.protocolBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Protocol doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -2879,7 +2893,7 @@ print(A)		// class
 				if(this.tokensEnd) {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'String expression doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing parenthesis and was decided to be autoclosed at the end of stream.');
 				} else {
 					this.position = node.range.start;
 
@@ -2911,7 +2925,7 @@ print(A)		// class
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'String doesn\'t have the closing apostrophe and decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing apostrophe and decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -2969,18 +2983,18 @@ print(A)		// class
 					delete node.identifier;
 				} else
 				if(node.identifier == null) {
-					this.report(2, node.range.start, 'No identifier set for structure declaration.');
-				}
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for structure.');
+					this.report(2, node.range.start, node.type, 'No identifier.');
 				}
 
 				node.genericParameters = this.rules.genericParametersClause();
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.structureBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Structure doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -3005,30 +3019,46 @@ print(A)		// class
 					'variableDeclaration'
 				]);
 			},
-			subscriptBody: () => {
-				return this.rules.body('subscript');
+			subscriptBody: (strict) => {
+				let node = this.rules.body('subscript');
+
+				if(strict && !node?.statements.some(v => v.type !== 'unsupported')) {
+					return;
+				}
+
+				return node;
 			},
 			subscriptDeclaration: () => {
 				let node = {
 					type: 'subscriptDeclaration',
-					range: {},
+					range: {
+						start: this.position
+					},
+					modifiers: this.rules.modifiers(),
 					signature: undefined,
 					body: undefined
 				}
 
 				if(this.token.type !== 'identifier' || this.token.value !== 'subscript') {
+					this.position = node.range.start;
+
 					return;
 				}
 
 				node.range.start = this.position++;
 				node.signature = this.rules.functionSignature();
-				node.body = this.rules.subscriptBody();
+				node.body =
+					this.ruleHelpers.unreportableNode('subscriptBody', true) ??
+					this.rules.functionBody();
 
+				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
+				}
 				if(node.signature == null) {
-					this.report(2, node.range.start, 'Subscript lacks of signature.');
+					this.report(2, node.range.start, node.type, 'No signature.');
 				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'Subscript doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -3062,7 +3092,7 @@ print(A)		// class
 				} else {
 					node.range.end = this.position-1;
 
-					this.report(1, node.range.start, 'Subscript expression doesn\'t have the closing bracket and decided to be autoclosed at the end of stream.');
+					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing bracket and decided to be autoclosed at the end of stream.');
 				}
 
 				return node;
@@ -3102,8 +3132,8 @@ print(A)		// class
 				node.range.start = this.position++;
 
 				if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
+					this.position++;
 					node.nillable = true;
-					node.range.end = this.position++;
 				}
 
 				node.value = this.rules.expression();
@@ -3114,7 +3144,7 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = node.value.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -3133,7 +3163,7 @@ print(A)		// class
 				node = this.rules.type();
 
 				if(node == null) {
-					this.report(0, start, 'Type clause doesn\'t have a value.');
+					this.report(0, start, 'typeClause', 'No value.');
 				}
 
 				return node;
@@ -3224,17 +3254,17 @@ print(A)		// class
 					return;
 				}
 
-				node.range.end = this.position++;
+				this.position++;
 				node.declarators = this.ruleHelpers.sequentialNodes(
 					['declarator'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
 				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'lazy', 'final'].includes(v))) {
-					this.report(1, node.range.start, 'Wrong modifier(s) set for variable(s).');
+					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.declarators.length === 0) {
-					this.report(0, node.range.start, 'Variable(s) declaration doesn\'t have initializer(s).');
+					this.report(0, node.range.start, node.type, 'No declarator(s).');
 				}
 
 				node.range.end = this.position-1;
@@ -3258,10 +3288,10 @@ print(A)		// class
 				node.body = this.rules.functionBody();
 
 				if(node.condition == null) {
-					this.report(2, node.range.start, 'No condition set for while statement.');
+					this.report(2, node.range.start, node.type, 'No condition.');
 				}
 				if(node.body == null) {
-					this.report(0, node.range.start, 'While statement doesn\'t have body.');
+					this.report(0, node.range.start, node.type, 'No body.');
 				}
 
 				node.range.end = this.position-1;
@@ -3354,7 +3384,7 @@ print(A)		// class
 				let range = node.range.start !== node.range.end,
 					message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
 
-				this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+				this.report(1, node.range.start, node.type, 'At '+message+'.');
 
 				return node;
 			},
@@ -3449,19 +3479,19 @@ print(A)		// class
 
 					if(node.type === 'separator') {
 						if(key == 0) {
-							this.report(0, node.range.start, 'Separator met before any supported type at token ['+node.range.start+'].');
+							this.report(0, node.range.start, node.type, 'Met before any supported type at token ['+node.range.start+'].');
 						}
 						if(range) {
-							this.report(0, node.range.start, 'Separator sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
+							this.report(0, node.range.start, node.type, 'Sequence at range of tokens ['+node.range.start+':'+node.range.end+'].');
 						}
 						if(key == nodes.length-1) {
-							this.report(0, node.range.start, 'Excess separator at token ['+node.range.start+'].');
+							this.report(0, node.range.start, node.type, 'Excess at token ['+node.range.start+'].');
 						}
 					}
 					if(node.type === 'unsupported') {
 						let message = range ? 'range of tokens ['+node.range.start+':'+node.range.end+']' : 'token ['+node.range.start+']';
 
-						this.report(1, node.range.start, 'Unsupported type at '+message+'.');
+						this.report(1, node.range.start, node.type, 'At '+message+'.');
 					}
 				}
 
@@ -3471,15 +3501,13 @@ print(A)		// class
 			},
 			/*
 			 * Returns a node of the type or deletes its reports if any was created (for nothing).
-			 *
-			 * Additionally a condition can be set.
 			 */
-			unreportableNode: (type, condition) => {
+			unreportableNode: (type, ...arguments_) => {
 				let start = this.position,
 					reportsCount = this.reports.length,
-					node = this.rules[type]?.();
+					node = this.rules[type]?.(...arguments_);
 
-				if(node != null && (condition == null || condition(node))) {
+				if(node != null) {
 					return node;
 				}
 
@@ -3505,7 +3533,7 @@ print(A)		// class
 			}
 		}
 
-		static report(level, position, string) {
+		static report(level, position, type, string) {
 			let location = this.tokens[position].location;
 
 			if(this.reports.find(v =>
@@ -3519,7 +3547,7 @@ print(A)		// class
 			this.reports.push({
 				level: level,
 				location: location,
-				string: string
+				string: type+' -> '+string
 			});
 		}
 
