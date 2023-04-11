@@ -62,12 +62,40 @@ body {
 }
 </style>
 <textarea id="input">
-var theAnyList: List<List<A>> = ArrayList<List<A>>(),
-	a: B<C> & D<E> | F<G>
+if a {
+	notClosure
+}
 
-class Type<A: B & C, D>: A<B & C, D>, E, F {}
+if a { closure } {
+	notClosure
+}
 
-func a<A: B<C>>() {}
+if a { closure } { closure
+} {
+	notClosure
+}
+
+if a { closure }.inside {
+	{ notClosure }
+}
+
+// ---
+
+if a {
+	notClosure
+}
+
+.outside {
+	notClosure
+}
+
+if a {
+	notClosure
+}
+
+(outside) {
+	notClosure
+}
 
 // Foundation Source
 
@@ -381,7 +409,7 @@ print(A)		// class
 					'\\': ''
 				})[v]
 			}],
-			[['\\(', ')'], (v) => {
+			[['\\(', ')', '}'], (v) => {
 				if(this.atCommentLevel) {
 					this.token.value += v;
 
@@ -399,6 +427,15 @@ print(A)		// class
 						if(this.atStringExpressionLevel && this.levels.parenthesis === 0) {
 							this.addToken('stringExpressionClosed');
 							this.levels.stringExpression--;
+						} else {
+							return true;
+						}
+					break;
+					case '}':
+						if(this.atConditionBodyLevel && this.levels.brace === 0) {
+							this.addToken('braceClosed');
+							this.addToken('delimiter', ';');
+							this.levels.conditionBody = --this.levels.condition;
 						} else {
 							return true;
 						}
@@ -469,6 +506,10 @@ print(A)		// class
 					this.levels.parenthesis += v === '(';
 					this.levels.parenthesis -= v === ')';
 				}
+				if(this.atConditionBodyLevel) {
+					this.levels.brace += v === '{';
+					this.levels.brace -= v === '}';
+				}
 
 				this.levels.angle = 0;  // Balanced tokens except </> are allowed right after generic types but not inside them
 				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
@@ -490,24 +531,54 @@ print(A)		// class
 					this.levels.string--;
 				}
 			}],
-			[/\s|;/g, (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
-					if(v === '\n' && this.token.type === 'commentLine') {
-						this.addToken('delimiter');
-						this.levels.comment--;
-					} else {
-						this.ruleHelpers.continueString();
-						this.token.value += v;
-					}
+			[';', (v) => {
+				if(this.atCommentLevel || this.atStringLevel || this.token.type === 'delimiter') {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
 
 					return;
 				}
 
-				if(this.token.type !== 'delimiter') {
-					this.addToken('delimiter');
-				} else {
-					this.token.value += v;
+				this.addToken('delimiter');
+			}],
+			[/\n/g, (v) => {
+				if(this.token.type === 'commentLine') {
+					this.addToken('whitespace');
+					this.levels.comment--;
+
+					return;
 				}
+				if(this.atCommentLevel || this.atStringLevel) {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+
+					return;
+				}
+
+				if(this.token.type !== 'whitespace') {
+					this.addToken('whitespace', '');
+				}
+
+				if(this.atConditionLevel && !this.token.value.includes('\n')) {
+					if(this.getToken(-1).type === 'braceOpen') {
+						this.levels.conditionBody = this.levels.condition;  // Some condition ends can't be known, raising by 1 isn't reliable
+					}
+					if(this.getToken(-1).type === 'braceClosed' && !this.atConditionBodyLevel) {
+						this.levels.conditionBody = --this.levels.condition;
+					}
+				}
+
+				this.token.value += v;
+			}],
+			[/[^\S\n]+/g, (v) => {
+				if(this.atCommentLevel || this.atStringLevel || this.token.type === 'whitespace') {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+
+					return;
+				}
+
+				this.addToken('whitespace', v);
 			}],
 			[/[0-9]+/g, (v) => {
 				if(this.atCommentLevel || this.atStringLevel) {
@@ -584,6 +655,7 @@ print(A)		// class
 					type += v[0] === value[0] ? 'Capital'+value : value;
 				}
 
+				this.levels.condition += ['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type);
 				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
 				this.addToken(type, v);
 			}],
@@ -646,6 +718,14 @@ print(A)		// class
 			return this.levels.string > 0 && this.levels.string === this.levels.stringExpression;
 		}
 
+		static get atConditionLevel() {
+			return this.levels.condition > 0;
+		}
+
+		static get atConditionBodyLevel() {
+			return this.levels.condition > 0 && this.levels.condition === this.levels.conditionBody;
+		}
+
 		static getToken(offset = 0) {
 			return this.tokens[this.tokens.length-1+offset] ?? {
 				position: undefined,
@@ -688,8 +768,11 @@ print(A)		// class
 				comment: 0,
 				string: 0,
 				stringExpression: 0,
-				parenthesis: 0,	// Used in string expressions, could be mixed with it but done differently for readability reasons
-				angle: 0		// Used to distinguish between common operator and generic type's closing >
+				condition: 0,
+				conditionBody: 0,
+				angle: 0,		// Used to distinguish between common operator and generic type's closing >
+				brace: 0,		// Used in condition bodies, could be mixed with it but done differently for readability reasons
+				parenthesis: 0	// Used in string expressions, also could be mixed
 			}
 			this.reports = []
 		}
@@ -728,6 +811,10 @@ print(A)		// class
 						trigger = trigger?.index === this.position ? trigger[0] : undefined;
 					}
 
+					if(trigger != null) {
+						this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.condition+', conditionBody: '+this.levels.conditionBody+', brace: '+this.levels.brace);
+					}
+
 					if(trigger != null && !actions(trigger)) {
 						this.position += trigger.length-1;
 
@@ -740,6 +827,7 @@ print(A)		// class
 							}
 						}
 
+						this.report(0, 'end: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.condition+', conditionBody: '+this.levels.conditionBody+', brace: '+this.levels.brace);
 						break;
 					}
 				}
@@ -747,7 +835,7 @@ print(A)		// class
 
 			let result = {
 				rawTokens: this.tokens,
-				tokens: this.tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'delimiter'),
+				tokens: this.tokens.filter(v => !v.type.startsWith('comment') && v.type !== 'whitespace'),
 				reports: this.reports
 			}
 
@@ -1101,7 +1189,7 @@ print(A)		// class
 					member: undefined
 				}
 
-				if(!['operatorPrefix', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
+				if(!['operator', 'operatorInfix'].includes(this.token.type) || this.token.value !== '.') {
 					return;
 				}
 
@@ -4094,7 +4182,7 @@ print(A)		// class
 				length = value.length,
 				element;
 
-			if(type === 'delimiter') {
+			if(type === 'whitespace') {
 				for(let i = 0; i < value.length; i++) {
 					if(value[i] !== '\n') {
 						element ??= document.createElement('span');
@@ -4135,7 +4223,8 @@ print(A)		// class
 				if(
 					type.startsWith('parenthesis') ||
 					type.startsWith('brace') ||
-					type.startsWith('bracket')
+					type.startsWith('bracket') ||
+					type === 'delimiter'
 				) {
 					element.style.color = 'rgb(255 255 255 / 1)';
 				}
