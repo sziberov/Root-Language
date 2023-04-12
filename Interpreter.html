@@ -557,7 +557,7 @@ print(A)		// class
 					this.levels.brace -= v === '}';
 				}
 
-				this.removeState('angle');  // Balanced tokens except </> are allowed right after generic types but not inside them
+				this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
 				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
 				this.addToken(type);
 			}],
@@ -728,7 +728,7 @@ print(A)		// class
 			},
 			finalizeOperator: (merge = true, specifyType = true) => {
 				if(merge) {
-					this.removeState('angle');
+					this.removeState('angle', 2);
 
 					for(let i = this.tokens.length; i >= 0; i--) {
 						if(!this.token.type.startsWith('operator') || !this.getToken(-1).type.startsWith('operator')) {
@@ -809,11 +809,28 @@ print(A)		// class
 			this.states.push(title);
 		}
 
-		static removeState(title) {
-			let i = this.states.lastIndexOf(title);
+		/*
+		 * 0 - Remove states starting from rightmost found (inclusively)
+		 * 1 - Remove states starting from leftmost found (inclusively)
+		 * 2 - Remove found states, ignoring order
+		 */
+		static removeState(title, mode = 0) {
+			if(mode === 0) {
+				let i = this.states.lastIndexOf(title);
 
-			if(i > -1) {
-				this.states.length = i;
+				if(i > -1) {
+					this.states.length = i;
+				}
+			}
+			if(mode === 1) {
+				let i = this.states.indexOf(title);
+
+				if(i > -1) {
+					this.states.length = i;
+				}
+			}
+			if(mode === 2) {
+				this.states = this.states.filter(v => v !== title);
 			}
 		}
 
@@ -845,16 +862,14 @@ print(A)		// class
 			}
 			this.tokens = []
 			this.levels = {
-				comment: 0,
-				string: 0,
-				stringExpression: 0,
 				statement: 0,
 				statementBody: 0,
-				angle: 0,		// Used to distinguish between common operator and generic type's closing >
-				brace: 0,		// Used in statements
-				parenthesis: 0	// Used in string expressions, could be mixed with it but done differently for readability reasons
+				brace: 0,  // Used in statements
 			}
 			this.states = []
+				// angle - used to distinguish between common operator and generic type's closing >
+				// brace - used in statements
+				// parenthesis - used in string expressions
 			this.reports = []
 		}
 
@@ -910,7 +925,7 @@ print(A)		// class
 						}
 
 						//this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.statement+', conditionBody: '+this.levels.statementBody+', brace: '+this.levels.brace);
-						this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], string: '+this.levels.string+', stringExpression: '+this.levels.stringExpression+', parenthesis: '+this.levels.parenthesis);
+						this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], states: '+this.states);
 						break;
 					}
 				}
