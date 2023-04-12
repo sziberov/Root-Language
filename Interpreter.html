@@ -62,6 +62,26 @@ body {
 }
 </style>
 <textarea id="input">
+a(ArrayList<List<A, 2>>())
+'a\((a<b<c>>)b'')a'
+
+a<a<a>>+1
+
+a<a<a>>1
+
+a(ArrayList<List<A>>())
+
+var theAnyList: List<List<A>> = ArrayList<List<A>>(),
+	a: B<C> & D<E> | F<G>
+
+class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
+class Type<A: B & C, D>: A<B & C, D>, E, F {}
+
+func a<A: B<C>>() {}
+
+j((g<a), b>(c))
+g<a, b>(c)
+
 'a\((('c\(((((d)))))e')))b'
 
 if a { notClosure }
@@ -365,7 +385,7 @@ print(A)		// class
 		static location;
 		static tokens;
 		static levels;
-		static levels_;
+		static states;
 		static reports;
 
 		static rules = [
@@ -474,7 +494,7 @@ print(A)		// class
 
 				let initializer = initializers.includes(v) && !this.token.value.startsWith(v),
 					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
-					closingAngle = this.levels.angle > 0 && v === '>';
+					closingAngle = this.atState('angle', []) && v === '>';
 
 				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
@@ -505,8 +525,8 @@ print(A)		// class
 					type += 'Postfix';
 				}
 
-				this.levels.angle += v === '<';
-				this.levels.angle -= v === '>';
+				if(v === '<') this.addState('angle');
+				if(v === '>') this.removeState('angle');
 
 				this.ruleHelpers.finalizeOperator(false);
 				this.addToken(type);
@@ -537,7 +557,7 @@ print(A)		// class
 					this.levels.brace -= v === '}';
 				}
 
-				this.levels.angle = 0;  // Balanced tokens except </> are allowed right after generic types but not inside them
+				this.removeState('angle');  // Balanced tokens except </> are allowed right after generic types but not inside them
 				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
 				this.addToken(type);
 			}],
@@ -708,7 +728,7 @@ print(A)		// class
 			},
 			finalizeOperator: (merge = true, specifyType = true) => {
 				if(merge) {
-					this.levels.angle = 0;
+					this.removeState('angle');
 
 					for(let i = this.tokens.length; i >= 0; i--) {
 						if(!this.token.type.startsWith('operator') || !this.getToken(-1).type.startsWith('operator')) {
