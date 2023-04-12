@@ -6,7 +6,7 @@ body {
 	grid-template-columns: 5fr 4fr;
 	grid-template-rows: 2fr 1fr;
 	grid-template-areas:
-		'code abstract'
+		'code trees'
 		'console console';
 
 	margin: 0;
@@ -14,7 +14,7 @@ body {
 
 #input,
 #output_lint,
-#output_ast,
+#output_trees,
 #output_console {
 	overflow: auto;
 
@@ -46,9 +46,11 @@ body {
 	pointer-events: none;
 }
 
-#output_ast,
+#output_trees,
 #output_console {
-	grid-area: abstract;
+	grid-area: trees;
+
+	overflow-x: auto;
 
 	background: rgb(223 223 223 / 1);
 
@@ -366,7 +368,11 @@ A = class {}
 print(A)		// class
 </textarea>
 <div id="output_lint"></div>
-<div id="output_ast"></div>
+<div id="output_trees">
+	<button id="change_tree">Change tree</button>
+	<div id="output_tokens" style="display: none;"></div>
+	<div id="output_ast"></div>
+</div>
 <div id="output_console"></div>
 <script>
 	class Lexer {
@@ -519,8 +525,9 @@ print(A)		// class
 
 					return;
 				}
-				if(v === '}' && (this.atStatementBodies && !this.atState('brace') || this.atStatementBody)) {
+				if(v === '}' && this.atStatementBody) {
 					this.addToken('delimiter', ';');
+					this.token.generated = true;
 					this.removeState('statement');
 
 					return;
@@ -552,14 +559,21 @@ print(A)		// class
 				}
 			}],
 			[';', (v) => {
-				if(this.atComments || this.atString || this.token.type === 'delimiter') {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
 					return;
 				}
 
-				this.addToken('delimiter');
+				if(this.token.type !== 'delimiter') {
+					this.addToken('delimiter');
+				} else
+				if(!this.token.generated) {
+					this.token.value += v;
+				} else {
+					delete this.token.generated;
+				}
 			}],
 			[/\n/g, (v) => {
 				if(this.token.type === 'commentLine') {
@@ -583,7 +597,7 @@ print(A)		// class
 					if(this.getToken(-1).type === 'braceOpen') {
 						this.addState('statementBody');
 					} else
-					if(!this.atRegex(/\s*{/) && !this.atState('brace')) {
+					if(!this.atState('brace') && !this.atRegex(/\s*{/)) {
 						this.removeState('statement');
 					}
 				}
@@ -742,7 +756,7 @@ print(A)		// class
 		}
 
 		static get atStringExpressions() {
-			return this.atState('stringExpression', ['parenthesis']);
+			return this.atState('stringExpression');
 		}
 
 		static get atStatement() {
@@ -755,10 +769,6 @@ print(A)		// class
 
 		static get atStatementBody() {
 			return this.atState('statementBody', []);
-		}
-
-		static get atStatementBodies() {
-			return this.atState('statementBody');
 		}
 
 		static getToken(offset = 0) {
@@ -886,10 +896,6 @@ print(A)		// class
 						trigger = this.atRegex(triggers);
 					}
 
-					if(trigger != null) {
-					//	this.report(0, 'START: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
-					}
-
 					if(trigger != null && !actions(trigger)) {
 						this.position += trigger.length-1;
 
@@ -902,7 +908,6 @@ print(A)		// class
 							}
 						}
 
-						this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 						break;
 					}
 				}
@@ -4238,8 +4243,10 @@ print(A)		// class
 
 	let input = document.getElementById('input'),
 		output_lint = document.getElementById('output_lint'),
+		output_tokens = document.getElementById('output_tokens'),
 		output_ast = document.getElementById('output_ast'),
-		output_console = document.getElementById('output_console');
+		output_console = document.getElementById('output_console'),
+		change_tree = document.getElementById('change_tree');
 
 	function parse() {
 		let lexerResult = Lexer.tokenize(input.value),
@@ -4254,6 +4261,7 @@ print(A)		// class
 			let position = tokens[k].position,
 				type = tokens[k].type,
 				value = tokens[k].value,
+				generated = tokens[k].generated,
 				length = value.length,
 				element;
 
@@ -4317,6 +4325,9 @@ print(A)		// class
 				if(type.startsWith('number')) {
 					element.style.color = 'rgb(223 127 223 / 1)';
 				}
+				if(generated) {
+					element.style.fontStyle = 'italic';
+				}
 
 				lintHTML += element.outerHTML;
 			}
@@ -4342,6 +4353,7 @@ print(A)		// class
 		console.log(parserResult.tree);
 
 		output_lint.innerHTML = lintHTML;
+		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
 		output_console.innerText = consoleHTML;
 	}
@@ -4352,6 +4364,16 @@ print(A)		// class
 		output_lint.scrollLeft = input.scrollLeft;
 	}
 	input.value = input.value.trim();
+
+	change_tree.onclick = () => {
+		if(output_tokens.style.display !== 'none') {
+			output_tokens.style.display = 'none';
+			output_ast.style.display = 'block';
+		} else {
+			output_tokens.style.display = 'block';
+			output_ast.style.display = 'none';
+		}
+	}
 
 	parse();
 </script>
