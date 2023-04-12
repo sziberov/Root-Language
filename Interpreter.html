@@ -62,26 +62,31 @@ body {
 }
 </style>
 <textarea id="input">
-if a {
+if a { notClosure }
+
+if b { closure }.inside { closure }
+{ notClosure }
+
+.outside
+
+if c {
 	notClosure
 }
 
-if a { closure } {
+if d { closure } {
 	notClosure
 }
 
-if a { closure } { closure
+if e { closure } { closure
 } {
 	notClosure
 }
 
-if a { closure }.inside {
+if f { closure }.inside {
 	{ notClosure }
 }
 
-// ---
-
-if a {
+if g {
 	notClosure
 }
 
@@ -89,13 +94,18 @@ if a {
 	notClosure
 }
 
-if a {
+if h {
 	notClosure
 }
 
 (outside) {
 	notClosure
 }
+
+if k { closure }.inside { closure }
+{ notClosure }
+
+.outside
 
 // Foundation Source
 
@@ -357,7 +367,7 @@ print(A)		// class
 
 		static rules = [
 			[['/*', '*/'], (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else
@@ -373,7 +383,7 @@ print(A)		// class
 				}
 			}],
 			['//', (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
@@ -382,7 +392,7 @@ print(A)		// class
 				}
 			}],
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
-				if(this.atCommentLevel) {
+				if(this.atCommentsLevel) {
 					this.token.value += v;
 
 					return;
@@ -409,8 +419,8 @@ print(A)		// class
 					'\\': ''
 				})[v]
 			}],
-			[['\\(', ')', '}'], (v) => {
-				if(this.atCommentLevel) {
+			[['\\(', ')', '{', '}'], (v) => {
+				if(this.atCommentsLevel) {
 					this.token.value += v;
 
 					return;
@@ -431,10 +441,23 @@ print(A)		// class
 							return true;
 						}
 					break;
+				case '{':
+						if(this.atConditionLevel && this.token.type === 'whitespace' && this.token.value.includes('\n')) {
+							this.addToken('braceOpen');
+							this.levels.brace =
+							this.levels.conditionBody = this.levels.condition;  // Condition ends might be unknown, raising by 1 isn't reliable
+						} else {
+							return true;
+						}
+					break;
 					case '}':
-						if(this.atConditionBodyLevel && this.levels.brace === 0) {
+						if(
+							this.atConditionLevel && this.levels.brace < this.levels.condition ||
+							this.atConditionBodyLevel && this.levels.brace === this.levels.conditionBody
+						) {
 							this.addToken('braceClosed');
 							this.addToken('delimiter', ';');
+							this.levels.brace =
 							this.levels.conditionBody = --this.levels.condition;
 						} else {
 							return true;
@@ -450,7 +473,7 @@ print(A)		// class
 					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
 					closingAngle = this.levels.angle > 0 && v === '>';
 
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -486,7 +509,7 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			[['(', ')', '[', ']', '{', '}'], (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -506,7 +529,7 @@ print(A)		// class
 					this.levels.parenthesis += v === '(';
 					this.levels.parenthesis -= v === ')';
 				}
-				if(this.atConditionBodyLevel) {
+				if(this.atConditionsLevel) {
 					this.levels.brace += v === '{';
 					this.levels.brace -= v === '}';
 				}
@@ -516,7 +539,7 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			['\'', (v) => {
-				if(this.atCommentLevel) {
+				if(this.atCommentsLevel) {
 					this.token.value += v;
 
 					return;
@@ -532,7 +555,7 @@ print(A)		// class
 				}
 			}],
 			[';', (v) => {
-				if(this.atCommentLevel || this.atStringLevel || this.token.type === 'delimiter') {
+				if(this.atCommentsLevel || this.atStringLevel || this.token.type === 'delimiter') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -548,7 +571,7 @@ print(A)		// class
 
 					return;
 				}
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -559,19 +582,14 @@ print(A)		// class
 					this.addToken('whitespace', '');
 				}
 
-				if(this.atConditionLevel && !this.token.value.includes('\n')) {
-					if(this.getToken(-1).type === 'braceOpen') {
-						this.levels.conditionBody = this.levels.condition;  // Some condition ends can't be known, raising by 1 isn't reliable
-					}
-					if(this.getToken(-1).type === 'braceClosed' && !this.atConditionBodyLevel) {
-						this.levels.conditionBody = --this.levels.condition;
-					}
+				if(this.atConditionLevel && this.getToken(-1).type === 'braceOpen' && !this.token.value.includes('\n')) {
+					this.levels.conditionBody = this.levels.condition;
 				}
 
 				this.token.value += v;
 			}],
 			[/[^\S\n]+/g, (v) => {
-				if(this.atCommentLevel || this.atStringLevel || this.token.type === 'whitespace') {
+				if(this.atCommentsLevel || this.atStringLevel || this.token.type === 'whitespace') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -581,7 +599,7 @@ print(A)		// class
 				this.addToken('whitespace', v);
 			}],
 			[/[0-9]+/g, (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -599,7 +617,7 @@ print(A)		// class
 				this.addToken('numberInteger', v);
 			}],
 			[/[a-z_][a-z0-9_]*/gi, (v) => {
-				if(this.atCommentLevel || this.atStringLevel) {
+				if(this.atCommentsLevel || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -655,7 +673,10 @@ print(A)		// class
 					type += v[0] === value[0] ? 'Capital'+value : value;
 				}
 
-				this.levels.condition += ['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type);
+				if(['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
+					this.levels.brace = this.levels.condition++;
+				}
+
 				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
 				this.addToken(type, v);
 			}],
@@ -706,7 +727,7 @@ print(A)		// class
 			return this.getToken();
 		}
 
-		static get atCommentLevel() {
+		static get atCommentsLevel() {
 			return this.levels.comment > 0;
 		}
 
@@ -719,6 +740,10 @@ print(A)		// class
 		}
 
 		static get atConditionLevel() {
+			return this.levels.condition > this.levels.conditionBody;
+		}
+
+		static get atConditionsLevel() {
 			return this.levels.condition > 0;
 		}
 
@@ -771,8 +796,8 @@ print(A)		// class
 				condition: 0,
 				conditionBody: 0,
 				angle: 0,		// Used to distinguish between common operator and generic type's closing >
-				brace: 0,		// Used in condition bodies, could be mixed with it but done differently for readability reasons
-				parenthesis: 0	// Used in string expressions, also could be mixed
+				brace: 0,		// Used in conditions
+				parenthesis: 0	// Used in string expressions, could be mixed with it but done differently for readability reasons
 			}
 			this.reports = []
 		}
