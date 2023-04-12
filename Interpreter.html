@@ -62,28 +62,6 @@ body {
 }
 </style>
 <textarea id="input">
-a(ArrayList<List<A, 2>>())
-'a\((a<b<c>>)b'')a'
-
-a<a<a>>+1
-
-a<a<a>>1
-
-a(ArrayList<List<A>>())
-
-var theAnyList: List<List<A>> = ArrayList<List<A>>(),
-	a: B<C> & D<E> | F<G>
-
-class Type/*<A: B & C, D>*/: A<B & C, D>, E, F {}
-class Type<A: B & C, D>: A<B & C, D>, E, F {}
-
-func a<A: B<C>>() {}
-
-j((g<a), b>(c))
-g<a, b>(c)
-
-'a\((('c\(((((d)))))e')))b'
-
 if a { notClosure }
 
 if b { closure }.inside { closure }
@@ -128,6 +106,18 @@ if k { closure }.inside { closure }
 { notClosure }
 
 .outside
+
+if l {
+  {
+    {
+      {
+        if i {
+          notClosure
+        }
+      }
+    }
+  }
+}
 
 // Foundation Source
 
@@ -442,50 +432,22 @@ print(A)		// class
 					'\\': ''
 				})[v]
 			}],
-			[['\\(', ')', '{', '}'], (v) => {
+			[['\\(', ')'], (v) => {
 				if(this.atComments) {
 					this.token.value += v;
 
 					return;
 				}
 
-				switch(v) {
-					case '\\(':
-						if(this.atString) {
-							this.addToken('stringExpressionOpen', v);
-							this.addState('stringExpression');
-						}
-					break;
-					case ')':
-						if(this.atStringExpression) {
-							this.addToken('stringExpressionClosed');
-							this.removeState('stringExpression');
-						} else {
-							return true;
-						}
-					break;
-					case '{':
-						if(this.atStatementLevel && this.token.type === 'whitespace' && this.token.value.includes('\n')) {
-							this.addToken('braceOpen');
-							this.levels.brace =
-							this.levels.statementBody = this.levels.statement;  // Statement ends might be unknown, raising by 1 isn't reliable
-						} else {
-							return true;
-						}
-					break;
-					case '}':
-						if(
-							this.atStatementLevel && this.levels.brace < this.levels.statement ||
-							this.atStatementBodyLevel && this.levels.brace === this.levels.statementBody
-						) {
-							this.addToken('braceClosed');
-							this.addToken('delimiter', ';');
-							this.levels.brace =
-							this.levels.statementBody = --this.levels.statement;
-						} else {
-							return true;
-						}
-					break;
+				if(v === '\\(' && this.atString) {
+					this.addToken('stringExpressionOpen', v);
+					this.addState('stringExpression');
+				}
+				if(v === ')' && this.atStringExpression) {
+					this.addToken('stringExpressionClosed');
+					this.removeState('stringExpression');
+				} else {
+					return v === ')';
 				}
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
@@ -525,11 +487,11 @@ print(A)		// class
 					type += 'Postfix';
 				}
 
-				if(v === '<') this.addState('angle');
-				if(v === '>') this.removeState('angle');
-
 				this.ruleHelpers.finalizeOperator(false);
 				this.addToken(type);
+
+				if(v === '<') this.addState('angle');
+				if(v === '>') this.removeState('angle');
 			}],
 			[['(', ')', '[', ']', '{', '}'], (v) => {
 				if(this.atComments || this.atString) {
@@ -548,18 +510,30 @@ print(A)		// class
 					'}': 'braceClosed'
 				})[v]
 
+				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
+				this.addToken(type);
+				this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
+
+				if(v === '{' && this.atStatement && this.getToken(-1).type === 'whitespace' && this.getToken(-1).value.includes('\n')) {
+					this.addState('statementBody');
+
+					return;
+				}
+				if(v === '}' && (this.atStatementBodies && !this.atState('brace') || this.atStatementBody)) {
+					this.addToken('delimiter', ';');
+					this.removeState('statement');
+
+					return;
+				}
+
 				if(this.atStringExpressions) {
 					if(v === '(') this.addState('parenthesis');
 					if(v === ')') this.removeState('parenthesis');
 				}
-				if(this.atStatementsLevel) {
-					this.levels.brace += v === '{';
-					this.levels.brace -= v === '}';
+				if(this.atStatements) {
+					if(v === '{') this.addState('brace');
+					if(v === '}') this.removeState('brace');
 				}
-
-				this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
-				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
-				this.addToken(type);
 			}],
 			['\'', (v) => {
 				if(this.atComments) {
@@ -605,14 +579,14 @@ print(A)		// class
 					this.addToken('whitespace', '');
 				}
 
-				if(this.atStatementLevel && this.getToken(-1).type === 'braceOpen' && !this.token.value.includes('\n')) {
-					this.levels.statementBody = this.levels.statement;
+				if(this.atStatement && !this.token.value.includes('\n')) {
+					if(this.getToken(-1).type === 'braceOpen') {
+						this.addState('statementBody');
+					} else
+					if(!this.atRegex(/\s*{/) && !this.atState('brace')) {
+						this.removeState('statement');
+					}
 				}
-				/*
-				if(this.atStatementLevel && this.code[this.position+1] !== '{' && this.levels.brace < this.levels.statement && !this.token.value.includes('\n')) {
-					this.levels.statementBody = --this.levels.statement;
-				}
-				*/
 
 				this.token.value += v;
 			}],
@@ -701,14 +675,14 @@ print(A)		// class
 					type += v[0] === value[0] ? 'Capital'+value : value;
 				}
 
-				if(['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
-					this.levels.brace = this.levels.statement++;
-				}
-
 				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
 				this.addToken(type, v);
+
+				if(['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
+					this.addState('statement');
+				}
 			}],
-			[/.|\n/gi, (v) => {
+			[/./g, (v) => {
 				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
@@ -771,16 +745,20 @@ print(A)		// class
 			return this.atState('stringExpression', ['parenthesis']);
 		}
 
-		static get atStatementLevel() {
-			return this.levels.statement > this.levels.statementBody;
+		static get atStatement() {
+			return this.atState('statement', ['brace']);
 		}
 
-		static get atStatementsLevel() {
-			return this.levels.statement > 0;
+		static get atStatements() {
+			return this.atState('statement');
 		}
 
-		static get atStatementBodyLevel() {
-			return this.levels.statement > 0 && this.levels.statement === this.levels.statementBody;
+		static get atStatementBody() {
+			return this.atState('statementBody', []);
+		}
+
+		static get atStatementBodies() {
+			return this.atState('statementBody');
 		}
 
 		static getToken(offset = 0) {
@@ -815,15 +793,8 @@ print(A)		// class
 		 * 2 - Remove found states, ignoring order
 		 */
 		static removeState(title, mode = 0) {
-			if(mode === 0) {
-				let i = this.states.lastIndexOf(title);
-
-				if(i > -1) {
-					this.states.length = i;
-				}
-			}
-			if(mode === 1) {
-				let i = this.states.indexOf(title);
+			if(mode < 2) {
+				let i = mode === 1 ? this.states.indexOf(title) : this.states.lastIndexOf(title);
 
 				if(i > -1) {
 					this.states.length = i;
@@ -834,6 +805,11 @@ print(A)		// class
 			}
 		}
 
+		/*
+		 * Check for current state, starting from rightmost.
+		 *
+		 * Additionally whitelist can be set, if strict search is needed.
+		 */
 		static atState(title, whitelist) {
 			for(let i = this.states.length-1; i >= 0; i--) {
 				if(this.states[i] === title) {
@@ -861,11 +837,6 @@ print(A)		// class
 				column: 0
 			}
 			this.tokens = []
-			this.levels = {
-				statement: 0,
-				statementBody: 0,
-				brace: 0,  // Used in statements
-			}
 			this.states = []
 				// angle - used to distinguish between common operator and generic type's closing >
 				// brace - used in statements
@@ -873,8 +844,22 @@ print(A)		// class
 			this.reports = []
 		}
 
-		static atPosition(substring) {
+		static atSubstring(substring) {
 			return this.code.indexOf(substring, this.position) === this.position;
+		}
+
+		static atRegex(regex) {
+			let substring;
+
+			if(!regex.global) {
+				regex = new RegExp(regex.source, 'g');
+			}
+
+			regex.lastIndex = this.position;
+			substring = regex.exec(this.code);
+			substring = substring?.index === this.position ? substring[0] : undefined;
+
+			return substring;
 		}
 
 		static tokenize(code) {
@@ -891,25 +876,18 @@ print(A)		// class
 						regex = triggers instanceof RegExp,
 						trigger;
 
-					if(plain && this.atPosition(triggers)) {
+					if(plain && this.atSubstring(triggers)) {
 						trigger = triggers;
 					}
 					if(array) {
-						trigger = triggers.find(v => this.atPosition(v));
+						trigger = triggers.find(v => this.atSubstring(v));
 					}
 					if(regex) {
-						if(!triggers.global) {
-							triggers = new RegExp(triggers.source, 'g');
-						}
-
-						triggers.lastIndex = this.position;
-						trigger = triggers.exec(this.code);
-						trigger = trigger?.index === this.position ? trigger[0] : undefined;
+						trigger = this.atRegex(triggers);
 					}
 
 					if(trigger != null) {
-					//	this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.statement+', conditionBody: '+this.levels.statementBody+', brace: '+this.levels.brace);
-					//	this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], string: '+this.levels.string+', stringExpression: '+this.levels.stringExpression+', parenthesis: '+this.levels.parenthesis);
+					//	this.report(0, 'START: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 					}
 
 					if(trigger != null && !actions(trigger)) {
@@ -924,8 +902,7 @@ print(A)		// class
 							}
 						}
 
-						//this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.statement+', conditionBody: '+this.levels.statementBody+', brace: '+this.levels.brace);
-						this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], states: '+this.states);
+						this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 						break;
 					}
 				}
