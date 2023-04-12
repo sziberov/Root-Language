@@ -363,11 +363,12 @@ print(A)		// class
 		static location;
 		static tokens;
 		static levels;
+		static levels_;
 		static reports;
 
 		static rules = [
 			[['/*', '*/'], (v) => {
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else
@@ -376,23 +377,23 @@ print(A)		// class
 				}
 				if(this.token.type === 'commentBlock') {
 					if(v === '/*') {
-						this.levels.comment++;
+						this.addState('comment');
 					} else {
-						this.levels.comment--;
+						this.removeState('comment');
 					}
 				}
 			}],
 			['//', (v) => {
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
 					this.addToken('commentLine', v);
-					this.levels.comment++;
+					this.addState('comment');
 				}
 			}],
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
-				if(this.atCommentsLevel) {
+				if(this.atState('comment')) {
 					this.token.value += v;
 
 					return;
@@ -420,7 +421,7 @@ print(A)		// class
 				})[v]
 			}],
 			[['\\(', ')', '{', '}'], (v) => {
-				if(this.atCommentsLevel) {
+				if(this.atState('comment')) {
 					this.token.value += v;
 
 					return;
@@ -441,24 +442,24 @@ print(A)		// class
 							return true;
 						}
 					break;
-				case '{':
-						if(this.atConditionLevel && this.token.type === 'whitespace' && this.token.value.includes('\n')) {
+					case '{':
+						if(this.atStatementLevel && this.token.type === 'whitespace' && this.token.value.includes('\n')) {
 							this.addToken('braceOpen');
 							this.levels.brace =
-							this.levels.conditionBody = this.levels.condition;  // Condition ends might be unknown, raising by 1 isn't reliable
+							this.levels.statementBody = this.levels.statement;  // Statement ends might be unknown, raising by 1 isn't reliable
 						} else {
 							return true;
 						}
 					break;
 					case '}':
 						if(
-							this.atConditionLevel && this.levels.brace < this.levels.condition ||
-							this.atConditionBodyLevel && this.levels.brace === this.levels.conditionBody
+							this.atStatementLevel && this.levels.brace < this.levels.statement ||
+							this.atStatementBodyLevel && this.levels.brace === this.levels.statementBody
 						) {
 							this.addToken('braceClosed');
 							this.addToken('delimiter', ';');
 							this.levels.brace =
-							this.levels.conditionBody = --this.levels.condition;
+							this.levels.statementBody = --this.levels.statement;
 						} else {
 							return true;
 						}
@@ -473,7 +474,7 @@ print(A)		// class
 					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
 					closingAngle = this.levels.angle > 0 && v === '>';
 
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -509,7 +510,7 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			[['(', ')', '[', ']', '{', '}'], (v) => {
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -529,7 +530,7 @@ print(A)		// class
 					this.levels.parenthesis += v === '(';
 					this.levels.parenthesis -= v === ')';
 				}
-				if(this.atConditionsLevel) {
+				if(this.atStatementsLevel) {
 					this.levels.brace += v === '{';
 					this.levels.brace -= v === '}';
 				}
@@ -539,7 +540,7 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			['\'', (v) => {
-				if(this.atCommentsLevel) {
+				if(this.atState('comment')) {
 					this.token.value += v;
 
 					return;
@@ -555,7 +556,7 @@ print(A)		// class
 				}
 			}],
 			[';', (v) => {
-				if(this.atCommentsLevel || this.atStringLevel || this.token.type === 'delimiter') {
+				if(this.atState('comment') || this.atStringLevel || this.token.type === 'delimiter') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -567,11 +568,11 @@ print(A)		// class
 			[/\n/g, (v) => {
 				if(this.token.type === 'commentLine') {
 					this.addToken('whitespace');
-					this.levels.comment--;
+					this.removeState('comment');
 
 					return;
 				}
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -582,14 +583,19 @@ print(A)		// class
 					this.addToken('whitespace', '');
 				}
 
-				if(this.atConditionLevel && this.getToken(-1).type === 'braceOpen' && !this.token.value.includes('\n')) {
-					this.levels.conditionBody = this.levels.condition;
+				if(this.atStatementLevel && this.getToken(-1).type === 'braceOpen' && !this.token.value.includes('\n')) {
+					this.levels.statementBody = this.levels.statement;
 				}
+				/*
+				if(this.atStatementLevel && this.code[this.position+1] !== '{' && this.levels.brace < this.levels.statement && !this.token.value.includes('\n')) {
+					this.levels.statementBody = --this.levels.statement;
+				}
+				*/
 
 				this.token.value += v;
 			}],
 			[/[^\S\n]+/g, (v) => {
-				if(this.atCommentsLevel || this.atStringLevel || this.token.type === 'whitespace') {
+				if(this.atState('comment') || this.atStringLevel || this.token.type === 'whitespace') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -599,7 +605,7 @@ print(A)		// class
 				this.addToken('whitespace', v);
 			}],
 			[/[0-9]+/g, (v) => {
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -617,7 +623,7 @@ print(A)		// class
 				this.addToken('numberInteger', v);
 			}],
 			[/[a-z_][a-z0-9_]*/gi, (v) => {
-				if(this.atCommentsLevel || this.atStringLevel) {
+				if(this.atState('comment') || this.atStringLevel) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -674,7 +680,7 @@ print(A)		// class
 				}
 
 				if(['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
-					this.levels.brace = this.levels.condition++;
+					this.levels.brace = this.levels.statement++;
 				}
 
 				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
@@ -727,10 +733,6 @@ print(A)		// class
 			return this.getToken();
 		}
 
-		static get atCommentsLevel() {
-			return this.levels.comment > 0;
-		}
-
 		static get atStringLevel() {
 			return this.levels.string > this.levels.stringExpression;
 		}
@@ -739,16 +741,16 @@ print(A)		// class
 			return this.levels.string > 0 && this.levels.string === this.levels.stringExpression;
 		}
 
-		static get atConditionLevel() {
-			return this.levels.condition > this.levels.conditionBody;
+		static get atStatementLevel() {
+			return this.levels.statement > this.levels.statementBody;
 		}
 
-		static get atConditionsLevel() {
-			return this.levels.condition > 0;
+		static get atStatementsLevel() {
+			return this.levels.statement > 0;
 		}
 
-		static get atConditionBodyLevel() {
-			return this.levels.condition > 0 && this.levels.condition === this.levels.conditionBody;
+		static get atStatementBodyLevel() {
+			return this.levels.statement > 0 && this.levels.statement === this.levels.statementBody;
 		}
 
 		static getToken(offset = 0) {
@@ -773,6 +775,29 @@ print(A)		// class
 			this.tokens = this.tokens.filter((v, k) => k !== this.tokens.length-1+offset);
 		}
 
+		static addState(title) {
+			this.states.push(title);
+		}
+
+		static removeState(title) {
+			let i = this.states.lastIndexOf(title);
+
+			if(i > -1) {
+				this.states.length = i;
+			}
+		}
+
+		static atState(title, strict) {
+			for(let i = this.states.length-1; i >= 0; i--) {
+				if(this.states[i] === title) {
+					return true;
+				}
+				if(strict) {
+					return;
+				}
+			}
+		}
+
 		static report(level, string) {
 			this.reports.push({
 				level: level,
@@ -793,12 +818,13 @@ print(A)		// class
 				comment: 0,
 				string: 0,
 				stringExpression: 0,
-				condition: 0,
-				conditionBody: 0,
+				statement: 0,
+				statementBody: 0,
 				angle: 0,		// Used to distinguish between common operator and generic type's closing >
-				brace: 0,		// Used in conditions
+				brace: 0,		// Used in statements
 				parenthesis: 0	// Used in string expressions, could be mixed with it but done differently for readability reasons
 			}
+			this.states = []
 			this.reports = []
 		}
 
@@ -837,7 +863,8 @@ print(A)		// class
 					}
 
 					if(trigger != null) {
-						this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.condition+', conditionBody: '+this.levels.conditionBody+', brace: '+this.levels.brace);
+					//	this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.statement+', conditionBody: '+this.levels.statementBody+', brace: '+this.levels.brace);
+					//	this.report(0, 'start: ['+trigger.replaceAll('\n', '\\n')+'], string: '+this.levels.string+', stringExpression: '+this.levels.stringExpression+', parenthesis: '+this.levels.parenthesis);
 					}
 
 					if(trigger != null && !actions(trigger)) {
@@ -852,7 +879,8 @@ print(A)		// class
 							}
 						}
 
-						this.report(0, 'end: ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.condition+', conditionBody: '+this.levels.conditionBody+', brace: '+this.levels.brace);
+						//this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], condition: '+this.levels.statement+', conditionBody: '+this.levels.statementBody+', brace: '+this.levels.brace);
+						this.report(0, 'end  : ['+trigger.replaceAll('\n', '\\n')+'], string: '+this.levels.string+', stringExpression: '+this.levels.stringExpression+', parenthesis: '+this.levels.parenthesis);
 						break;
 					}
 				}
