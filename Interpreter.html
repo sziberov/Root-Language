@@ -62,6 +62,8 @@ body {
 }
 </style>
 <textarea id="input">
+'a\((('c\(((((d)))))e')))b'
+
 if a { notClosure }
 
 if b { closure }.inside { closure }
@@ -368,7 +370,7 @@ print(A)		// class
 
 		static rules = [
 			[['/*', '*/'], (v) => {
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else
@@ -384,7 +386,7 @@ print(A)		// class
 				}
 			}],
 			['//', (v) => {
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 				} else {
@@ -393,12 +395,12 @@ print(A)		// class
 				}
 			}],
 			[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
-				if(this.atState('comment')) {
+				if(this.atComments) {
 					this.token.value += v;
 
 					return;
 				}
-				if(!this.atStringLevel) {
+				if(!this.atString) {
 					this.ruleHelpers.reportSkip(v);
 
 					return;
@@ -421,7 +423,7 @@ print(A)		// class
 				})[v]
 			}],
 			[['\\(', ')', '{', '}'], (v) => {
-				if(this.atState('comment')) {
+				if(this.atComments) {
 					this.token.value += v;
 
 					return;
@@ -429,15 +431,15 @@ print(A)		// class
 
 				switch(v) {
 					case '\\(':
-						if(this.atStringLevel) {
+						if(this.atString) {
 							this.addToken('stringExpressionOpen', v);
-							this.levels.stringExpression++;
+							this.addState('stringExpression');
 						}
 					break;
 					case ')':
-						if(this.atStringExpressionLevel && this.levels.parenthesis === 0) {
+						if(this.atStringExpression) {
 							this.addToken('stringExpressionClosed');
-							this.levels.stringExpression--;
+							this.removeState('stringExpression');
 						} else {
 							return true;
 						}
@@ -474,7 +476,7 @@ print(A)		// class
 					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
 					closingAngle = this.levels.angle > 0 && v === '>';
 
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -510,7 +512,7 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			[['(', ')', '[', ']', '{', '}'], (v) => {
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -526,9 +528,9 @@ print(A)		// class
 					'}': 'braceClosed'
 				})[v]
 
-				if(this.atStringExpressionLevel) {
-					this.levels.parenthesis += v === '(';
-					this.levels.parenthesis -= v === ')';
+				if(this.atStringExpressions) {
+					if(v === '(') this.addState('parenthesis');
+					if(v === ')') this.removeState('parenthesis');
 				}
 				if(this.atStatementsLevel) {
 					this.levels.brace += v === '{';
@@ -540,23 +542,23 @@ print(A)		// class
 				this.addToken(type);
 			}],
 			['\'', (v) => {
-				if(this.atState('comment')) {
+				if(this.atComments) {
 					this.token.value += v;
 
 					return;
 				}
 
-				if(!this.atStringLevel) {
+				if(!this.atString) {
 					this.ruleHelpers.finalizeOperator();
 					this.addToken('stringOpen');
-					this.levels.string++;
+					this.addState('string');
 				} else {
 					this.addToken('stringClosed');
-					this.levels.string--;
+					this.removeState('string');
 				}
 			}],
 			[';', (v) => {
-				if(this.atState('comment') || this.atStringLevel || this.token.type === 'delimiter') {
+				if(this.atComments || this.atString || this.token.type === 'delimiter') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -572,7 +574,7 @@ print(A)		// class
 
 					return;
 				}
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -595,7 +597,7 @@ print(A)		// class
 				this.token.value += v;
 			}],
 			[/[^\S\n]+/g, (v) => {
-				if(this.atState('comment') || this.atStringLevel || this.token.type === 'whitespace') {
+				if(this.atComments || this.atString || this.token.type === 'whitespace') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -605,7 +607,7 @@ print(A)		// class
 				this.addToken('whitespace', v);
 			}],
 			[/[0-9]+/g, (v) => {
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -623,7 +625,7 @@ print(A)		// class
 				this.addToken('numberInteger', v);
 			}],
 			[/[a-z_][a-z0-9_]*/gi, (v) => {
-				if(this.atState('comment') || this.atStringLevel) {
+				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -687,7 +689,7 @@ print(A)		// class
 				this.addToken(type, v);
 			}],
 			[/.|\n/gi, (v) => {
-				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atStringLevel) {
+				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -733,12 +735,20 @@ print(A)		// class
 			return this.getToken();
 		}
 
-		static get atStringLevel() {
-			return this.levels.string > this.levels.stringExpression;
+		static get atComments() {
+			return this.atState('comment');
 		}
 
-		static get atStringExpressionLevel() {
-			return this.levels.string > 0 && this.levels.string === this.levels.stringExpression;
+		static get atString() {
+			return this.atState('string', []);
+		}
+
+		static get atStringExpression() {
+			return this.atState('stringExpression', []);
+		}
+
+		static get atStringExpressions() {
+			return this.atState('stringExpression', ['parenthesis']);
 		}
 
 		static get atStatementLevel() {
@@ -787,12 +797,12 @@ print(A)		// class
 			}
 		}
 
-		static atState(title, strict) {
+		static atState(title, whitelist) {
 			for(let i = this.states.length-1; i >= 0; i--) {
 				if(this.states[i] === title) {
 					return true;
 				}
-				if(strict) {
+				if(whitelist != null && !whitelist.includes(this.states[i])) {
 					return;
 				}
 			}
