@@ -377,10 +377,9 @@ print(A)		// class
 <script>
 	class Lexer {
 		static code;
-		static position;
+		static #position;
 		static location;
 		static tokens;
-		static levels;
 		static states;
 		static reports;
 
@@ -594,6 +593,7 @@ print(A)		// class
 				}
 
 				if(this.atStatement && !this.token.value.includes('\n')) {
+					// todo: support comments
 					if(this.getToken(-1).type === 'braceOpen') {
 						this.addState('statementBody');
 					} else
@@ -739,6 +739,23 @@ print(A)		// class
 			}
 		}
 
+		static get position() {
+			return this.#position;
+		}
+
+		static set position(value) {
+			if(value < this.#position) {  // Rollback global changes
+				this.tokens = this.tokens.filter(v => v.position < value);
+				this.reports = this.reports.filter(v => v.position < value);
+			}
+
+			this.#position = value > this.code.length ? this.code.length : value;
+		}
+
+		static get codeEnd() {
+			return this.position === this.code.length;
+		}
+
 		static get token() {
 			return this.getToken();
 		}
@@ -834,14 +851,15 @@ print(A)		// class
 		static report(level, string) {
 			this.reports.push({
 				level: level,
+				position: this.position,
 				location: {...this.location},
 				string: string
 			});
 		}
 
 		static reset() {
-			this.code = undefined;
-			this.position = undefined;
+			this.code = '';
+			this.#position = 0;
 			this.location = {
 				line: 0,
 				column: 0
@@ -872,45 +890,49 @@ print(A)		// class
 			return substring;
 		}
 
+		static nextToken() {
+			for(let rule of this.rules) {
+				let triggers = rule[0],
+					actions = rule[1],
+					plain = typeof triggers === 'string',
+					array = Array.isArray(triggers),
+					regex = triggers instanceof RegExp,
+					trigger;
+
+				if(plain && this.atSubstring(triggers)) {
+					trigger = triggers;
+				}
+				if(array) {
+					trigger = triggers.find(v => this.atSubstring(v));
+				}
+				if(regex) {
+					trigger = this.atRegex(triggers);
+				}
+
+				if(trigger != null && !actions(trigger)) {
+					this.position += trigger.length;
+
+					for(let character of trigger) {
+						if(character === '\n') {
+							this.location.line++;
+							this.location.column = 0;
+						} else {
+							this.location.column++;
+						}
+					}
+
+					break;
+				}
+			}
+		}
+
 		static tokenize(code) {
 			this.reset();
 
 			this.code = code;
 
-			for(this.position = 0; this.position < this.code.length; this.position++) {
-				for(let rule of this.rules) {
-					let triggers = rule[0],
-						actions = rule[1],
-						plain = typeof triggers === 'string',
-						array = Array.isArray(triggers),
-						regex = triggers instanceof RegExp,
-						trigger;
-
-					if(plain && this.atSubstring(triggers)) {
-						trigger = triggers;
-					}
-					if(array) {
-						trigger = triggers.find(v => this.atSubstring(v));
-					}
-					if(regex) {
-						trigger = this.atRegex(triggers);
-					}
-
-					if(trigger != null && !actions(trigger)) {
-						this.position += trigger.length-1;
-
-						for(let character of trigger) {
-							if(character === '\n') {
-								this.location.line++;
-								this.location.column = 0;
-							} else {
-								this.location.column++;
-							}
-						}
-
-						break;
-					}
-				}
+			while(!this.codeEnd) {
+				this.nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 			}
 
 			let result = {
@@ -3786,8 +3808,8 @@ print(A)		// class
 		}
 
 		static set position(value) {
-			if(value < this.#position) {
-				this.reports = this.reports.filter(v => v.position < value);  // Rollback reports
+			if(value < this.#position) {  // Rollback global changes
+				this.reports = this.reports.filter(v => v.position < value);
 			}
 
 			this.#position = value;
