@@ -578,13 +578,10 @@ print(A)		// class
 					return;
 				}
 
-				if(this.token.type !== 'delimiter') {
-					this.addToken('delimiter');
-				} else
-				if(!this.token.generated) {
-					this.token.value += v;
-				} else {
+				if(this.token.type === 'delimiter' && this.token.generated) {
 					delete this.token.generated;
+				} else {
+					this.addToken('delimiter');
 				}
 			}],
 			[/\n/g, (v) => {
@@ -671,7 +668,7 @@ print(A)		// class
 					'any', 'async', 'await', 'awaits',
 					'bool', 'break',
 					'case', 'catch', 'class', 'continue',
-					'default', 'delete', 'do',
+					'default', 'do',
 					'else', 'enum', 'extension',
 					'fallthrough', 'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'int', 'is',
@@ -1029,8 +1026,6 @@ print(A)		// class
 		static tokens;
 		static #position;
 		static reports;
-
-		static levels;
 
 		static rules = {
 			anyType: () => {
@@ -1714,7 +1709,7 @@ print(A)		// class
 					value: undefined
 				}
 
-				if(this.token.type !== 'keywordDelete') {
+				if(this.token.type !== 'identifier' || this.token.value !== 'delete') {
 					return;
 				}
 
@@ -1898,7 +1893,10 @@ print(A)		// class
 				return this.rules.enumerationDeclaration(true);
 			},
 			enumerationStatements: () => {
-				return this.rules.statements(['caseDeclaration']);
+				return this.rules.statements([
+					'caseDeclaration',
+					'enumerationDeclaration'
+				]);
 			},
 			expression: () => {
 				let node =
@@ -3228,7 +3226,9 @@ print(A)		// class
 				return this.ruleHelpers.skippableNodes(
 					types,
 					() => this.token.type === 'braceOpen',
-					() => this.token.type === 'braceClosed'
+					() => this.token.type === 'braceClosed',
+					() => this.token.type === 'delimiter',
+					true
 				);
 			},
 			stringExpression: () => {
@@ -3696,14 +3696,6 @@ print(A)		// class
 					offset = 0;
 
 				while(!this.tokensEnd) {
-					if(separating != null && offset > 0) {
-						if(separating()) {
-							this.position++;
-						} else {
-							break;
-						}
-					}
-
 					let type = types[offset%types.length],
 						node = this.rules[type]?.();
 
@@ -3715,6 +3707,14 @@ print(A)		// class
 
 					if(!subsequentialTypes?.includes(node.type)) {
 						offset++;
+					}
+
+					if(separating != null && offset > 0) {
+						if(separating()) {
+							this.position++;
+						} else {
+							break;
+						}
 					}
 				}
 
@@ -3771,7 +3771,7 @@ print(A)		// class
 			/*
 			 * Returns a list of nodes of the types, including the "unsupported" nodes if any occur.
 			 *
-			 * Additionally a separator between the nodes can be set.
+			 * Additionally a (optionally nillable) separator between the nodes can be set.
 			 *
 			 * Stops at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
 			 *
@@ -3779,14 +3779,14 @@ print(A)		// class
 			 *
 			 * Useful for imprecise multiple enclosed(ing) nodes lookup.
 			 */
-			skippableNodes: (types, opening, closing, separating) => {
+			skippableNodes: (types, opening, closing, separating, nillableSeparating) => {
 				let nodes = [],
 					scopeLevel = 1;
 
 				while(!this.tokensEnd) {
 					let node;
 
-					if(separating == null || nodes.length === 0 || nodes.at(-1)?.type === 'separator') {
+					if(separating == null || nodes.length === 0 || nodes.at(-1).type === 'separator' || nillableSeparating) {
 						for(let type of types) {
 							node = this.rules[type]?.();
 
@@ -3801,13 +3801,10 @@ print(A)		// class
 					if(closing() && scopeLevel === 1 || this.tokensEnd) {
 						break;
 					}
-					if(node != null) {
-						continue;
-					}
-
-					node = nodes.at(-1);
 
 					if(separating?.()) {
+						node = nodes.at(-1);
+
 						if(node?.type !== 'separator') {
 							node = {
 								type: 'separator',
@@ -3823,9 +3820,13 @@ print(A)		// class
 						}
 
 						this.position++;
+					}
 
+					if(node != null) {
 						continue;
 					}
+
+					node = nodes.at(-1);
 
 					if(node?.type !== 'unsupported') {
 						node = {
@@ -3928,7 +3929,6 @@ print(A)		// class
 		static reset() {
 			this.tokens = []
 			this.#position = 0;
-			this.levels = {}
 			this.reports = []
 		}
 
@@ -3949,6 +3949,9 @@ print(A)		// class
 	}
 
 	class Interpreter {
+		static tree;
+		static hash = {}  // List of AST nodes of composite types (address: reference)
+
 		static memory = [
 			{
 				address: 0,
@@ -4176,18 +4179,55 @@ print(A)		// class
 
 		static rules = {
 			module: (node) => {
-				let namespace = this.rules.namespace(node);
+				return this.rules.statements(node.statements);
+			},
+			compositeDeclaration: (node) => {
+				let statements = this.rules.statements(node.body.statements);
 
-				if(node.statements.length > 0) {
-					this.rules.statements(namespace, node.statements);
+				node.declarations = statements.declarations;
+
+				return this.addHash(node);
+			},
+			namespaceDeclaration: (node) => {
+				return this.rules.compositeDeclaration(node);
+			},
+			structureDeclaration: (node) => {
+				return this.rules.compositeDeclaration(node);
+			},
+			protocolDeclaration: (node) => {
+				return this.rules.compositeDeclaration(node);
+			},
+			enumerationDeclaration: (node) => {
+				return this.rules.compositeDeclaration(node);
+			},
+			statements: (statements) => {
+				let operators = [],
+					declarations = []
+
+				for(let statement of statements) {
+					let type = statement.type;
+
+					declarations.push(this.rules[type]?.(statement));
 				}
-			},
-			namespace: (node) => {
 
-			},
-			statements: (context, statements) => {
-
+				return {
+					operators: operators,
+					declarations: declarations
+				}
 			}
+		}
+
+		static addHash(node) {
+			let address = Math.max.apply(undefined, Object.keys(this.hash));
+
+			address = (address > -1 ? address : 0)+1;
+			this.hash[address] = node;
+
+			return address;
+		}
+
+		static interpret(node) {
+			return this.rules[node.type]?.(node);
 		}
 
 		static createInheritance(primary, ...secondary) {
@@ -4351,6 +4391,7 @@ print(A)		// class
 	function parse() {
 		let lexerResult = Lexer.tokenize(input.value),
 			parserResult = Parser.parse(lexerResult),
+			interpreterResult = Interpreter.interpret(parserResult.tree);
 			tokens = lexerResult.rawTokens,
 			reports = [...lexerResult.reports, ...parserResult.reports]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
@@ -4451,6 +4492,7 @@ print(A)		// class
 		}
 		console.log(lexerResult.tokens);
 		console.log(parserResult.tree);
+		console.log(interpreterResult)
 
 		output_lint.innerHTML = lintHTML;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
