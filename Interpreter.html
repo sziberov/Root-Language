@@ -701,7 +701,7 @@ print(A)		// class
 				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
 				this.addToken(type, v);
 
-				if(['keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
+				if(['keywordFor', 'keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
 					this.addState('statement');
 				}
 			}],
@@ -1258,6 +1258,8 @@ print(A)		// class
 					}
 				}
 
+				node.range.end = this.position-1;
+
 				if(this.token.type === 'parenthesisOpen') {
 					this.position++;
 					node.arguments = this.ruleHelpers.skippableNodes(
@@ -1280,7 +1282,9 @@ print(A)		// class
 
 				node.closure = this.rules.closureExpression();
 
-				if(node.closure == null && node.arguments.length === 0) {
+				if(node.closure == null && node.range.end === this.position-1) {
+					this.position = node_.range.end+1;
+
 					return;
 				}
 
@@ -2250,26 +2254,8 @@ print(A)		// class
 				}
 
 				node.range.start = this.position++;
-				node.condition = this.rules.expressionsSequence();
-				node.then = this.rules.functionBody();
 
-				if(node.then == null && node.condition != null) {
-					let sequence = node.condition.type === 'expressionsSequence',
-						node_ = sequence ? node.condition.values.at(-1) : node.condition;
-
-					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
-						this.position = node_.closure.range.start;
-
-						if(sequence) {
-							node.condition.values.pop();
-							node.condition.values.push(node_.callee);
-						} else {
-							node.condition = node_.callee;
-						}
-
-						node.then = this.rules.functionBody();
-					}
-				}
+				this.ruleHelpers.preconditionalStatement(node, 'condition', 'then');
 
 				node.else = this.rules.elseClause();
 
@@ -2721,7 +2707,7 @@ print(A)		// class
 					value: node_
 				}
 
-				if(this.token.type !== 'operatorPostfix' || this.token.value !== '?') {
+				if(!['operatorInfix', 'operatorPostfix'].includes(this.token.type) || this.token.value !== '?') {
 					return;
 				}
 
@@ -3646,26 +3632,8 @@ print(A)		// class
 				}
 
 				node.range.start = this.position++;
-				node.condition = this.rules.expressionsSequence();
-				node.body = this.rules.functionBody();
 
-				if(node.body == null && node.condition != null) {
-					let sequence = node.condition.type === 'expressionsSequence',
-						node_ = sequence ? node.condition.values.at(-1) : node.condition;
-
-					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
-						this.position = node_.closure.range.start;
-
-						if(sequence) {
-							node.condition.values.pop();
-							node.condition.values.push(node_.callee);
-						} else {
-							node.condition = node_.callee;
-						}
-
-						node.body = this.rules.functionBody();
-					}
-				}
+				this.ruleHelpers.preconditionalStatement(node, 'condition', 'body');
 
 				if(node.condition == null) {
 					this.report(2, node.range.start, node.type, 'No condition.');
@@ -3771,7 +3739,7 @@ print(A)		// class
 			/*
 			 * Returns a list of nodes of the types, including the "unsupported" nodes if any occur.
 			 *
-			 * Additionally a (optionally nillable) separator between the nodes can be set.
+			 * Additionally a (optional) separator between the nodes can be set.
 			 *
 			 * Stops at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
 			 *
@@ -3779,14 +3747,14 @@ print(A)		// class
 			 *
 			 * Useful for imprecise multiple enclosed(ing) nodes lookup.
 			 */
-			skippableNodes: (types, opening, closing, separating, nillableSeparating) => {
+			skippableNodes: (types, opening, closing, separating, optionalSeparator) => {
 				let nodes = [],
 					scopeLevel = 1;
 
 				while(!this.tokensEnd) {
 					let node;
 
-					if(separating == null || nodes.length === 0 || nodes.at(-1).type === 'separator' || nillableSeparating) {
+					if(separating == null || nodes.length === 0 || nodes.at(-1).type === 'separator' || optionalSeparator) {
 						for(let type of types) {
 							node = this.rules[type]?.();
 
@@ -3879,6 +3847,28 @@ print(A)		// class
 				nodes = nodes.filter(v => v.type !== 'separator');
 
 				return nodes;
+			},
+			preconditionalStatement: (node, conditionType, bodyType) => {
+				node[conditionType] = this.rules.expressionsSequence();
+				node[bodyType] = this.rules.functionBody();
+
+				if(node[bodyType] == null && node[conditionType] != null) {
+					let sequence = node[conditionType].type === 'expressionsSequence',
+						node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType];
+
+					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
+						this.position = node_.closure.range.start;
+
+						if(sequence) {
+							node[conditionType].values.pop();
+							node[conditionType].values.push(node_.callee);
+						} else {
+							node[conditionType] = node_.callee;
+						}
+
+						node[bodyType] = this.rules.functionBody();
+					}
+				}
 			}
 		}
 
