@@ -105,7 +105,7 @@ if h {
 }
 
 if k { closure }.inside { closure }
-{ notClosure }
+/**/ { notClosure }
 
 .outside
 
@@ -119,6 +119,19 @@ if l {
       }
     }
   }
+}
+
+if o /**/
+{ /**/
+/**/
+}
+
+if m { n /**/
+/**/
+}
+/**/
+{
+/**/
 }
 
 // Foundation Source
@@ -377,7 +390,7 @@ print(A)		// class
 <script>
 	class Lexer {
 		static code;
-		static #position;
+		static position;
 		static location;
 		static tokens;
 		static states;
@@ -519,7 +532,7 @@ print(A)		// class
 				this.addToken(type);
 				this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
 
-				if(v === '{' && this.atStatement && this.getToken(-1).type === 'whitespace' && this.getToken(-1).value.includes('\n')) {
+				if(v === '{' && this.atStatement && this.atToken((t, v) => t === 'whitespace' && v.includes('\n'), (t) => t === 'whitespace' || t.startsWith('comment'), -1)) {
 					this.addState('statementBody');
 
 					return;
@@ -575,13 +588,7 @@ print(A)		// class
 				}
 			}],
 			[/\n/g, (v) => {
-				if(this.token.type === 'commentLine') {
-					this.addToken('whitespace');
-					this.removeState('comment');
-
-					return;
-				}
-				if(this.atComments || this.atString) {
+				if(this.atComments && this.token.type !== 'commentLine' || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -589,20 +596,26 @@ print(A)		// class
 				}
 
 				if(this.token.type !== 'whitespace') {
-					this.addToken('whitespace', '');
+					this.addToken('whitespace', v);
+
+					if(this.getToken(-1).type === 'commentLine') {
+						this.removeState('comment');
+					}
+				} else {
+					this.token.value += v;
 				}
 
-				if(this.atStatement && !this.token.value.includes('\n')) {
-					// todo: support comments
-					if(this.getToken(-1).type === 'braceOpen') {
+				if(this.atStatement && this.token.value.match(/\n/g).length === 1) {
+					let braceOpen = (t) => t === 'braceOpen',
+						ignorable = (t) => t === 'whitespace' || t.startsWith('comment');
+
+					if(this.atToken(braceOpen, ignorable)) {
 						this.addState('statementBody');
 					} else
-					if(!this.atState('brace') && !this.atRegex(/\s*{/)) {
+					if(!this.atState('brace') && !this.atFutureToken(braceOpen, ignorable)) {
 						this.removeState('statement');
 					}
 				}
-
-				this.token.value += v;
 			}],
 			[/[^\S\n]+/g, (v) => {
 				if(this.atComments || this.atString || this.token.type === 'whitespace') {
@@ -739,21 +752,8 @@ print(A)		// class
 			}
 		}
 
-		static get position() {
-			return this.#position;
-		}
-
-		static set position(value) {
-			if(value < this.#position) {  // Rollback global changes
-				this.tokens = this.tokens.filter(v => v.position < value);
-				this.reports = this.reports.filter(v => v.position < value);
-			}
-
-			this.#position = value > this.code.length ? this.code.length : value;
-		}
-
 		static get codeEnd() {
-			return this.position === this.code.length;
+			return this.position >= this.code.length;
 		}
 
 		static get token() {
@@ -810,25 +810,76 @@ print(A)		// class
 			this.tokens = this.tokens.filter((v, k) => k !== this.tokens.length-1+offset);
 		}
 
-		static addState(title) {
-			this.states.push(title);
+		/*
+		 * Check for current token(s), starting from rightmost, using combinations of type and value within predicate.
+		 *
+		 * Additionally whitelist predicate can be set, if strict search is needed.
+		 */
+		static atToken(condition, whitelistCondition, offset = 0) {
+			for(let i = this.tokens.length-1+offset; i >= 0; i--) {
+				let token = this.tokens[i],
+					type = token.type,
+					value = token.value;
+
+				if(condition(type, value)) {
+					return true;
+				}
+				if(whitelistCondition != null && !whitelistCondition(type, value)) {
+					return;
+				}
+			}
 		}
 
 		/*
-		 * 0 - Remove states starting from rightmost found (inclusively)
-		 * 1 - Remove states starting from leftmost found (inclusively)
-		 * 2 - Remove found states, ignoring order
+		 * Almost same as atToken() but checks for tokens that is not tokenized yet.
 		 */
-		static removeState(title, mode = 0) {
+		static atFutureToken(condition, whitelistCondition) {
+			let save = this.getSave(),
+				result;
+
+			this.position = this.token.position+this.token.value.length;
+
+			while(!this.codeEnd) {
+				this.nextToken();
+
+				let token = this.tokens.at(-1),
+					type = token?.type,
+				    value = token?.value;
+
+				if(condition(type, value)) {
+					result = true;
+
+					break;
+				}
+				if(whitelistCondition != null && !whitelistCondition(type, value)) {
+					break;
+				}
+			}
+
+			this.restoreSave(save);
+
+			return result;
+		}
+
+		static addState(type) {
+			this.states.push(type);
+		}
+
+		/*
+		 * <= 0 - Remove states starting from rightmost found (inclusively)
+		 *    1 - Remove states starting from leftmost found (inclusively)
+		 *    2 - Remove found states, ignoring order
+		 */
+		static removeState(type, mode = 0) {
 			if(mode < 2) {
-				let i = mode === 1 ? this.states.indexOf(title) : this.states.lastIndexOf(title);
+				let i = mode === 1 ? this.states.indexOf(type) : this.states.lastIndexOf(type);
 
 				if(i > -1) {
 					this.states.length = i;
 				}
 			}
 			if(mode === 2) {
-				this.states = this.states.filter(v => v !== title);
+				this.states = this.states.filter(v => v !== type);
 			}
 		}
 
@@ -837,9 +888,9 @@ print(A)		// class
 		 *
 		 * Additionally whitelist can be set, if strict search is needed.
 		 */
-		static atState(title, whitelist) {
+		static atState(type, whitelist) {
 			for(let i = this.states.length-1; i >= 0; i--) {
-				if(this.states[i] === title) {
+				if(this.states[i] === type) {
 					return true;
 				}
 				if(whitelist != null && !whitelist.includes(this.states[i])) {
@@ -857,9 +908,33 @@ print(A)		// class
 			});
 		}
 
+		static getSave() {
+			return {
+				position: this.position,
+				location: {...this.location},
+				tokens: this.tokens.length,
+				token: {...this.token},  // Tokens themself are mutable too
+				states: this.states.length,
+				reports: this.reports.length
+			}
+		}
+
+		static restoreSave(save) {
+			this.position = save.position;
+			this.location = {...save.location}
+			this.tokens.length = save.tokens;
+			this.states.length = save.states;
+			this.reports.length = save.reports;
+
+			if(this.tokens.length > 0) {
+				this.tokens.pop();
+				this.tokens.push({...save.token});
+			}
+		}
+
 		static reset() {
 			this.code = '';
-			this.#position = 0;
+			this.position = 0;
 			this.location = {
 				line: 0,
 				column: 0
@@ -909,7 +984,7 @@ print(A)		// class
 					trigger = this.atRegex(triggers);
 				}
 
-				if(trigger != null && !actions(trigger)) {
+				if(trigger != null && !actions(trigger)) {  // Multiple rules can be executed on same position if some of them return true
 					this.position += trigger.length;
 
 					for(let character of trigger) {
@@ -920,7 +995,7 @@ print(A)		// class
 							this.location.column++;
 						}
 					}
-
+					this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 					break;
 				}
 			}
