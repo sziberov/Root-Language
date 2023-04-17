@@ -64,75 +64,11 @@ body {
 }
 </style>
 <textarea id="input">
-if a { notClosure }
-
-if b { closure }.inside { closure }
-{ notClosure }
-
-.outside
-
-if c {
-	notClosure
-}
-
-if d { closure } {
-	notClosure
-}
-
-if e { closure } { closure
-} {
-	notClosure
-}
-
-if f { closure }.inside {
-	{ notClosure }
-}
-
-if g {
-	notClosure
-}
-
-.outside {
-	notClosure
-}
-
-if h {
-	notClosure
-}
-
-(outside) {
-	notClosure
-}
-
-if k { closure }.inside { closure }
-/**/ { notClosure }
-
-.outside
-
-if l {
-  {
-    {
-      {
-        if i {
-          notClosure
-        }
-      }
-    }
-  }
-}
-
-if o /**/
-{ /**/
-/**/
-}
-
-if m { n /**/
-/**/
-}
-/**/
-{
-/**/
-}
+. if   == identifier
+a.if   == identifier
+a . if == identifier
+a .if  == identifier
+a. if  == keyword
 
 // Foundation Source
 
@@ -142,9 +78,22 @@ postfix operator --
 prefix operator ++
 prefix operator --
 
-/* private */ infix operator == {
+infix operator ??= {
+	associativity: left
+	precedence: 128
+}
+
+public infix operator == {
 	associativity: left
 	precedence: 64
+}
+
+func ??=(lhs: inout _?, rhs: _?) {
+    if lhs != nil {
+    	return
+    }
+
+    lhs = rhs
 }
 
 struct Boolean {
@@ -469,44 +418,55 @@ print(A)		// class
 				}
 			}],
 			[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
-				let initializers = [',', '.', ':'],	// Create new token if value exists in the list and current (operator) token doesn't initialized with it
-					singletons = ['!', '?']			// Create new token if current (postfix operator) token matches any value in the list
-
-				let initializer = initializers.includes(v) && !this.token.value.startsWith(v),
-					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
-					closingAngle = this.atState('angle', []) && v === '>';
-
 				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
 					return;
 				}
-				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
-					this.ruleHelpers.finalizeOperator(true, false);
-					this.token.value += v;
 
-					return;
+				let initializers = [',', '.', ':'],					// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+					singletons = ['!', '?'],						// Create new token if current (postfix operator) token matches any value in the list
+					generics = ['!', ',', '.', ':', '<', '>', '?']	// Only values in the list are allowed for generic types
+
+				let initializer = initializers.includes(v) && !this.token.value.startsWith(v),
+					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
+					generic = generics.includes(v);
+
+				if(!generic) {
+					this.removeState('angle', 2);
 				}
-				if(singleton) {
-					this.addToken(this.token.type);
+
+				let closingAngle = this.atAngle && v === '>';
+
+				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
+					this.ruleHelpers.mergeOperators();
+					this.token.value += v;
 
 					return;
 				}
 
 				let type = 'operator';
 
-				if(
-					['string', 'identifier'].includes(this.token.type) ||
-					this.token.type.endsWith('Closed') ||
-					this.token.type.startsWith('number') ||
-					this.token.type.startsWith('keyword')
-				) {
-					type += 'Postfix';
+				if(singleton) {
+					type = this.token.type;
+				} else {
+					if(
+						['string', 'identifier'].includes(this.token.type) ||
+						this.token.type.endsWith('Closed') ||
+						this.token.type.startsWith('number') ||
+						this.token.type.startsWith('keyword')
+					) {
+						type += 'Postfix';
+					}
+
+					this.ruleHelpers.specifyOperatorType();
 				}
 
-				this.ruleHelpers.finalizeOperator(false);
 				this.addToken(type);
+				if(initializer || singleton) {
+					this.token.nonmergeable = true;
+				}
 
 				if(v === '<') this.addState('angle');
 				if(v === '>') this.removeState('angle');
@@ -528,7 +488,9 @@ print(A)		// class
 					'}': 'braceClosed'
 				})[v]
 
-				this.ruleHelpers.finalizeOperator(false, type.endsWith('Open'));
+				if(type.endsWith('Open')) {
+					this.ruleHelpers.specifyOperatorType();
+				}
 				this.addToken(type);
 				this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
 
@@ -671,7 +633,7 @@ print(A)		// class
 					'default', 'do',
 					'else', 'enum', 'extension',
 					'fallthrough', 'false', 'final', 'float', 'for', 'func',
-					'if', 'import', 'in', 'infix', 'int', 'is',
+					'if', 'import', 'in', 'infix', 'inout', 'int', 'is',
 					'lazy',
 					'namespace', 'nil',
 					'operator',
@@ -684,24 +646,29 @@ print(A)		// class
 					'_'
 				]
 
-				let type = 'identifier';
+				this.ruleHelpers.specifyOperatorType();
 
-				if(keywords.includes(v)) {
+				let type = 'identifier',
+					chain = this.atToken((t, v) => t.startsWith('operator') && !t.endsWith('Postfix') && v === '.', this.ignorable);
+
+				if(keywords.includes(v) && !chain) {  // Disable keywords in a chains
 					type = 'keyword';
 
 					if(v === '_') {
 						type += 'Underscore';
+					} else {
+						let value = v[0].toUpperCase()+v.slice(1);
+
+						type += v[0] === value[0] ? 'Capital'+value : value;
 					}
-
-					let value = v[0].toUpperCase()+v.slice(1);
-
-					type += v[0] === value[0] ? 'Capital'+value : value;
 				}
 
-				this.ruleHelpers.finalizeOperator(type.startsWith('keyword'));
+				if(this.atAngle && type.startsWith('keyword')) {  // No keywords are allowed in generic types
+					this.ruleHelpers.mergeOperators();
+				}
 				this.addToken(type, v);
 
-				if(['keywordFor', 'keywordIf', 'keywordSwitch', 'keywordWhile'].includes(type)) {
+				if(['For', 'If', 'Switch', 'While'].some(v => type.endsWith(v))) {
 					this.addState('statement');
 				}
 			}],
@@ -723,25 +690,30 @@ print(A)		// class
 					this.addToken('stringSegment', '');
 				}
 			},
-			finalizeOperator: (merge = true, specifyType = true) => {
-				if(merge) {
-					this.removeState('angle', 2);
+			mergeOperators: () => {
+				this.removeState('angle', 2);
 
-					for(let i = this.tokens.length; i >= 0; i--) {
-						if(!this.token.type.startsWith('operator') || !this.getToken(-1).type.startsWith('operator')) {
-							break;
-						}
+				for(let i = this.tokens.length; i >= 0; i--) {
+					if(
+						!this.token.type.startsWith('operator') || this.token.nonmergeable ||
+						!this.getToken(-1).type.startsWith('operator') || this.getToken(-1).nonmergeable
+					) {
+						break;
+					}
 
-						this.getToken(-1).value += this.token.value;
-						this.removeToken();
-					}
+					this.getToken(-1).value += this.token.value;
+					this.removeToken();
 				}
-				if(specifyType) {
-					switch(this.token.type) {
-						case 'operator':		this.token.type = 'operatorPrefix';	break;
-						case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
-					}
+			},
+			specifyOperatorType: () => {
+				switch(this.token.type) {
+					case 'operator':		this.token.type = 'operatorPrefix';	break;
+					case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
 				}
+			},
+			finalizeOperator: () => {
+				this.ruleHelpers.mergeOperators();
+				this.ruleHelpers.specifyOperatorType();
 			},
 			reportSkip: (v) => {
 				this.report(0, 'No token of an appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
@@ -782,6 +754,10 @@ print(A)		// class
 
 		static get atStatementBody() {
 			return this.atState('statementBody', []);
+		}
+
+		static get atAngle() {
+			return this.atState('angle', []);
 		}
 
 		static ignorable = (t) => t === 'whitespace' || t.startsWith('comment');
@@ -2277,7 +2253,7 @@ print(A)		// class
 					member: undefined
 				}
 
-				if(this.token.type !== 'operatorPrefix' || this.token.value !== '.') {
+				if(!this.token.type.startsWith('operator') || this.token.type.endsWith('Postfix') || this.token.value !== '.') {
 					return;
 				}
 
@@ -2303,7 +2279,7 @@ print(A)		// class
 					value: undefined
 				}
 
-				if(this.token.type !== 'operatorPrefix' || this.token.value !== '.') {
+				if(!this.token.type.startsWith('operator') || this.token.type.endsWith('Postfix') || this.token.value !== '.') {
 					return;
 				}
 
@@ -2510,6 +2486,23 @@ print(A)		// class
 				}
 
 				node.range.end = node.identifier.range.end;
+
+				return node;
+			},
+			inoutType: () => {
+				let node = {
+					type: 'inoutType',
+					range: {},
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordInout') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.value = this.rules.unionType();
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -3497,7 +3490,12 @@ print(A)		// class
 				return node;
 			},
 			type: () => {
-				return this.rules.unionType();
+				let node =
+					this.rules.variadicType() ??
+					this.rules.inoutType() ??
+					this.rules.unionType();
+
+				return node;
 			},
 			typeClause: () => {
 				let node,
@@ -3615,6 +3613,24 @@ print(A)		// class
 					this.report(0, node.range.start, node.type, 'No declarator(s).');
 				}
 
+				node.range.end = this.position-1;
+
+				return node;
+			},
+			variadicType: () => {
+				let node = {
+					type: 'variadicType',
+					range: {
+						start: this.position
+					},
+					value: this.rules.inoutType()
+				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '...') {
+					return node.value;
+				}
+
+				this.position++;
 				node.range.end = this.position-1;
 
 				return node;
@@ -3939,244 +3955,17 @@ print(A)		// class
 	}
 
 	class Interpreter {
-		static tree;
-		static hash = {}  // List of AST nodes of composite types (address: reference)
-
-		static memory = [
-			{
-				address: 0,
-				inheritance: ['Namespace'],
-				imports: [
-					/*
-					{
-						identifier: 'Foundation',
-						value: 0
-					}
-					*/
-				],
-				operators: [
-					{
-						modifiers: ['postfix'],
-						identifier: '++',
-						associativity: null,
-						precedence: null
-					},
-					{
-						modifiers: ['postfix'],
-						identifier: '--',
-						associativity: null,
-						precedence: null
-					},
-					{
-						modifiers: ['prefix'],
-						identifier: '++',
-						associativity: null,
-						precedence: null
-					},
-					{
-						modifiers: ['prefix'],
-						identifier: '--',
-						associativity: null,
-						precedence: null
-					},
-					{
-						modifiers: [/* 'private', */ 'infix'],
-						identifier: '+',
-						associativity: 'left',
-						precedence: 64
-					}
-				],
-				members: [
-					{
-						modifiers: ['public', 'static'],
-						identifier: 'TestClass',
-						typed: true,
-						inheritance: [1],
-						nillable: true,
-						value: '1',
-						observers: []
-					},
-					{
-						modifiers: ['public', 'static', 'final'],
-						identifier: 'testPi',
-						typed: true,
-						inheritance: ['float'],
-						nillable: true,
-						value: '3.14',
-						observers: []
-					},
-					{
-						modifiers: ['public', 'static'],
-						identifier: 'testClassInstance',
-						typed: true,
-						inheritance: [2],
-						nillable: true,
-						value: '3',
-						observers: []
-					},
-					{
-						modifiers: ['public'],
-						identifier: 'computedInstanceProperty',
-						typed: false,
-						inheritance: [],
-						nillable: true,
-						value: null,
-						observers: [
-							{
-								identifier: 'willGet',  // 'get', 'didGet', 'willSet', 'set', 'didSet', 'willDelete', 'delete', 'didDelete'
-								value: null  // Function address
-							}
-						]
-					}
-				],
-				observers: {
-					chain: [
-						{
-							identifier: 'willGet',  // ...
-							value: null  // Function address
-						}
-					],
-					subscript: []
-				},
-				scope: null,
-				retains: 1
-			},
-			{
-				address: 1,
-				inheritance: ['Class'],
-				generics: [],
-				members: [
-					{
-						modifiers: ['public', 'static', 'final'],
-						identifier: 'init',
-						typed: true,
-						inheritance: [
-							/*
-							{
-								type: 'Function',
-								generics: [],  // [null] - Unspecified list, [] - Empty list
-								parameters: [
-									{
-										typed: false,
-										inheritance: [],
-										nillable: true,
-										variadic: true
-									},
-									{
-										typed: false,
-										inheritance: [],
-										nillable: true,
-										variadic: true
-									}
-								],
-								awaits: 0,  // -1 - Unspecified, 0 - False, 1 - True
-								throws: 0,
-								return: {
-									typed: true,
-									inheritance: ['bool'],
-									nillable: false
-								}
-							}
-							*/
-							'Function'
-						],
-						nillable: false,
-						value: '2',
-						observers: []
-					},
-					{
-						modifiers: ['public'],
-						identifier: 'testVariable',
-						typed: true,
-						inheritance: ['int'],
-						nillable: true,
-						value: null,
-						observers: []
-					}
-				],
-				observers: {
-					chain: [],
-					subscript: []
-				},
-				scope: 0,
-				retains: 1
-			},
-			{
-				address: 2,
-				inheritance: ['Function'],
-				generics: [
-					/*
-					{
-						identifier: 'A',
-						typed: false,
-						inheritance: [],
-						nillable: true
-					},
-					*/
-				],
-				parameters: [
-					{
-						label: null,
-						identifier: 'firstArgument',
-						inout: false,
-						typed: true,
-						inheritance: ['float'],
-						nillable: false,
-						variadic: false
-					},
-					{
-						label: null,
-						identifier: 'secondArgument',
-						inout: false,
-						typed: true,
-						inheritance: ['bool'],
-						nillable: true,
-						variadic: false
-					}
-				],
-				awaits: false,
-				throws: false,
-				return: {
-					typed: true,
-					inheritance: ['bool'],
-					nillable: true
-				},
-				body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument',  // Body node from Parser's result
-				members: [
-					{
-						identifier: 'parametersCount',
-						inheritance: ['int'],
-						value: '2'
-					}
-				],
-				scope: 1,
-				retains: 1
-			},
-			{
-				address: 3,
-				inheritance: ['Object', 1],
-				members: [
-					{
-						identifier: 'testVariable',
-						value: '2'
-					}
-				],
-				scope: 0,
-				retains: 1
-			}
-		]
-		static contexts = []
+		static memory = []
 
 		static rules = {
 			module: (node) => {
-				return this.rules.statements(node.statements);
+				let returnType = this.createType(false, false, [], false, false),
+					scope = this.getComposite(0) ?? this.createNamespace();
+
+				return this.createFunction([], [], -1, -1, returnType, node.statements, scope);
 			},
 			compositeDeclaration: (node) => {
-				let statements = this.rules.statements(node.body.statements);
-
-				node.declarations = statements.declarations;
-
-				return this.addHash(node);
+				this.rules.statements(node.body.statements);
 			},
 			namespaceDeclaration: (node) => {
 				return this.rules.compositeDeclaration(node);
@@ -4190,7 +3979,7 @@ print(A)		// class
 			enumerationDeclaration: (node) => {
 				return this.rules.compositeDeclaration(node);
 			},
-			statements: (statements) => {
+			statements: (statements, scope) => {
 				let operators = [],
 					declarations = []
 
@@ -4204,170 +3993,192 @@ print(A)		// class
 					operators: operators,
 					declarations: declarations
 				}
+			},
+			modifiers: (node) => {
+				return node.values;
 			}
 		}
 
-		static addHash(node) {
-			let address = Math.max.apply(undefined, Object.keys(this.hash));
+		static serializeMemory() {
+			return JSON.stringify(this.memory);
+		}
+
+		static createComposite(inheritance, scope) {
+			let address = Math.max.apply(undefined, Object.keys(this.memory)),
+				composite;
 
 			address = (address > -1 ? address : 0)+1;
-			this.hash[address] = node;
-
-			return address;
-		}
-
-		static interpret(node) {
-			return this.rules[node.type]?.(node);
-		}
-
-		static createInheritance(primary, ...secondary) {
-			if(![
-				'argument',
-				'class',
-				'enumeration',
-				'function',
-				'instance',
-				'namespace',
-				'protocol',
-				'structure',
-				'variable'
-			].includes(primary)) {
-				throw new RangeError();
-			}
-			if(['argument', 'variable'].includes(primary)) {
-				if(
-					![
-						'_',
-						'Any',
-						'any',
-						'bool',
-						'float',
-						'int',
-						'string'
-					].includes(secondary[0]) ||
-					secondary?.some(v => typeof v !== 'string' && !Number.isInteger(v))
-				) {
-					throw new TypeError();
-				}
+			composite = {
+				address: address,
+				inheritance: inheritance,
+				scope: scope.address ?? scope,
+				retains: 1
 			}
 
-			return [primary, ...secondary]
-		}
+			memory.push(composite);
 
-		static createModifiers(...values) {
-			for(value of values) {
-				if(![
-					'infix',
-					'postfix',
-					'prefix',
-					'private',
-					'protected',
-					'public',
-					'static'
-				].includes(value)) {
-					return;
-				}
-			}
-
-			return values;
-		}
-
-		static createMember(inheritance, parameters) {
-			let member;
-
-			if(inheritance[0] === 'variable') {
-				member = {
-					/*
-					modifiers: modifiers,
-					identifier: identifier,
-					typed: typed,
-					inheritance: inheritance,
-					nillable: nillable,
-					value: value
-					*/
-				}
-			}
-			return member;
+			return composite;
 		}
 
 		static getComposite(address) {
 			let composite = this.memory.find(v => v.address === address);
 
-			if(composite == null) {
-				return;
-			}
-
-			return new Proxy(composite, {
-				get: (t, k) => {
-					if(k === 'metaSelf') {
-						return t;
-					}
-
-					let members = t.members ?? [],
-						member = members.find(v => v.identifier === k),
-						identifier = member?.identifier,
-						inheritance = member?.inheritance ?? [],
-						value = member?.value;
-
-					if(member == null) {
-						return;
-					}
-
-					if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
-						let address = value*1;
-
-						return this.getComposite(address);
-					} else {
-						return member;
-					}
-				},
-				ownKeys: (t) => {
-					let members = t.members ?? [],
-						keys = members.map(v => v.identifier);
-
-					keys.push('metaSelf');
-
-					return keys;
-				},
-				getOwnPropertyDescriptor: (t, k) => {
-					if(k === 'metaSelf') {
-						return {
-							enumerable: true,
-							configurable: true,
-							value: t
-						}
-					}
-
-					let members = t.members ?? [],
-						member = members.find(v => v.identifier === k),
-						inheritance = member?.inheritance ?? [],
-						value = member?.value;
-
-					if(member == null) {
-						return;
-					}
-
-					if(inheritance.length > 0 && inheritance.every(v => Number.isInteger(v))) {
-						let address = value*1;
-
-						member = this.getComposite(address);
-					}
-
-					return {
-						enumerable: true,
-						configurable: true,
-						value: member
-					}
-				}
-			});
+			return composite;
 		}
 
-		static createMainContext() {
-		//  this.memory.push();
+		static createNamespace(scope) {
+			return this.createComposite(['Namespace'], scope);
+		}
 
-			if(this.contexts.length === 0) {
-				this.contexts.push(this.getComposite(0));
+		static createFunction(genericParameters, parameters, awaits, throws, returnType, body, scope) {
+			let function_ = this.createComposite(['Function'], scope);
+
+			function_.genericParameters = genericParameters;
+			function_.parameters = parameters;
+			function_.awaits = awaits;
+			function_.throws = throws;
+			function_.returnType = returnType;
+			function_.body = body;
+
+			return function_;
+		}
+
+		static callFunction(function_, ...arguments_) {
+			let scope = this.createNamespace(function_.scope);
+
+			for(let argument of arguments_) {
+				this.setMember(scope,
+					['public', 'static'],
+					argument.identifier,
+					argument.type,
+					argument.value,
+					[]
+				);
 			}
+
+			this.rules.statements(function_.body.statements, scope);
+		}
+
+		static createType(inout, fixed, inheritance, nillable, variadic) {
+			return {
+				inout: inout,
+				fixed: fixed,
+				inheritance: inheritance,
+				nillable: nillable,
+				variadic: variadic
+			}
+		}
+
+		static findImport(composite, identifier) {
+			while(composite != null) {
+				let import_ = this.getImport(composite, identifier);
+
+				if(import_ != null) {
+					return import_;
+				}
+
+				composite = this.getComposite(composite.scope);
+			}
+		}
+
+		static getImport(composite, identifier) {
+			return composite.imports.find(v => v.identifier === identifier);
+		}
+
+		static setImport(composite, identifier, value) {
+			let import_ = this.getImport(composite, identifier);
+
+			import_ ??= composite.imports[composite.imports.push({})-1];
+
+			import_.identifier = identifier;
+			import_.value = value?.scope ?? value;
+		}
+
+		static deleteImport(composite, identifier) {
+			composite.imports = composite.imports.filter(v => v !== this.getImport(identifier));
+		}
+
+		static findOperator(composite, identifier) {
+			while(composite != null) {
+				let operator = this.getOperator(composite, identifier);
+
+				if(operator != null) {
+					return operator;
+				}
+
+				composite = this.getComposite(composite.scope);
+			}
+		}
+
+		static getOperator(composite, identifier) {
+			return composite.operators.find(v => v.identifier === identifier);
+		}
+
+		static setOperator(composite, modifiers, identifier, associativity, precedence) {
+			let operator = this.getOperator(composite, identifier);
+
+			operator ??= composite.operators[composite.operators.push({})-1];
+
+			operator.modifiers = modifiers;
+			operator.identifier = identifier;
+			operator.associativity = associativity;
+			operator.precedence = precedence;
+		}
+
+		static deleteOperator(composite, identifier) {
+			composite.operators = composite.operators.filter(v => v !== this.getOperator(identifier));
+		}
+
+		static findMember(composite, identifier) {
+			while(composite != null) {
+				let operator = this.getMember(composite, identifier);
+
+				if(operator != null) {
+					return operator;
+				}
+
+				composite = this.getComposite(composite.scope);
+			}
+		}
+
+		static getMember(composite, identifier) {
+			return composite.members.find(v => v.identifier === identifier);
+		}
+
+		static setMember(composite, modifiers, identifier, type, value, observers) {
+			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1]
+
+			member.modifiers = modifiers;
+			member.identifier = identifier;
+			member.type = type;
+			member.value = value?.scope ?? value;
+			member.observers = observers;
+		}
+
+		static deleteMember(composite, identifier) {
+			composite.members = composite.members.filter(v => v !== this.getMember(identifier));
+		}
+
+		static findFunction(composite, identifier, ...arguments_) {
+			while(composite != null) {
+				let function_ = this.getFunction(composite, identifier, ...arguments_);
+
+				if(function_ != null) {
+					return function_;
+				}
+
+				composite = this.getComposite(composite.scope);
+			}
+		}
+
+		static getFunction(composite, identifier, ...arguments_) {
+
+		}
+
+		// findObserver, getObserver, setObserver, deleteObserver
+
+		static interpret(tree) {
+			//return this.callFunction(this.rules.module(tree));
 		}
 	}
 
@@ -4381,7 +4192,7 @@ print(A)		// class
 	function parse() {
 		let lexerResult = Lexer.tokenize(input.value),
 			parserResult = Parser.parse(lexerResult),
-			interpreterResult = Interpreter.interpret(parserResult.tree);
+			interpreterResult = Interpreter.interpret(parserResult.tree),
 			tokens = lexerResult.rawTokens,
 			reports = [...lexerResult.reports, ...parserResult.reports]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
