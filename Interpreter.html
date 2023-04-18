@@ -3958,44 +3958,62 @@ print(A)		// class
 		static memory = []
 
 		static rules = {
-			module: (node) => {
-				let returnType = this.createType(false, false, [], false, false),
-					scope = this.getComposite(0) ?? this.createNamespace();
+			module: (node, scope) => {
+			//	this.rules.statements(node.statements, scope);  // Probably more logical solution as global script doesn't need to be a function type and have a call's namespace
+
+				let returnType = this.createType(false, false, [], true, false);
 
 				return this.createFunction([], [], -1, -1, returnType, node.statements, scope);
 			},
-			compositeDeclaration: (node) => {
-				this.rules.statements(node.body.statements);
+			namespaceDeclaration: (node, scope) => {
+				let composite = this.createNamespace([], [], [], [], scope);
+
+				this.rules.statements(node.body?.statements, scope);
 			},
-			namespaceDeclaration: (node) => {
-				return this.rules.compositeDeclaration(node);
+			structureDeclaration: (node, scope) => {
 			},
-			structureDeclaration: (node) => {
-				return this.rules.compositeDeclaration(node);
+			protocolDeclaration: (node, scope) => {
 			},
-			protocolDeclaration: (node) => {
-				return this.rules.compositeDeclaration(node);
+			enumerationDeclaration: (node, scope) => {
 			},
-			enumerationDeclaration: (node) => {
-				return this.rules.compositeDeclaration(node);
+			variableDeclaration: (node, scope) => {
+				let modifiers = node.modifiers?.values ?? []
+
+				for(let declarator of node.declarators) {
+					let identifier = declarator.identifier.value,
+						type = this.rules.type(declarator.type_),
+						value = this.rules[declarator.value?.type]?.(declarator.value, scope),
+						observers = []
+
+					this.setMember(scope, modifiers, identifier, type, value, observers);
+				}
+			},
+			type: (node, scope) => {
+				let inout = false,
+					fixed = false,
+					inheritance = [],
+					nillable = true,
+					variadic = false;
+
+				while(node != null) {
+					if(node.type === 'variadicType') {
+						variadic = true;
+						node = node.value;
+					}
+					if(node.type === 'inoutType') {
+						inout = true;
+						node = node.value;
+					}
+					break;
+				//	this.rules[declarator.type_?.type]?.(declarator.type_, scope);
+				}
+
+				return this.createType(inout, fixed, [], nillable, variadic);
 			},
 			statements: (statements, scope) => {
-				let operators = [],
-					declarations = []
-
-				for(let statement of statements) {
-					let type = statement.type;
-
-					declarations.push(this.rules[type]?.(statement));
+				for(let statement of statements ?? []) {
+					this.rules[statement.type]?.(statement, scope);
 				}
-
-				return {
-					operators: operators,
-					declarations: declarations
-				}
-			},
-			modifiers: (node) => {
-				return node.values;
 			}
 		}
 
@@ -4004,20 +4022,20 @@ print(A)		// class
 		}
 
 		static createComposite(inheritance, scope) {
-			let address = Math.max.apply(undefined, Object.keys(this.memory)),
-				composite;
-
-			address = (address > -1 ? address : 0)+1;
-			composite = {
-				address: address,
+			let composite = {
+				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
 				inheritance: inheritance,
-				scope: scope.address ?? scope,
-				retains: 1
+				scopeAddress: scope?.address,
+				retainCount: 1
 			}
 
-			memory.push(composite);
+			this.memory.push(composite);
 
 			return composite;
+		}
+
+		static destroyComposite(composite) {
+			this.memory = this.memory.filter(v => v !== composite);
 		}
 
 		static getComposite(address) {
@@ -4026,11 +4044,18 @@ print(A)		// class
 			return composite;
 		}
 
-		static createNamespace(scope) {
-			return this.createComposite(['Namespace'], scope);
+		static createNamespace(imports, operators, members, observers, scope) {
+			let namespace = this.createComposite(['Namespace'], scope);
+
+			namespace.imports = imports;
+			namespace.operators = operators;
+			namespace.members = members;
+			namespace.observers = observers;
+
+			return namespace;
 		}
 
-		static createFunction(genericParameters, parameters, awaits, throws, returnType, body, scope) {
+		static createFunction(genericParameters, parameters, awaits, throws, returnType, statements, scope) {
 			let function_ = this.createComposite(['Function'], scope);
 
 			function_.genericParameters = genericParameters;
@@ -4038,16 +4063,18 @@ print(A)		// class
 			function_.awaits = awaits;
 			function_.throws = throws;
 			function_.returnType = returnType;
-			function_.body = body;
+			function_.statements = statements;
 
 			return function_;
 		}
 
-		static callFunction(function_, ...arguments_) {
-			let scope = this.createNamespace(function_.scope);
+		static callFunction(function_, arguments_, forwarded) {
+			let scope = this.getComposite(function_.scopeAddress),
+				namespace = forwarded ? scope : this.createNamespace([], [], [], [], scope),
+				result;
 
-			for(let argument of arguments_) {
-				this.setMember(scope,
+			for(let argument of arguments_ ?? []) {
+				this.setMember(namespace,
 					['public', 'static'],
 					argument.identifier,
 					argument.type,
@@ -4056,7 +4083,13 @@ print(A)		// class
 				);
 			}
 
-			this.rules.statements(function_.body.statements, scope);
+			result = this.rules.statements(function_.statements, namespace);
+
+			if(!forwarded && namespace.retainCount === 1) {
+				this.destroyComposite(namespace);
+			}
+
+			return result;
 		}
 
 		static createType(inout, fixed, inheritance, nillable, variadic) {
@@ -4077,7 +4110,7 @@ print(A)		// class
 					return import_;
 				}
 
-				composite = this.getComposite(composite.scope);
+				composite = this.getComposite(composite.scopeAddress);
 			}
 		}
 
@@ -4091,7 +4124,7 @@ print(A)		// class
 			import_ ??= composite.imports[composite.imports.push({})-1];
 
 			import_.identifier = identifier;
-			import_.value = value?.scope ?? value;
+			import_.value = value?.address ?? value;
 		}
 
 		static deleteImport(composite, identifier) {
@@ -4106,7 +4139,7 @@ print(A)		// class
 					return operator;
 				}
 
-				composite = this.getComposite(composite.scope);
+				composite = this.getComposite(composite.scopeAddress);
 			}
 		}
 
@@ -4137,7 +4170,7 @@ print(A)		// class
 					return operator;
 				}
 
-				composite = this.getComposite(composite.scope);
+				composite = this.getComposite(composite.scopeAddress);
 			}
 		}
 
@@ -4148,37 +4181,53 @@ print(A)		// class
 		static setMember(composite, modifiers, identifier, type, value, observers) {
 			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1]
 
+			if(typeof member.value === 'number' && member.value != value?.address) {
+				let oldValue = this.getComposite(member.value);
+
+				oldValue.retainCount--;
+
+				if(oldValue.retainCount === 0) {
+					this.destroyComposite(oldValue);
+				}
+			}
+
 			member.modifiers = modifiers;
 			member.identifier = identifier;
 			member.type = type;
-			member.value = value?.scope ?? value;
+			member.value = value?.address ?? value;
 			member.observers = observers;
+
+			if(value?.address != null) {
+				value.retainCount++;
+			}
 		}
 
 		static deleteMember(composite, identifier) {
 			composite.members = composite.members.filter(v => v !== this.getMember(identifier));
 		}
 
-		static findFunction(composite, identifier, ...arguments_) {
+		static findFunction(composite, identifier, arguments_) {
 			while(composite != null) {
-				let function_ = this.getFunction(composite, identifier, ...arguments_);
+				let function_ = this.getFunction(composite, identifier, arguments_);
 
 				if(function_ != null) {
 					return function_;
 				}
 
-				composite = this.getComposite(composite.scope);
+				composite = this.getComposite(composite.scopeAddress);
 			}
 		}
 
-		static getFunction(composite, identifier, ...arguments_) {
+		static getFunction(composite, identifier, arguments_) {
 
 		}
 
 		// findObserver, getObserver, setObserver, deleteObserver
 
 		static interpret(tree) {
-			//return this.callFunction(this.rules.module(tree));
+			let namespace = this.getComposite(0) ?? this.createNamespace([], [], [], []);
+
+			this.callFunction(this.rules.module(tree, namespace), [], true);
 		}
 	}
 
