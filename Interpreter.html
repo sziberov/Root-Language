@@ -64,6 +64,8 @@ body {
 }
 </style>
 <textarea id="input">
+var a: B<...> = 1
+
 . if   == identifier
 a.if   == identifier
 a . if == identifier
@@ -434,13 +436,12 @@ print(A)		// class
 					generic = generics.includes(v);
 
 				if(!generic) {
-					this.removeState('angle', 2);
+					this.ruleHelpers.mergeOperators();
 				}
 
 				let closingAngle = this.atAngle && v === '>';
 
 				if(this.token.type.startsWith('operator') && !initializer && !singleton && !closingAngle) {
-					this.ruleHelpers.mergeOperators();
 					this.token.value += v;
 
 					return;
@@ -2124,6 +2125,8 @@ print(A)		// class
 					return;
 				}
 
+				this.position++;
+
 				while(['keywordAsync', 'keywordThrows'].includes(this.token.type)) {
 					if(this.token.type === 'keywordAsync') {
 						this.position++;
@@ -2155,21 +2158,9 @@ print(A)		// class
 				return node;
 			},
 			genericParameter: () => {
-				let node = {
-					type: 'genericParameter',
-					range: {
-						start: this.position
-					},
-					identifier: this.rules.identifier(),
-					type_: undefined
-				}
-
-				if(node.identifier == null) {
-					return;
-				}
-
-				node.type_ = this.rules.typeClause();
-				node.range.end = this.position-1;
+				let node =
+					this.rules.variadicGenericParameter() ??
+					this.rules.primaryGenericParameter();
 
 				return node;
 			},
@@ -3078,6 +3069,25 @@ print(A)		// class
 
 				return node;
 			},
+			primaryGenericParameter: () => {
+				let node = {
+					type: 'genericParameter',
+					range: {
+						start: this.position
+					},
+					identifier: this.rules.identifier(),
+					type_: undefined
+				}
+
+				if(node.identifier == null) {
+					return;
+				}
+
+				node.type_ = this.rules.typeClause();
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			primaryType: () => {
 				let node =
 					this.rules.anyType() ??
@@ -3617,13 +3627,28 @@ print(A)		// class
 
 				return node;
 			},
+			variadicGenericParameter: () => {
+				let node = {
+					type: 'variadicGenericParameter',
+					range: {}
+				}
+
+				if(!this.token.type.startsWith('operator') || this.token.value !== '...') {
+					return;
+				}
+
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			variadicType: () => {
 				let node = {
 					type: 'variadicType',
 					range: {
 						start: this.position
 					},
-					value: this.rules.inoutType()
+					value: this.rules.inoutType() ?? this.rules.unionType()
 				}
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== '...') {
@@ -3959,11 +3984,13 @@ print(A)		// class
 
 		static rules = {
 			module: (node, scope) => {
-			//	this.rules.statements(node.statements, scope);  // Probably more logical solution as global script doesn't need to be a function type and have a call's namespace
+				this.rules.statements(node.statements, scope);  // Probably more logical solution as global script doesn't need to be a function type and have a call's namespace
 
+				/*
 				let returnType = this.createType(false, false, [], true, false);
 
 				return this.createFunction([], [], -1, -1, returnType, node.statements, scope);
+				*/
 			},
 			namespaceDeclaration: (node, scope) => {
 				let composite = this.createNamespace([], [], [], [], scope);
@@ -4068,9 +4095,8 @@ print(A)		// class
 			return function_;
 		}
 
-		static callFunction(function_, arguments_, forwarded) {
-			let scope = this.getComposite(function_.scopeAddress),
-				namespace = forwarded ? scope : this.createNamespace([], [], [], [], scope),
+		static callFunction(function_, arguments_, scope) {
+			let namespace = scope != null ? scope : this.createNamespace([], [], [], [], this.getComposite(function_.scopeAddress)),
 				result;
 
 			for(let argument of arguments_ ?? []) {
@@ -4085,7 +4111,7 @@ print(A)		// class
 
 			result = this.rules.statements(function_.statements, namespace);
 
-			if(!forwarded && namespace.retainCount === 1) {
+			if(scope == null && namespace.retainCount === 1) {
 				this.destroyComposite(namespace);
 			}
 
@@ -4227,7 +4253,7 @@ print(A)		// class
 		static interpret(tree) {
 			let namespace = this.getComposite(0) ?? this.createNamespace([], [], [], []);
 
-			this.callFunction(this.rules.module(tree, namespace), [], true);
+			/*this.callFunction(*/this.rules.module(tree, namespace)/*, [], namespace)*/;
 		}
 	}
 
