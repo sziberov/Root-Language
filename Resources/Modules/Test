@@ -1,0 +1,253 @@
+if {
+	if {}
+}
+
+if a {
+	if b {
+
+	}
+} else {
+
+}
+
+.outside
+
+if a { notClosure }
+
+if b { closure }.inside { closure }
+{ notClosure }
+
+.outside
+
+if c {
+	notClosure
+}
+
+if d { closure } {
+	notClosure
+}
+
+if e { closure } { closure
+} {
+	notClosure
+}
+
+if f { closure }.inside {
+	{ notClosure }
+}
+
+if g {
+	notClosure
+}
+
+.outside {
+	notClosure
+}
+
+if h {
+	notClosure
+}
+
+(outside) {
+	notClosure
+}
+
+if k { closure }.inside { closure }
+/**/ { notClosure }
+
+.outside
+
+if l {
+  {
+    {
+      {
+        if i {
+          notClosure
+        }
+      }
+    }
+  }
+}
+
+if o /**/
+{ /**/
+/**/
+}
+
+if m { n /**/
+/**/
+}
+/**/
+{
+/**/
+}
+
+var a: B<...> = 1
+
+. if   == identifier
+a.if   == identifier
+a . if == identifier
+a .if  == identifier
+a. if  == keyword
+
+// ---- ---- ---- ----
+
+/* Multiblock
+	/* Comment */
+		Block */
+
+// Comment Line
+
+import Foundation
+
+final var Boolean = Foundation.Boolean,
+	  	  Number = Foundation.Number,
+	  	  Decimal = Foundation.Decimal,
+	  	  Integer = Foundation.Integer,
+	  	  String = Foundation.String,
+	  	  Array = Foundation.Array,
+	  	  Dictionary = Foundation.Dictionary
+
+final var constant = Number.Pi
+
+var variable
+
+if constant > 0 {
+	variable = 1
+}
+
+class A {
+	private final var constant: Number = 0.5
+
+	protected var variable: Integer = 1
+
+	var variable_01a = 'String'
+
+	var anotherVariable {
+		willGet {}
+		get {
+			return value
+		}
+		didGet {}
+
+		willSet {}
+		set {
+			value = newValue
+		}
+		didSet {}
+	}
+
+	chain {
+		get {
+			return metaSelf.members[key]?.value
+		}
+		set {
+			metaSelf.members[key] = value
+		}
+		delete {
+			delete metaSelf.members[key]
+		}
+	}
+
+	subscript(a: Integer, b: Integer) -> Integer {
+		get {
+			return a+b
+		}
+		set {
+			print(a, b)
+		}
+	}
+
+	init(with number: Integer = 0, and string_: String) {
+		print('Intitializing with \(number) and \(string_)')
+
+		variable = number
+		variable_01a = string_
+	}
+
+	deinit {
+		print('Deinitializing!')
+	}
+}
+
+var instance = A(with: 12, and: '2')
+
+/*
+var self.A: self.Class = class { ... }
+
+var self.instance = A(with: 12, and: '2')
+*/
+
+print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
+
+var instance_2 = struct {
+	init(test: Integer) {
+		print('Initialized anonymous struct with testing variable: '+test)
+	}
+}(12)
+
+instance =
+instance_2 = nil
+
+enum B {
+	case first
+	case second
+	case third
+	case fourth
+}
+
+var enum_value: B = .first
+
+var function
+
+/*
+function = { x in x > 0 } - 1
+
+function = (x) in x > 0
+function = (x) { x > 0 }
+function = (x) { return x > 0 } - 2
+
+function = func (x) in x > 0
+function = func (x) { x > 0 }
+function = func (x) { return x > 0 } - 3
+
+func getMnemonic(color: Color) =
+    when color {
+        .RED -> "кот"
+        .ORANGE -> "охотник"
+        .YELLOW -> "желает"
+        .GREEN -> "знать"
+        .BLUE -> "где"
+        .INDIGO -> "сидят"
+        .VIOLET -> "фазаны"
+	}
+
+func getWarmth(color: Int) = when(color) {
+    RED, YELLOW -> "warm"
+    GREEN -> "neutral"
+    BLUE -> "cold"
+    else -> "unknown"
+}
+*/
+
+when catImageView.visibility {
+    View.VISIBLE: println('visible')
+    View.INVISIBLE: println('invisible')
+    default: println('gone')
+}
+
+var A = 1
+
+print(A)		// 1
+
+if true {		// If statements have local scopes
+	print(A)	// class (Declarations execute first)
+
+	class A {}
+}
+
+print(A)		// 1
+
+A = class {}
+
+print(A)		// class

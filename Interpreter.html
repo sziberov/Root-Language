@@ -63,274 +63,7 @@ body {
 	background: none;
 }
 </style>
-<textarea id="input">
-var a: B<...> = 1
-
-. if   == identifier
-a.if   == identifier
-a . if == identifier
-a .if  == identifier
-a. if  == keyword
-
-// Foundation Source
-
-postfix operator ++
-postfix operator --
-
-prefix operator ++
-prefix operator --
-
-infix operator ??= {
-	associativity: left
-	precedence: 128
-}
-
-public infix operator == {
-	associativity: left
-	precedence: 64
-}
-
-func ??=(lhs: inout _?, rhs: _?) {
-    if lhs != nil {
-    	return
-    }
-
-    lhs = rhs
-}
-
-struct Boolean {
-	private final var value
-
-	init(value: bool) {
-		self.value = value  // .value = value
-	}
-
-	static func ==(lhs: bool & Self, rhs: bool & Self) -> Self {
-		var leftValue = lhs !is Self ? lhs : lhs.value,
-			rightValue = rhs !is Self ? rhs : rhs.value
-
-		return leftValue == rightValue
-	}
-}
-
-struct Number {
-	static final var Pi = 3.141592653589793
-
-	protected final var value
-
-	init(value: int & float) {
-		.value = value
-	}
-
-	static func ==(lhs: int & float & Self, rhs: int & float & Self) -> Boolean {
-		var leftValue = lhs !is Self ? lhs : lhs.value,
-			rightValue = rhs !is Self ? rhs : rhs.value
-
-		return leftValue == rightValue
-	}
-}
-
-struct Float: Number {
-	init(value: int & float) {
-		if var v = value%2 && (v == 0 || v == 1) {
-			throw 'Value can\'t be integer'
-		}
-
-		.value = value
-	}
-}
-
-struct Integer: Number {
-	init(value: int & float) {
-		if var v = value%2 && v > 0 && v < 1 {
-			throw 'Value can\'t be float'
-		}
-
-		.value = value
-	}
-}
-
-struct String {
-	private final var value
-
-	init(value: string) {
-		.value = value
-	}
-
-	static func ==(lhs: string & Self, rhs: string & Self) -> Boolean {
-		var leftValue = lhs !is Self ? lhs : lhs.value,
-			rightValue = rhs !is Self ? rhs : rhs.value
-
-		return leftValue == rightValue
-	}
-}
-
-class Array {}
-
-class Dictionary {}
-
-// ---- ---- ---- ----
-
-/* Multiblock
-	/* Comment */
-		Block */
-
-// Comment Line
-
-import Foundation
-
-final var Boolean = Foundation.Boolean,
-	  	  Number = Foundation.Number,
-	  	  Decimal = Foundation.Decimal,
-	  	  Integer = Foundation.Integer,
-	  	  String = Foundation.String,
-	  	  Array = Foundation.Array,
-	  	  Dictionary = Foundation.Dictionary
-
-final var constant = Number.Pi
-
-var variable
-
-if constant > 0 {
-	variable = 1
-}
-
-class A {
-	private final var constant: Number = 0.5
-
-	protected var variable: Integer = 1
-
-	var variable_01a = 'String'
-
-	var anotherVariable {
-		willGet {}
-		get {
-			return value
-		}
-		didGet {}
-
-		willSet {}
-		set {
-			value = newValue
-		}
-		didSet {}
-	}
-
-	chain {
-		get {
-			return metaSelf.members[key]?.value
-		}
-		set {
-			metaSelf.members[key] = value
-		}
-		delete {
-			delete metaSelf.members[key]
-		}
-	}
-
-	subscript(a: Integer, b: Integer) -> Integer {
-		get {
-			return a+b
-		}
-		set {
-			print(a, b)
-		}
-	}
-
-	init(with number: Integer = 0, and string_: String) {
-		print('Intitializing with \(number) and \(string_)')
-
-		variable = number
-		variable_01a = string_
-	}
-
-	deinit {
-		print('Deinitializing!')
-	}
-}
-
-var instance = A(with: 12, and: '2')
-
-/*
-var self.A: self.Class = class { ... }
-
-var self.instance = A(with: 12, and: '2')
-*/
-
-print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
-
-var instance_2 = struct {
-	init(test: Integer) {
-		print('Initialized anonymous struct with testing variable: '+test)
-	}
-}(12)
-
-instance =
-instance_2 = nil
-
-enum B {
-	case first
-	case second
-	case third
-	case fourth
-}
-
-var enum_value: B = .first
-
-var function
-
-/*
-function = { x in x > 0 } - 1
-
-function = (x) in x > 0
-function = (x) { x > 0 }
-function = (x) { return x > 0 } - 2
-
-function = func (x) in x > 0
-function = func (x) { x > 0 }
-function = func (x) { return x > 0 } - 3
-
-func getMnemonic(color: Color) =
-    when color {
-        .RED -> "кот"
-        .ORANGE -> "охотник"
-        .YELLOW -> "желает"
-        .GREEN -> "знать"
-        .BLUE -> "где"
-        .INDIGO -> "сидят"
-        .VIOLET -> "фазаны"
-	}
-
-func getWarmth(color: Int) = when(color) {
-    RED, YELLOW -> "warm"
-    GREEN -> "neutral"
-    BLUE -> "cold"
-    else -> "unknown"
-}
-
-when catImageView.visibility {
-    View.VISIBLE -> println('visible')
-    View.INVISIBLE -> println('invisible')
-    else -> println('gone')
-}
-*/
-
-var A = 1
-
-print(A)		// 1
-
-if true {		// If statements have local scopes
-	print(A)	// class (Declarations execute first)
-
-	class A {}
-}
-
-print(A)		// 1
-
-A = class {}
-
-print(A)		// class
-</textarea>
+<textarea id="input"></textarea>
 <div id="output_lint"></div>
 <div id="output_trees">
 	<button id="change_tree">Change tree</button>
@@ -501,8 +234,11 @@ print(A)		// class
 					return;
 				}
 				if(v === '}' && this.atStatementBody) {
-					this.addToken('delimiter', ';');
-					this.token.generated = true;
+					if(!this.atFutureToken((t) => t === 'keywordElse', this.ignorable)) {
+						this.addToken('delimiter', ';');
+						this.token.generated = true;
+					}
+
 					this.removeState('statement');
 
 					return;
@@ -571,7 +307,7 @@ print(A)		// class
 					if(this.atToken(braceOpen, this.ignorable)) {
 						this.addState('statementBody');
 					} else
-					if(!this.atState('brace') && !this.atFutureToken(braceOpen, this.ignorable)) {
+					if(!this.atState('brace', []) && !this.atFutureToken(braceOpen, this.ignorable)) {
 						this.removeState('statement');
 					}
 				}
@@ -814,7 +550,7 @@ print(A)		// class
 			let save = this.getSave(),
 				result;
 
-			this.position += this.token.value.length;
+			this.position = this.token.position+this.token.value.length;  // Override allows nested calls
 
 			while(!this.codeEnd) {
 				this.nextToken();
@@ -843,16 +579,30 @@ print(A)		// class
 		}
 
 		/*
-		 * <= 0 - Remove states starting from rightmost found (inclusively)
-		 *    1 - Remove states starting from leftmost found (inclusively)
-		 *    2 - Remove found states, ignoring order
+		 * 0 - Remove states starting from rightmost found (inclusively)
+		 * 1 - 0 with subtypes, ignoring nested
+		 * 2 - Remove found states globally
 		 */
 		static removeState(type, mode = 0) {
-			if(mode < 2) {
-				let i = mode === 1 ? this.states.indexOf(type) : this.states.lastIndexOf(type);
+			if(mode === 0) {
+				let i = this.states.lastIndexOf(type);
 
 				if(i > -1) {
 					this.states.length = i;
+				}
+			}
+			if(mode === 1) {
+				for(let i = this.states.length-1; i >= 0; i--) {
+					let type_ = this.states[i]
+
+					if(!type_.startsWith(type)) {
+						continue;
+					} else {
+						this.states.splice(i, 1);
+					}
+					if(type_ === type) {
+						break;
+					}
 				}
 			}
 			if(mode === 2) {
@@ -889,9 +639,8 @@ print(A)		// class
 			return {
 				position: this.position,
 				location: {...this.location},
-				tokens: this.tokens.length,
-				token: {...this.token},  // Tokens themself are mutable too
-				states: this.states.length,
+				tokens: JSON.stringify(this.tokens),
+				states: JSON.stringify(this.states),
 				reports: this.reports.length
 			}
 		}
@@ -899,14 +648,9 @@ print(A)		// class
 		static restoreSave(save) {
 			this.position = save.position;
 			this.location = {...save.location}
-			this.tokens.length = save.tokens;
-			this.states.length = save.states;
+			this.tokens = JSON.parse(save.tokens);
+			this.states = JSON.parse(save.states);
 			this.reports.length = save.reports;
-
-			if(this.tokens.length > 0) {
-				this.tokens.pop();
-				this.tokens.push({...save.token});
-			}
 		}
 
 		static reset() {
@@ -972,6 +716,7 @@ print(A)		// class
 							this.location.column++;
 						}
 					}
+					this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 
 					break;
 				}
@@ -3895,7 +3640,7 @@ print(A)		// class
 
 				if(node[bodyType] == null && node[conditionType] != null) {
 					let sequence = node[conditionType].type === 'expressionsSequence',
-						node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType];
+						node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType]
 
 					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
 						this.position = node_.closure.range.start;
@@ -3984,13 +3729,7 @@ print(A)		// class
 
 		static rules = {
 			module: (node, scope) => {
-				this.rules.statements(node.statements, scope);  // Probably more logical solution as global script doesn't need to be a function type and have a call's namespace
-
-				/*
-				let returnType = this.createType(false, false, [], true, false);
-
-				return this.createFunction([], [], -1, -1, returnType, node.statements, scope);
-				*/
+				this.rules.statements(node.statements, scope);
 			},
 			namespaceDeclaration: (node, scope) => {
 				let composite = this.createNamespace([], [], [], [], scope);
@@ -4381,7 +4120,7 @@ print(A)		// class
 		output_lint.scrollTop = input.scrollTop;
 		output_lint.scrollLeft = input.scrollLeft;
 	}
-	input.value = input.value.trim();
+	input.value = require('fs').readFileSync(global.__dirname+'/Resources/Modules/Test').toString();
 
 	change_tree.onclick = () => {
 		if(output_tokens.style.display !== 'none') {
