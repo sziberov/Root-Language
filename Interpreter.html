@@ -3747,7 +3747,7 @@ body {
 
 				for(let declarator of node.declarators) {
 					let identifier = declarator.identifier.value,
-						type = this.rules.type(declarator.type_),
+						type = this.rules.type(declarator.type_, scope),
 						value = this.rules[declarator.value?.type]?.(declarator.value, scope),
 						observers = []
 
@@ -3765,16 +3765,45 @@ body {
 					if(node.type === 'variadicType') {
 						variadic = true;
 						node = node.value;
-					}
+					} else
 					if(node.type === 'inoutType') {
 						inout = true;
 						node = node.value;
+					} else
+					if(['anyType', 'compositeType', 'primitiveType'].includes(node.type)) {
+						inheritance.push(node.value);
+
+						break;
+					} else
+					if(node.type === 'parenthesizedType') {
+						node = node.value;
+					} else
+					if(node.type === 'unionType') {
+						for(let subtype of node.subtypes) {
+							let subinheritance = this.rules.type(subtype, scope)?.inheritance;
+
+							if(subinheritance.length > 1) {
+								inheritance.push(subinheritance);
+							} else
+							if(subinheritance.length === 1) {
+								inheritance.push(subinheritance[0]);
+							}
+						}
+
+						break;
+					} else
+					if(node.type === 'intersectionType') {
+						for(let subtype of node.subtypes) {
+							inheritance.push(...this.rules.type(subtype, scope)?.inheritance);
+						}
+
+						break;
+					} else {
+						break;
 					}
-					break;
-				//	this.rules[declarator.type_?.type]?.(declarator.type_, scope);
 				}
 
-				return this.createType(inout, fixed, [], nillable, variadic);
+				return this.createType(inout, fixed, inheritance, nillable, variadic);
 			},
 			statements: (statements, scope) => {
 				for(let statement of statements ?? []) {

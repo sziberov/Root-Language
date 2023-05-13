@@ -1,88 +1,4 @@
-if {
-	if {}
-}
-
-if a {
-	if b {
-
-	}
-} else {
-
-}
-
-.outside
-
-if a { notClosure }
-
-if b { closure }.inside { closure }
-{ notClosure }
-
-.outside
-
-if c {
-	notClosure
-}
-
-if d { closure } {
-	notClosure
-}
-
-if e { closure } { closure
-} {
-	notClosure
-}
-
-if f { closure }.inside {
-	{ notClosure }
-}
-
-if g {
-	notClosure
-}
-
-.outside {
-	notClosure
-}
-
-if h {
-	notClosure
-}
-
-(outside) {
-	notClosure
-}
-
-if k { closure }.inside { closure }
-/**/ { notClosure }
-
-.outside
-
-if l {
-  {
-    {
-      {
-        if i {
-          notClosure
-        }
-      }
-    }
-  }
-}
-
-if o /**/
-{ /**/
-/**/
-}
-
-if m { n /**/
-/**/
-}
-/**/
-{
-/**/
-}
-
-var a: B<...> = 1
+var a: Function | bool = 1
 
 . if   == identifier
 a.if   == identifier
@@ -230,10 +146,10 @@ func getWarmth(color: Int) = when(color) {
 }
 */
 
-when catImageView.visibility {
-    View.VISIBLE: println('visible')
-    View.INVISIBLE: println('invisible')
-    default: println('gone')
+switch catImageView.visibility {
+    View.VISIBLE -> println('visible')
+    View.INVISIBLE -> println('invisible')
+    default -> println('gone')
 }
 
 var A = 1
