@@ -3209,28 +3209,55 @@ body {
 						start: node_.range.start
 					},
 					composite: node_,
-					arguments: undefined
+					arguments: undefined,
+					closure: undefined
 				}
 
-				if(this.token.type !== 'bracketOpen') {
+				if(this.token.type.startsWith('operator') && this.token.value === '<') {
+					this.position++;
+					node.genericArguments = this.ruleHelpers.sequentialNodes(
+						['type'],
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type.startsWith('operator') && this.token.value === '>') {
+						this.position++;
+					} else {
+						this.position = node_.range.end+1;
+					}
+				}
+
+				node.range.end = this.position-1;
+
+				if(this.token.type === 'bracketOpen') {
+					this.position++;
+					node.arguments = this.ruleHelpers.skippableNodes(
+						['argument'],
+						() => this.token.type === 'bracketOpen',
+						() => this.token.type === 'bracketClosed',
+						() => this.token.type.startsWith('operator') && this.token.value === ','
+					);
+
+					if(this.token.type === 'bracketClosed') {
+						this.position++;
+					} else {
+						node.range.end = this.position-1;
+
+						this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing bracket and was decided to be autoclosed at the end of stream.');
+
+						return node;
+					}
+				}
+
+				node.closure = this.rules.closureExpression();
+
+				if(node.closure == null && node.range.end === this.position-1) {
+					this.position = node_.range.end+1;
+
 					return;
 				}
 
-				this.position++;
-				node.arguments = this.ruleHelpers.skippableNodes(
-					['argument'],
-					() => this.token.type === 'bracketOpen',
-					() => this.token.type === 'bracketClosed',
-					() => this.token.type.startsWith('operator') && this.token.value === ','
-				);
-
-				if(this.token.type === 'bracketClosed') {
-					node.range.end = this.position++;
-				} else {
-					node.range.end = this.position-1;
-
-					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing bracket and decided to be autoclosed at the end of stream.');
-				}
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -3677,8 +3704,11 @@ body {
 				return nodes;
 			},
 			/*
-			 * Trying to modify the node, by setting its value to functionBody, a trailing closure or an expressionsSequence.
-			 * Closures can be unwrapped from a condition-callExpression, or from last callExpression that is stored in condition-expressionsSequence.
+			 * Trying to set the node's value to a functionBody or an expressionsSequence.
+			 *
+			 * Trailing closures can be unwrapped from the condition-callExpression/subscriptExpression or from a last
+			 * callExpression/subscriptExpression that is stored in the condition-expressionsSequence.
+			 * Nested into prefixExpression ones are also supported.
 			 *
 			 * Useful for completing preconditional statements, such as if or for.
 			 */
@@ -3690,16 +3720,32 @@ body {
 				}
 
 				let sequence = node[conditionType].type === 'expressionsSequence',
-					node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType]
+					node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType],
+					prefixed = node_.type === 'prefixExpression';
 
-				if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
+				if(prefixed) {
+					node_ = node_.value;
+				}
+
+				if(['callExpression', 'subscriptExpression'].includes(node_.type) && node_.closure != null && node_.closure.signature == null) {
 					this.position = node_.closure.range.start;
 
 					if(sequence) {
-						node[conditionType].values.pop();
-						node[conditionType].values.push(node_.callee);
+						if(prefixed) {
+							node[conditionType].values.at(-1).value =
+							node[conditionType].values.at(-1).value.callee;
+						} else {
+							node[conditionType].values.splice(node[conditionType].values.length-1, 1,
+							node[conditionType].values.at(-1).callee);
+						}
 					} else {
-						node[conditionType] = node_.callee;
+						if(prefixed) {
+							node[conditionType].value =
+							node[conditionType].value.callee;
+						} else {
+							node[conditionType] =
+							node[conditionType].callee;
+						}
 					}
 
 					node[valueType] = this.rules.functionBody();
