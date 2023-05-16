@@ -379,7 +379,7 @@ body {
 					'static', 'string', 'struct', 'switch',
 					'throw', 'throws', 'true', 'try',
 					'var',
-					'while',
+					'where', 'while',
 					'_'
 				]
 
@@ -716,7 +716,6 @@ body {
 							this.location.column++;
 						}
 					}
-					this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 
 					break;
 				}
@@ -1697,7 +1696,48 @@ body {
 
 				return node;
 			},
-			forStatement: () => {},
+			forStatement: () => {
+				let node = {
+					type: 'forStatement',
+					range: {},
+					identifier: undefined,
+					in: undefined,
+					where: undefined,
+					value: undefined
+				}
+
+				if(this.token.type !== 'keywordFor') {
+					return;
+				}
+
+				node.range.start = this.position++;
+				node.identifier = this.rules.identifier();
+
+				if(this.token.type === 'keywordIn') {
+					this.position++;
+					node.in = this.rules.expressionsSequence();
+				}
+				if(this.token.type === 'keywordWhere') {
+					this.position++;
+					node.where = this.rules.expressionsSequence();
+				}
+
+				this.ruleHelpers.preconditionalStatementValue(node, node.where != null ? 'where' : 'in', 'value');
+
+				if(node.identifier == null) {
+					this.report(1, node.range.start, node.type, 'No identifier.');
+				}
+				if(node.in == null) {
+					this.report(2, node.range.start, node.type, 'No in.');
+				}
+				if(node.value == null) {
+					this.report(0, node.range.start, node.type, 'No value.');
+				}
+
+				node.range.end = this.position-1;
+
+				return node;
+			},
 			functionBody: () => {
 				return this.rules.body('function');
 			},
@@ -1966,8 +2006,9 @@ body {
 				}
 
 				node.range.start = this.position++;
+				node.condition = this.rules.expressionsSequence();
 
-				this.ruleHelpers.preconditionalStatement(node, 'condition', 'then');
+				this.ruleHelpers.preconditionalStatementValue(node, 'condition', 'then');
 
 				node.else = this.rules.elseClause();
 
@@ -3410,7 +3451,7 @@ body {
 					type: 'whileStatement',
 					range: {},
 					condition: undefined,
-					body: undefined
+					value: undefined
 				}
 
 				if(this.token.type !== 'keywordWhile') {
@@ -3418,14 +3459,15 @@ body {
 				}
 
 				node.range.start = this.position++;
+				node.condition = this.rules.expressionsSequence();
 
-				this.ruleHelpers.preconditionalStatement(node, 'condition', 'body');
+				this.ruleHelpers.preconditionalStatementValue(node, 'condition', 'value');
 
 				if(node.condition == null) {
 					this.report(2, node.range.start, node.type, 'No condition.');
 				}
-				if(node.body == null) {
-					this.report(0, node.range.start, node.type, 'No body.');
+				if(node.value == null) {
+					this.report(0, node.range.start, node.type, 'No value.');
 				}
 
 				node.range.end = this.position-1;
@@ -3634,27 +3676,36 @@ body {
 
 				return nodes;
 			},
-			preconditionalStatement: (node, conditionType, bodyType) => {
-				node[conditionType] = this.rules.expressionsSequence();
-				node[bodyType] = this.rules.functionBody();
+			/*
+			 * Trying to modify the node, by setting its value to functionBody, a trailing closure or an expressionsSequence.
+			 * Closures can be unwrapped from a condition-callExpression, or from last callExpression that is stored in condition-expressionsSequence.
+			 *
+			 * Useful for completing preconditional statements, such as if or for.
+			 */
+			preconditionalStatementValue: (node, conditionType, valueType) => {
+				node[valueType] = this.rules.functionBody();
 
-				if(node[bodyType] == null && node[conditionType] != null) {
-					let sequence = node[conditionType].type === 'expressionsSequence',
-						node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType]
-
-					if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
-						this.position = node_.closure.range.start;
-
-						if(sequence) {
-							node[conditionType].values.pop();
-							node[conditionType].values.push(node_.callee);
-						} else {
-							node[conditionType] = node_.callee;
-						}
-
-						node[bodyType] = this.rules.functionBody();
-					}
+				if(node[conditionType] == null || node[valueType] != null) {
+					return;
 				}
+
+				let sequence = node[conditionType].type === 'expressionsSequence',
+					node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType]
+
+				if(node_.type === 'callExpression' && node_.closure != null && node_.closure.signature == null) {
+					this.position = node_.closure.range.start;
+
+					if(sequence) {
+						node[conditionType].values.pop();
+						node[conditionType].values.push(node_.callee);
+					} else {
+						node[conditionType] = node_.callee;
+					}
+
+					node[valueType] = this.rules.functionBody();
+				}
+
+				node[valueType] ??= this.rules.expressionsSequence();
 			}
 		}
 

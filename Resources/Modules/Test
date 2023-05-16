@@ -1,3 +1,7 @@
+for i in 0...3 where i > -1 {
+	print(i)
+}
+
 var a: Function | bool = 1
 
 . if   == identifier
