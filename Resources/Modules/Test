@@ -1,7 +1,106 @@
+if {
+	if {}
+}
+
+if a {
+	if b {
+		notClosure
+	}
+} else {
+	notClosure
+}
+
+if a {
+	if b {
+		notClosure
+	}
+} else { closure
+
+} {
+	notClosure
+}
+
+if a { notClosure }
+
+if b { closure }.inside { closure }
+{ notClosure }
+
+.outside
+
+if c {
+	notClosure
+}
+
+if d { closure } {
+	notClosure
+}
+
+if e { closure } { closure
+} {
+	notClosure
+}
+
+if f { closure }.inside {
+	{ notClosure }
+}
+
+if g {
+	notClosure
+}
+
+.outside {
+	notClosure
+}
+
+if h {
+	notClosure
+}
+
+(outside) {
+	notClosure
+}
+
+if k { closure }.inside { closure }
+/**/ { notClosure }
+
+.outside
+
+if l {
+  {
+    {
+      {
+        if i {
+          notClosure
+        }
+      }
+    }
+  }
+}
+
+if o /**/
+{ /**/
+/**/
+}
+
+if m { n /**/
+/**/
+}
+/**/
+{
+/**/
+}
+
 if i > -a { b } { c }  // sequence, prefixed
 if i > a { b } { c }   // sequence, non prefixed
 if -a { b } { c }      // non sequence, prefixed
 if a { b } { c }       // non sequence, non prefixed
+
+for i in 0...3 {
+
+} where i > -1 {  // sequence, prefixed
+	print(i)
+}
++ outside
 
 for i in 0...3 where i > -1 {  // sequence, prefixed
 	print(i)

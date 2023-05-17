@@ -233,12 +233,9 @@ body {
 
 					return;
 				}
-				if(v === '}' && this.atStatementBody) {
-					if(!this.atFutureToken((t) => t === 'keywordElse', this.ignorable)) {
-						this.addToken('delimiter', ';');
-						this.token.generated = true;
-					}
-
+				if(v === '}' && this.atStatementBody && !this.atFutureToken((t) => ['keywordElse', 'keywordWhere'].includes(t), this.ignorable)) {
+					this.addToken('delimiter', ';');
+					this.token.generated = true;
 					this.removeState('statement');
 
 					return;
@@ -716,6 +713,7 @@ body {
 							this.location.column++;
 						}
 					}
+				//	this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
 
 					break;
 				}
@@ -1527,10 +1525,11 @@ body {
 				this.position++;
 				node =
 					this.rules.functionBody() ??
+					this.rules.expressionsSequence() ??
 					this.rules.ifStatement();
 
 				if(node == null) {
-					this.report(0, start, 'elseClause', 'No body.');
+					this.report(0, start, 'elseClause', 'No value.');
 				}
 
 				return node;
@@ -2016,7 +2015,7 @@ body {
 					this.report(2, node.range.start, node.type, 'No condition.');
 				}
 				if(node.then == null) {
-					this.report(0, node.range.start, node.type, 'No body.');
+					this.report(0, node.range.start, node.type, 'No value.');
 				}
 
 				node.range.end = this.position-1;
