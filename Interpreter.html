@@ -3719,11 +3719,14 @@ body {
 					return;
 				}
 
-				let sequence = node[conditionType].type === 'expressionsSequence',
-					node_ = sequence ? node[conditionType].values.at(-1) : node[conditionType],
-					prefixed = node_.type === 'prefixExpression';
+				let node_ = node[conditionType],
+					sequence,
+					prefixed;
 
-				if(prefixed) {
+				if(sequence = node_.type === 'expressionsSequence') {
+					node_ = node_.values.at(-1);
+				}
+				if(prefixed = node_.type === 'prefixExpression') {
 					node_ = node_.value;
 				}
 
@@ -3732,19 +3735,19 @@ body {
 
 					if(sequence) {
 						if(prefixed) {
-							node[conditionType].values.at(-1).value =
-							node[conditionType].values.at(-1).value.callee;
+							node[conditionType].values.at(-1).value =     node[conditionType].values.at(-1).value.callee;
+							node[conditionType].values.at(-1).range.end = node[conditionType].values.at(-1).value.range.end;
+							node[conditionType].range.end =               node[conditionType].values.at(-1).range.end;
 						} else {
-							node[conditionType].values.splice(node[conditionType].values.length-1, 1,
-							node[conditionType].values.at(-1).callee);
+							node[conditionType].values.splice(-1, 1, node[conditionType].values.at(-1).callee);
+							node[conditionType].range.end =          node[conditionType].values.at(-1).range.end;
 						}
 					} else {
 						if(prefixed) {
-							node[conditionType].value =
-							node[conditionType].value.callee;
+							node[conditionType].value =     node[conditionType].value.callee;
+							node[conditionType].range.end = node[conditionType].value.range.end;
 						} else {
-							node[conditionType] =
-							node[conditionType].callee;
+							node[conditionType] = node[conditionType].callee;
 						}
 					}
 

@@ -1,4 +1,9 @@
-for i in 0...3 where i > -1 {
+if i > -a { b } { c }  // sequence, prefixed
+if i > a { b } { c }   // sequence, non prefixed
+if -a { b } { c }      // non sequence, prefixed
+if a { b } { c }       // non sequence, non prefixed
+
+for i in 0...3 where i > -1 {  // sequence, prefixed
 	print(i)
 }
 
