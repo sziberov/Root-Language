@@ -3831,7 +3831,14 @@ body {
 				this.rules.statements(node.statements, scope);
 			},
 			namespaceDeclaration: (node, scope) => {
-				let composite = this.createNamespace([], [], [], [], scope);
+				let composite = this.createNamespace([], [], [], [], scope),
+					modifiers = node.modifiers?.values ?? [],
+					identifier = node.identifier.value,
+					type = this.createType(false, true, [composite.address], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
 
 				this.rules.statements(node.body?.statements, scope);
 			},
@@ -3897,6 +3904,20 @@ body {
 						}
 
 						break;
+					} else
+					if(node.type === 'typeReference') {
+						let member = this.findMember(scope, node.identifier.value);
+
+						if(member == null || ['bool', 'float', 'int', 'string'].includes(member.type.inheritance[0])) {
+							break;
+						}
+
+						inheritance.push({
+							address: member.value,
+							genericInheritance: []
+						});
+
+						break;
 					} else {
 						break;
 					}
@@ -3920,10 +3941,14 @@ body {
 				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
-				retainCount: 1
+				retainCount: 0  // retainers: [] - Will allow to iterate through their observers when composite suddenly destroyed
 			}
 
 			this.memory.push(composite);
+
+			if(scope != null) {
+				scope.retainCount++;
+			}
 
 			return composite;
 		}
@@ -4057,10 +4082,10 @@ body {
 
 		static findMember(composite, identifier) {
 			while(composite != null) {
-				let operator = this.getMember(composite, identifier);
+				let member = this.getMember(composite, identifier);
 
-				if(operator != null) {
-					return operator;
+				if(member != null) {
+					return member;
 				}
 
 				composite = this.getComposite(composite.scopeAddress);
@@ -4079,7 +4104,7 @@ body {
 
 				oldValue.retainCount--;
 
-				if(oldValue.retainCount === 0) {
+				if(oldValue.address > 0 && oldValue.retainCount === 0) {
 					this.destroyComposite(oldValue);
 				}
 			}
@@ -4092,6 +4117,7 @@ body {
 
 			if(value?.address != null) {
 				value.retainCount++;
+				// value.retainers.push(composite.address);
 			}
 		}
 
