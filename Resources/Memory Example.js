@@ -49,7 +49,7 @@ let memory = [
 				typed: true,
 				inheritance: [1],
 				nillable: true,
-				value: '1',
+				value: 1,
 				observers: []
 			},
 			{
@@ -67,7 +67,7 @@ let memory = [
 				typed: true,
 				inheritance: [2],
 				nillable: true,
-				value: '3',
+				value: 3,
 				observers: []
 			},
 			{
@@ -94,13 +94,13 @@ let memory = [
 			],
 			subscript: []
 		},
-		scope: null,
-		retains: 1
+		scopeAddress: null,
+		retainers: [1]
 	},
 	{
 		address: 1,
 		inheritance: ['Class'],
-		generics: [],
+		genericParameters: [],
 		members: [
 			{
 				modifiers: ['public', 'static', 'final'],
@@ -110,7 +110,7 @@ let memory = [
 					/*
 					{
 						type: 'Function',
-						generics: [],  // [null] - Unspecified list, [] - Empty list
+						genericParameters: [],  // [null] - Unspecified list, [] - Empty list
 						parameters: [
 							{
 								typed: false,
@@ -137,7 +137,7 @@ let memory = [
 					'Function'
 				],
 				nillable: false,
-				value: '2',
+				value: 2,
 				observers: []
 			},
 			{
@@ -154,13 +154,13 @@ let memory = [
 			chain: [],
 			subscript: []
 		},
-		scope: 0,
-		retains: 1
+		scopeAddress: 0,
+		retainers: [0]
 	},
 	{
 		address: 2,
 		inheritance: ['Function'],
-		generics: [
+		genericParameters: [
 			/*
 			{
 				identifier: 'A',
@@ -173,25 +173,27 @@ let memory = [
 		parameters: [
 			{
 				label: null,
-				identifier: 'firstArgument',
+				identifier: 'firstParameter',
 				type: {
 					inout: false,
 					fixed: true,
 					inheritance: ['float'],
 					nillable: false,
 					variadic: false
-				}
+				},
+				value: null  // Value node from Parser's result
 			},
 			{
 				label: null,
-				identifier: 'secondArgument',
+				identifier: 'secondParameter',
 				type: {
 					inout: false,
 					fixed: true,
 					inheritance: ['bool'],
 					nillable: true,
 					variadic: false
-				}
+				},
+				value: null
 			}
 		],
 		awaits: false,
@@ -201,20 +203,20 @@ let memory = [
 			inheritance: ['bool'],
 			nillable: true
 		},
-		body: '\ttestVariable = 2 print(\'Test: \'+firstArgument)\n\n\treturn secondArgument',  // Body node from Parser's result
-		scope: 1,
-		retains: 1
+		body: '\ttestVariable = 2 print(\'Test: \'+firstParameter)\n\n\treturn secondParameter',  // Body node from Parser's result
+		scopeAddress: 1,
+		retainers: [1]
 	},
 	{
 		address: 3,
-		inheritance: ['Object', 1],
+		inheritance: ['Object'],
 		members: [
 			{
 				identifier: 'testVariable',
 				value: '2'
 			}
 		],
-		scopeAddress: 0,
-		retainCount: 1
+		scopeAddress: 1,
+		retainers: [0]
 	}
 ]

@@ -113,7 +113,7 @@ body {
 					return;
 				}
 				if(!this.atString) {
-					this.ruleHelpers.reportSkip(v);
+					this.addToken('unsupported', v);
 
 					return;
 				}
@@ -160,9 +160,9 @@ body {
 					return;
 				}
 
-				let initializers = [',', '.', ':'],					// Create new token if value exists in the list and current (operator) token doesn't initialized with it
-					singletons = ['!', '?'],						// Create new token if current (postfix operator) token matches any value in the list
-					generics = ['!', ',', '.', ':', '<', '>', '?']	// Only values in the list are allowed for generic types
+				let initializers = [',', '.', ':'],								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+					singletons = ['!', '?'],									// Create new token if current (postfix operator) token matches any value in the list
+					generics = ['!', '&', ',', '.', ':', '<', '>', '?', '|']	// Only values in the list are allowed for generic types
 
 				let initializer = initializers.includes(v) && !this.token.value.startsWith(v),
 					singleton = this.token.type === 'operatorPostfix' && singletons.includes(this.token.value),
@@ -407,14 +407,14 @@ body {
 				}
 			}],
 			[/./g, (v) => {
-				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atString) {
+				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atString || this.token.type === 'unsupported') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
 					return;
 				}
 
-				this.ruleHelpers.reportSkip(v);
+				this.addToken('unsupported', v);
 			}]
 		]
 
@@ -448,9 +448,6 @@ body {
 			finalizeOperator: () => {
 				this.ruleHelpers.mergeOperators();
 				this.ruleHelpers.specifyOperatorType();
-			},
-			reportSkip: (v) => {
-				this.report(0, 'No token of an appropriate type was created before to accept this character and it doesn\'t represent any possible type independently: "'+v+'", skipping...');
 			}
 		}
 
@@ -3824,7 +3821,8 @@ body {
 	}
 
 	class Interpreter {
-		static memory = []
+		static memory;
+		static preferences;
 
 		static rules = {
 			module: (node, scope) => {
@@ -3834,13 +3832,12 @@ body {
 				let composite = this.createNamespace([], [], [], [], scope),
 					modifiers = node.modifiers?.values ?? [],
 					identifier = node.identifier.value,
-					type = this.createType(false, true, [composite.address], false, false),
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-
-				this.rules.statements(node.body?.statements, scope);
+				this.rules.statements(node.body?.statements, composite);
 			},
 			structureDeclaration: (node, scope) => {
 			},
@@ -3861,69 +3858,62 @@ body {
 				}
 			},
 			type: (node, scope) => {
-				let inout = false,
-					fixed = false,
-					inheritance = [],
-					nillable = true,
-					variadic = false;
+				let type = this.createType(false, false, [], true, false);
 
-				while(node != null) {
-					if(node.type === 'variadicType') {
-						variadic = true;
-						node = node.value;
+				this.rules[node?.type]?.(node, type, scope);
+
+				return type;
+			},
+			anyType: (node, type) => {
+				type.inheritance.push(node.value);
+			},
+			compositeType: (node, type) => {
+				type.inheritance.push(node.value);
+			},
+			primitiveType: (node, type) => {
+				type.inheritance.push(node.value);
+			},
+			parenthesizedType: (node, type, scope) => {
+				this.rules[node.value?.type]?.(node.value, type, scope);
+			},
+			variadicType: (node, type, scope) => {
+				type.variadic = true;
+
+				this.rules[node.value?.type]?.(node.value, type, scope);
+			},
+			inoutType: (node, type, scope) => {
+				type.inout = true;
+
+				this.rules[node.value?.type]?.(node.value, type, scope);
+			},
+			unionType: (node, type, scope) => {
+				for(let subtype of node.subtypes) {
+					let subinheritance = this.rules.type(subtype, scope)?.inheritance;
+
+					if(subinheritance.length > 1) {
+						type.inheritance.push(subinheritance);
 					} else
-					if(node.type === 'inoutType') {
-						inout = true;
-						node = node.value;
-					} else
-					if(['anyType', 'compositeType', 'primitiveType'].includes(node.type)) {
-						inheritance.push(node.value);
-
-						break;
-					} else
-					if(node.type === 'parenthesizedType') {
-						node = node.value;
-					} else
-					if(node.type === 'unionType') {
-						for(let subtype of node.subtypes) {
-							let subinheritance = this.rules.type(subtype, scope)?.inheritance;
-
-							if(subinheritance.length > 1) {
-								inheritance.push(subinheritance);
-							} else
-							if(subinheritance.length === 1) {
-								inheritance.push(subinheritance[0]);
-							}
-						}
-
-						break;
-					} else
-					if(node.type === 'intersectionType') {
-						for(let subtype of node.subtypes) {
-							inheritance.push(...this.rules.type(subtype, scope)?.inheritance);
-						}
-
-						break;
-					} else
-					if(node.type === 'typeReference') {
-						let member = this.findMember(scope, node.identifier.value);
-
-						if(member == null || ['bool', 'float', 'int', 'string'].includes(member.type.inheritance[0])) {
-							break;
-						}
-
-						inheritance.push({
-							address: member.value,
-							genericInheritance: []
-						});
-
-						break;
-					} else {
-						break;
+					if(subinheritance.length === 1) {
+						type.inheritance.push(subinheritance[0]);
 					}
 				}
+			},
+			intersectionType: (node, type, scope) => {
+				for(let subtype of node.subtypes) {
+					type.inheritance.push(...this.rules.type(subtype, scope)?.inheritance);
+				}
+			},
+			typeReference: (node, type, scope) => {
+				let member = this.findMember(scope, node.identifier.value);
 
-				return this.createType(inout, fixed, inheritance, nillable, variadic);
+				if(member == null || ['bool', 'float', 'int', 'string'].includes(member.type.inheritance[0])) {
+					return;
+				}
+
+				type.inheritance.push({
+					address: member.value,
+					genericInheritance: []
+				});
 			},
 			statements: (statements, scope) => {
 				for(let statement of statements ?? []) {
@@ -3941,13 +3931,13 @@ body {
 				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
-				retainCount: 0  // retainers: [] - Will allow to iterate through their observers when composite suddenly destroyed
+				retainers: []  // List will allow to notify their observers if the composite suddenly get destroyed
 			}
 
 			this.memory.push(composite);
 
 			if(scope != null) {
-				scope.retainCount++;
+				this.retainComposite(scope, composite);
 			}
 
 			return composite;
@@ -3961,6 +3951,43 @@ body {
 			let composite = this.memory.find(v => v.address === address);
 
 			return composite;
+		}
+
+		/*
+		 * composite - Composite to be retained
+		 * composite_ - Composite that will retain
+		 */
+		static retainComposite(composite, composite_) {
+			if(!composite.retainers.includes(composite_.address)) {
+				composite.retainers.push(composite_.address);
+			}
+		}
+
+		/*
+		 * composite - Composite to be released
+		 * composite_ - Composite that will release
+		 */
+		static releaseComposite(composite, composite_) {
+		//	let mutualRetain = composite.retainers.length === 1 && composite_.retainers.length === 1 &&
+		//					   composite.retainers[0] === composite_.address && composite_.retainers[0] === composite.address;
+
+			// Most likely will not work as expected due to an internal retains by an owned members (etc.).
+			// Probably need to ignore that retains, or performance will decrease drastically.
+
+			if(
+				this.importRetains(composite, composite_) ||
+				this.memberRetains(composite, composite_) ||
+			//	this.observerRetains(composite, composite_) ||
+				composite_.scope === composite.address
+			) {
+				return;
+			}
+
+			composite.retainers = composite.retainers.filter(v => v !== composite_.address);
+
+			if(composite.address > 0 && composite.retainers.length === 0) {
+				this.destroyComposite(composite);
+			}
 		}
 
 		static createNamespace(imports, operators, members, observers, scope) {
@@ -3988,24 +4015,20 @@ body {
 		}
 
 		static callFunction(function_, arguments_, scope) {
-			let namespace = scope != null ? scope : this.createNamespace([], [], [], [], this.getComposite(function_.scopeAddress)),
+			let namespace = scope ?? this.createNamespace([], [], [], [], this.getComposite(function_.scopeAddress)),
 				result;
 
+			if(scope != null) {
+				this.retainComposite(namespace, function_);
+			}
+
 			for(let argument of arguments_ ?? []) {
-				this.setMember(namespace,
-					['public', 'static'],
-					argument.identifier,
-					argument.type,
-					argument.value,
-					[]
-				);
+				this.setMember(namespace, [], argument.identifier, argument.type, argument.value, []);
 			}
 
 			result = this.rules.statements(function_.statements, namespace);
 
-			if(scope == null && namespace.retainCount === 1) {
-				this.destroyComposite(namespace);
-			}
+			this.releaseComposite(namespace, function_);
 
 			return result;
 		}
@@ -4037,9 +4060,7 @@ body {
 		}
 
 		static setImport(composite, identifier, value) {
-			let import_ = this.getImport(composite, identifier);
-
-			import_ ??= composite.imports[composite.imports.push({})-1];
+			let import_ = this.getImport(composite, identifier) ?? composite.imports[composite.imports.push({})-1]
 
 			import_.identifier = identifier;
 			import_.value = value?.address ?? value;
@@ -4047,6 +4068,10 @@ body {
 
 		static deleteImport(composite, identifier) {
 			composite.imports = composite.imports.filter(v => v !== this.getImport(identifier));
+		}
+
+		static importRetains(composite, scope) {
+			scope.imports.find(v => v.value === composite.address);
 		}
 
 		static findOperator(composite, identifier) {
@@ -4066,9 +4091,7 @@ body {
 		}
 
 		static setOperator(composite, modifiers, identifier, associativity, precedence) {
-			let operator = this.getOperator(composite, identifier);
-
-			operator ??= composite.operators[composite.operators.push({})-1];
+			let operator = this.getOperator(composite, identifier) ?? composite.operators[composite.operators.push({})-1]
 
 			operator.modifiers = modifiers;
 			operator.identifier = identifier;
@@ -4077,7 +4100,11 @@ body {
 		}
 
 		static deleteOperator(composite, identifier) {
-			composite.operators = composite.operators.filter(v => v !== this.getOperator(identifier));
+			let operator = this.getOperator(identifier);
+
+			composite.operators = composite.operators.filter(v => v !== operator);
+
+			this.releaseComposite(operator.value);
 		}
 
 		static findMember(composite, identifier) {
@@ -4097,15 +4124,19 @@ body {
 		}
 
 		static setMember(composite, modifiers, identifier, type, value, observers) {
-			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1]
+			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
+				oldValue = typeof member.value === 'number' ? this.getComposite(member.value) : undefined;
 
-			if(typeof member.value === 'number' && member.value != value?.address) {
-				let oldValue = this.getComposite(member.value);
-
-				oldValue.retainCount--;
-
-				if(oldValue.address > 0 && oldValue.retainCount === 0) {
-					this.destroyComposite(oldValue);
+			if(composite?.inheritance[0] === 'Namespace') {
+				if(
+					!modifiers.includes('private') &&
+					!modifiers.includes('protected') &&
+					!modifiers.includes('public')
+				) {
+					modifiers.push('public');
+				}
+				if(!modifiers.includes('static')) {
+					modifiers.push('static');
 				}
 			}
 
@@ -4115,14 +4146,22 @@ body {
 			member.value = value?.address ?? value;
 			member.observers = observers;
 
+			if(oldValue != null && oldValue.address !== value?.address) {
+				this.releaseComposite(oldValue, composite);
+			}
 			if(value?.address != null) {
-				value.retainCount++;
-				// value.retainers.push(composite.address);
+				this.retainComposite(value, composite);
 			}
 		}
 
 		static deleteMember(composite, identifier) {
 			composite.members = composite.members.filter(v => v !== this.getMember(identifier));
+		}
+
+		static memberRetains(composite, scope) {
+			// TODO: Should also support in-type retains
+
+			scope.members.find(v => v.value === composite.address);
 		}
 
 		static findFunction(composite, identifier, arguments_) {
@@ -4143,10 +4182,28 @@ body {
 
 		// findObserver, getObserver, setObserver, deleteObserver
 
-		static interpret(tree) {
-			let namespace = this.getComposite(0) ?? this.createNamespace([], [], [], []);
+		static reset() {
+			this.memory = []
+			this.preferences = {
+				allowedReportLevel: 2,
+				metaprogrammingLevel: 3,
+				arbitaryPrecisionArithmetics: true
+			}
+		}
 
-			/*this.callFunction(*/this.rules.module(tree, namespace)/*, [], namespace)*/;
+		static interpret(parserResult, memory = [], preferences = {}) {
+			this.reset();
+
+			this.memory = memory;
+			this.preferences = { ...this.preferences, preferences }
+
+			let namespace = this.getComposite(0) ?? this.createNamespace([], [], [], []),
+				result = this.memory;
+
+			this.rules.module(parserResult.tree, namespace);
+			this.reset();
+
+			return result;
 		}
 	}
 
@@ -4160,7 +4217,7 @@ body {
 	function parse() {
 		let lexerResult = Lexer.tokenize(input.value),
 			parserResult = Parser.parse(lexerResult),
-			interpreterResult = Interpreter.interpret(parserResult.tree),
+			interpreterResult = Interpreter.interpret(parserResult),
 			tokens = lexerResult.rawTokens,
 			reports = [...lexerResult.reports, ...parserResult.reports]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
@@ -4234,6 +4291,9 @@ body {
 				}
 				if(type.startsWith('number')) {
 					element.style.color = 'rgb(223 127 223 / 1)';
+				}
+				if(type === 'unsupported') {
+					element.style.color = 'transparent';
 				}
 				if(generated) {
 					element.style.fontStyle = 'italic';
