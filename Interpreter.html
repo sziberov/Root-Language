@@ -3944,6 +3944,12 @@ body {
 		}
 
 		static destroyComposite(composite) {
+			this.deleteImports(composite);
+		//	this.deleteOperators(composite); - Redundant as no operator declaration can/should be released
+			this.deleteFunctions(composite);
+			this.deleteMembers(composite);
+		//	this.deleteObservers(composite);
+
 			this.memory = this.memory.filter(v => v !== composite);
 		}
 
@@ -3953,40 +3959,65 @@ body {
 			return composite;
 		}
 
-		/*
-		 * composite - Composite to be retained
-		 * composite_ - Composite that will retain
-		 */
-		static retainComposite(composite, composite_) {
-			if(!composite.retainers.includes(composite_.address)) {
-				composite.retainers.push(composite_.address);
+		static retainComposite(retainedComposite, retainingComposite) {
+			if(
+				this.compositeRetains(retainedComposite, retainingComposite) &&
+				!retainedComposite.retainers.includes(retainingComposite.address)
+			) {
+				retainedComposite.retainers.push(retainingComposite.address);
 			}
 		}
 
 		/*
-		 * composite - Composite to be released
-		 * composite_ - Composite that will release
+		 * Most likely will not actually destroy any composite due to an internal retains by an owned members (etc.).
+		 * Probably that retains should be weak (ignored) by default, or performance will decrease drastically,
+		 * because, in favor of dynamic interpreting, we are not going to insert deallocs or anything into AST
+		 * (like ObjC and Swift do at the compilation stage). Besides, a type composites in common doesn't
+		 * have a way to be undeclared, but not in case of JS or Root, so that also should be kept in mind.
 		 */
-		static releaseComposite(composite, composite_) {
-		//	let mutualRetain = composite.retainers.length === 1 && composite_.retainers.length === 1 &&
-		//					   composite.retainers[0] === composite_.address && composite_.retainers[0] === composite.address;
-
-			// Most likely will not work as expected due to an internal retains by an owned members (etc.).
-			// Probably need to ignore that retains, or performance will decrease drastically.
-
-			if(
-				this.importRetains(composite, composite_) ||
-				this.memberRetains(composite, composite_) ||
-			//	this.observerRetains(composite, composite_) ||
-				composite_.scope === composite.address
-			) {
+		static releaseComposite(retainedComposite, retainingComposite) {
+			if(this.compositeRetains(retainedComposite, retainingComposite)) {
 				return;
 			}
 
-			composite.retainers = composite.retainers.filter(v => v !== composite_.address);
+			retainedComposite.retainers = retainedComposite.retainers.filter(v => v !== retainingComposite.address);
 
-			if(composite.address > 0 && composite.retainers.length === 0) {
-				this.destroyComposite(composite);
+			if(!this.compositeRetained(retainedComposite)) {
+				this.destroyComposite(retainedComposite);
+			}
+		}
+
+		/*
+		 * Returns a real state of retainment, independent of the .retainers list.
+		 */
+		static compositeRetains(retainedComposite, retainingComposite) {
+			return (
+				retainedComposite.address === retainingComposite.scopeAddress &&
+				retainingComposite.inheritance[0] !== 'Function' ||
+				this.importRetains(retainedComposite, retainingComposite) ||
+				this.memberRetains(retainedComposite, retainingComposite) ||
+				this.observerRetains(retainedComposite, retainingComposite)
+			);
+		}
+
+		/*
+		 * Returns a real state of retainment, basing on the .retainers list, but not on its length only.
+		 */
+		static compositeRetained(retainedComposite) {
+			if(retainedComposite.address === 0) {
+				return true;
+			}
+
+			for(let retainer of retainedComposite.retainers) {
+				let retainingComposite = this.getComposite(retainer);
+
+				if(retainingComposite == null) {
+					continue;
+				}
+
+				if(this.compositeRetains(retainedComposite, retainingComposite)) {
+					return true;
+				}
 			}
 		}
 
@@ -4014,6 +4045,10 @@ body {
 			return function_;
 		}
 
+		/*
+		 * Setting the scope forces a function to be run in it without creating an
+		 * interlayering namespace. That can be useful for declarations.
+		 */
 		static callFunction(function_, arguments_, scope) {
 			let namespace = scope ?? this.createNamespace([], [], [], [], this.getComposite(function_.scopeAddress)),
 				result;
@@ -4067,11 +4102,25 @@ body {
 		}
 
 		static deleteImport(composite, identifier) {
-			composite.imports = composite.imports.filter(v => v !== this.getImport(identifier));
+			let import_ = this.getImport(identifier);
+
+			composite.imports = composite.imports.filter(v => v !== import_);
+
+			let value = this.getComposite(import_.value);
+
+			if(value != null) {
+				this.releaseComposite(value, composite);
+			}
 		}
 
-		static importRetains(composite, scope) {
-			scope.imports.find(v => v.value === composite.address);
+		static deleteImports(composite) {
+			for(let import_ of composite.imports ?? []) {
+				this.deleteImport(composite, import_.identifier);
+			}
+		}
+
+		static importRetains(retainedComposite, retainingComposite) {
+			return retainingComposite.imports?.some(v => v.value === retainedComposite.address);
 		}
 
 		static findOperator(composite, identifier) {
@@ -4103,8 +4152,6 @@ body {
 			let operator = this.getOperator(identifier);
 
 			composite.operators = composite.operators.filter(v => v !== operator);
-
-			this.releaseComposite(operator.value);
 		}
 
 		static findMember(composite, identifier) {
@@ -4155,13 +4202,31 @@ body {
 		}
 
 		static deleteMember(composite, identifier) {
-			composite.members = composite.members.filter(v => v !== this.getMember(identifier));
+			let member = this.getMember(identifier);
+
+			composite.members = composite.members.filter(v => v !== member);
+
+			if(typeof member.value !== 'number') {
+				return;
+			}
+
+			let value = this.getComposite(member.value);
+
+			if(value != null) {
+				this.releaseComposite(value, composite);
+			}
 		}
 
-		static memberRetains(composite, scope) {
-			// TODO: Should also support in-type retains
+		static deleteMembers(composite) {
+			for(let member of composite.members ?? []) {
+				this.deleteMember(composite, member.identifier);
+			}
+		}
 
-			scope.members.find(v => v.value === composite.address);
+		static memberRetains(retainedComposite, retainingComposite) {
+			// TODO: Should also support in-type retains (or they should be ignored?) and retains by observers
+
+			return retainingComposite.members?.some(v => v.value === retainedComposite.address);
 		}
 
 		static findFunction(composite, identifier, arguments_) {
@@ -4180,7 +4245,36 @@ body {
 
 		}
 
-		// findObserver, getObserver, setObserver, deleteObserver
+		static deleteFunction(composite, functionMember) {
+			if(typeof functionMember.value !== 'number') {
+				return;
+			}
+
+			let function_ = this.getComposite(functionMember.value);
+
+			if(function_?.inheritance[0] !== 'Function') {
+				return;
+			}
+
+			composite.members = composite.members.filter(v => v !== functionMember);
+
+			this.releaseComposite(function_, composite);
+		}
+
+		static deleteFunctions(composite) {
+			for(let member of composite.members ?? []) {
+				this.deleteFunction(composite, member);
+			}
+		}
+
+		// findObserver, getObserver, setObserver, deleteObserver, deleteObservers
+
+		static observerRetains(retainedComposite, retainingComposite) {
+			return (
+				retainingComposite.observers?.chain?.some(v => v.value === retainedComposite.address) ||
+				retainingComposite.observers?.subscript?.some(v => v.value === retainedComposite.address)
+			);
+		}
 
 		static reset() {
 			this.memory = []
