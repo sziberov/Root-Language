@@ -85,15 +85,20 @@ let memory = [
 				]
 			}
 		],
-		observers: {
-			chain: [
-				{
-					identifier: 'willGet',  // ...
-					value: null  // Function address
-				}
-			],
-			subscript: []
-		},
+		observers: [
+			{
+				type: 'chain',
+				modifiers: [],  // 'static'
+				identifier: 'willGet',
+				value: null
+			},
+			{
+				type: 'subscript',
+				modifiers: [],  // 'private', 'protected', 'public', 'static'
+				identifier: 'willGet',
+				value: null
+			}
+		],
 		scopeAddress: null,
 		retainers: [1]
 	},

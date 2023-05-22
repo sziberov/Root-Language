@@ -3829,7 +3829,7 @@ body {
 				this.rules.statements(node.statements, scope);
 			},
 			namespaceDeclaration: (node, scope) => {
-				let composite = this.createNamespace([], [], [], [], scope),
+				let composite = this.createNamespace(scope),
 					modifiers = node.modifiers?.values ?? [],
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
@@ -3840,6 +3840,15 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			structureDeclaration: (node, scope) => {
+				let composite = this.createStructure(scope),
+					modifiers = node.modifiers?.values ?? [],
+					identifier = node.identifier.value,
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
+				this.rules.statements(node.body?.statements, composite);
 			},
 			protocolDeclaration: (node, scope) => {
 			},
@@ -3931,7 +3940,7 @@ body {
 				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
-				retainers: []  // List will allow to notify their observers if the composite suddenly get destroyed
+				retainers: []  // List will allow to notify their observers if the composite will suddenly get destroyed
 			}
 
 			this.memory.push(composite);
@@ -3948,7 +3957,7 @@ body {
 		//	this.deleteOperators(composite); - Redundant as no operator declaration can/should be released
 			this.deleteFunctions(composite);
 			this.deleteMembers(composite);
-		//	this.deleteObservers(composite);
+			this.deleteObservers(composite);
 
 			this.memory = this.memory.filter(v => v !== composite);
 		}
@@ -3988,7 +3997,11 @@ body {
 		}
 
 		/*
-		 * Returns a real state of retainment, independent of the .retainers list.
+		 * Returns a real state of retainment, independent of a .retainers list.
+		 *
+		 * Composite counts retained if:
+		 * - It is used as a retainer's scope, while this retainer is not the Function type.
+		 * - Any of retainer's import, member or observer using it.
 		 */
 		static compositeRetains(retainedComposite, retainingComposite) {
 			return (
@@ -4021,15 +4034,21 @@ body {
 			}
 		}
 
-		static createNamespace(imports, operators, members, observers, scope) {
-			let namespace = this.createComposite(['Namespace'], scope);
+		static createClass(scope) {
+			let class_ = this.createComposite(['Class'], scope);
 
-			namespace.imports = imports;
-			namespace.operators = operators;
-			namespace.members = members;
-			namespace.observers = observers;
+			class_.members = []
+			class_.observers = []
 
-			return namespace;
+			return class_;
+		}
+
+		static createEnumeration(scope) {
+			let enumeration = this.createComposite(['Enumeration'], scope);
+
+			enumeration.members = []
+
+			return enumeration;
 		}
 
 		static createFunction(genericParameters, parameters, awaits, throws, returnType, statements, scope) {
@@ -4046,16 +4065,12 @@ body {
 		}
 
 		/*
-		 * Setting the scope forces a function to be run in it without creating an
-		 * interlayering namespace. That can be useful for declarations.
+		 * Setting the scope forces a function to be run in it without creating an interlayering namespace.
+		 * This can be useful for declarations, but scope itself can't be retained then.
 		 */
 		static callFunction(function_, arguments_, scope) {
-			let namespace = scope ?? this.createNamespace([], [], [], [], this.getComposite(function_.scopeAddress)),
+			let namespace = scope ?? this.createNamespace(this.getComposite(function_.scopeAddress)),
 				result;
-
-			if(scope != null) {
-				this.retainComposite(namespace, function_);
-			}
 
 			for(let argument of arguments_ ?? []) {
 				this.setMember(namespace, [], argument.identifier, argument.type, argument.value, []);
@@ -4063,9 +4078,47 @@ body {
 
 			result = this.rules.statements(function_.statements, namespace);
 
-			this.releaseComposite(namespace, function_);
+			if(scope == null) {
+				this.releaseComposite(namespace, function_);
+			}
 
 			return result;
+		}
+
+		static createNamespace(scope) {
+			let namespace = this.createComposite(['Namespace'], scope);
+
+			namespace.imports = []
+			namespace.operators = []
+			namespace.members = []
+			namespace.observers = []
+
+			return namespace;
+		}
+
+		static createObject(scope) {
+			let object = this.createComposite(['Object'], scope);
+
+			object.members = []
+
+			return object;
+		}
+
+		static createProtocol(scope) {
+			let protocol = this.createComposite(['Protocol'], scope);
+
+			protocol.members = []
+
+			return protocol;
+		}
+
+		static createStructure(scope) {
+			let structure = this.createComposite(['Structure'], scope);
+
+			structure.members = []
+			structure.observers = []
+
+			return structure;
 		}
 
 		static createType(inout, fixed, inheritance, nillable, variadic) {
@@ -4174,18 +4227,20 @@ body {
 			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
 				oldValue = typeof member.value === 'number' ? this.getComposite(member.value) : undefined;
 
+			if(
+				!modifiers.includes('private') &&
+				!modifiers.includes('protected') &&
+				!modifiers.includes('public')
+			) {
+				modifiers.push('public');
+			}
+			/* Redundant as there will be no checks for static or object members in namespaces (always threated as static)
 			if(composite?.inheritance[0] === 'Namespace') {
-				if(
-					!modifiers.includes('private') &&
-					!modifiers.includes('protected') &&
-					!modifiers.includes('public')
-				) {
-					modifiers.push('public');
-				}
 				if(!modifiers.includes('static')) {
 					modifiers.push('static');
 				}
 			}
+			*/
 
 			member.modifiers = modifiers;
 			member.identifier = identifier;
@@ -4267,7 +4322,23 @@ body {
 			}
 		}
 
-		// findObserver, getObserver, setObserver, deleteObserver, deleteObservers
+		// findObserver, getObserver, setObserver
+
+		static deleteObserver(composite, observer) {
+			composite.observers = composite.observers.filter(v => v !== observer);
+
+			let value = this.getComposite(observer.value);
+
+			if(value != null) {
+				this.releaseComposite(value, composite);
+			}
+		}
+
+		static deleteObservers(composite) {
+			for(let observer of composite.observers ?? []) {
+				this.deleteObserver(composite, observer);
+			}
+		}
 
 		static observerRetains(retainedComposite, retainingComposite) {
 			return (
@@ -4291,7 +4362,7 @@ body {
 			this.memory = memory;
 			this.preferences = { ...this.preferences, preferences }
 
-			let namespace = this.getComposite(0) ?? this.createNamespace([], [], [], []),
+			let namespace = this.getComposite(0) ?? this.createNamespace(),
 				result = this.memory;
 
 			this.rules.module(parserResult.tree, namespace);
