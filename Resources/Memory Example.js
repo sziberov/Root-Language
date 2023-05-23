@@ -100,7 +100,7 @@ let memory = [
 			}
 		],
 		scopeAddress: null,
-		retainers: [1]
+		retainerAddresses: [1]
 	},
 	{
 		address: 1,

@@ -3828,8 +3828,41 @@ body {
 			module: (node, scope) => {
 				this.rules.statements(node.statements, scope);
 			},
+			classDeclaration: (node, scope) => {
+				let composite = this.createClass(scope),
+					modifiers = node.modifiers?.values ?? [],
+					identifier = node.identifier.value,
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
+				this.rules.statements(node.body?.statements, composite);
+			},
+			enumerationDeclaration: (node, scope) => {
+				let composite = this.createEnumeration(scope),
+					modifiers = node.modifiers?.values ?? [],
+					identifier = node.identifier.value,
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
+				this.rules.statements(node.body?.statements, composite);
+			},
 			namespaceDeclaration: (node, scope) => {
 				let composite = this.createNamespace(scope),
+					modifiers = node.modifiers?.values ?? [],
+					identifier = node.identifier.value,
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
+				this.rules.statements(node.body?.statements, composite);
+			},
+			protocolDeclaration: (node, scope) => {
+				let composite = this.createProtocol(scope),
 					modifiers = node.modifiers?.values ?? [],
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
@@ -3849,10 +3882,6 @@ body {
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.rules.statements(node.body?.statements, composite);
-			},
-			protocolDeclaration: (node, scope) => {
-			},
-			enumerationDeclaration: (node, scope) => {
 			},
 			variableDeclaration: (node, scope) => {
 				let modifiers = node.modifiers?.values ?? []
@@ -3954,18 +3983,23 @@ body {
 
 		static destroyComposite(composite) {
 			this.deleteImports(composite);
-		//	this.deleteOperators(composite); - Redundant as no operator declaration can/should be released
-			this.deleteFunctions(composite);
+			this.deleteFunctionMembers(composite);
 			this.deleteMembers(composite);
 			this.deleteObservers(composite);
+
+			let scope = this.getComposite(composite.scopeAddress);
+
+			if(scope != null) {
+				composite.scopeAddress = undefined;
+
+				this.releaseComposite(scope, composite);
+			}
 
 			this.memory = this.memory.filter(v => v !== composite);
 		}
 
 		static getComposite(address) {
-			let composite = this.memory.find(v => v.address === address);
-
-			return composite;
+			return this.memory.find(v => v.address === address);
 		}
 
 		static retainComposite(retainedComposite, retainingComposite) {
@@ -3978,10 +4012,12 @@ body {
 		}
 
 		/*
+		 * Old note but not really much changed and tested:
+		 *
 		 * Most likely will not actually destroy any composite due to an internal retains by an owned members (etc.).
 		 * Probably that retains should be weak (ignored) by default, or performance will decrease drastically,
 		 * because, in favor of dynamic interpreting, we are not going to insert deallocs or anything into AST
-		 * (like ObjC and Swift do at the compilation stage). Besides, a type composites in common doesn't
+		 * (like ObjC and Swift do at the compilation stage). Besides, a type composites in common don't
 		 * have a way to be undeclared, but not in case of JS or Root, so that also should be kept in mind.
 		 */
 		static releaseComposite(retainedComposite, retainingComposite) {
@@ -3997,11 +4033,11 @@ body {
 		}
 
 		/*
-		 * Returns a real state of retainment, independent of a .retainers list.
+		 * Returns a real state of retainment.
 		 *
-		 * Composite counts retained if:
+		 * Composite considered retained if:
 		 * - It is used as a retainer's scope, while this retainer is not the Function type.
-		 * - Any of retainer's import, member or observer using it.
+		 * - It is used by a retainer's import, member or observer.
 		 */
 		static compositeRetains(retainedComposite, retainingComposite) {
 			return (
@@ -4014,24 +4050,38 @@ body {
 		}
 
 		/*
-		 * Returns a real state of retainment, basing on the .retainers list, but not on its length only.
+		 * Composite considered retained if:
+		 * - It is accessible from global composite.
+		 * - It is accessible from scope of any function in call stack.
 		 */
 		static compositeRetained(retainedComposite) {
+			if(
+				this.compositeAccessible(retainedComposite) ||
+				this.compositeCalled(retainedComposite)
+			) {
+				return true;
+			}
+		}
+
+		/*
+		 * Returns true if the composite is accessible from the global one,
+		 * recursively checking its retainers list.
+		 */
+		static compositeAccessible(retainedComposite) {
 			if(retainedComposite.address === 0) {
 				return true;
 			}
-
 			for(let retainer of retainedComposite.retainers) {
 				let retainingComposite = this.getComposite(retainer);
 
-				if(retainingComposite == null) {
-					continue;
-				}
-
-				if(this.compositeRetains(retainedComposite, retainingComposite)) {
+				if(retainingComposite != null && this.compositeAccessible(retainingComposite)) {
 					return true;
 				}
 			}
+		}
+
+		static compositeCalled(composite) {
+			return false;
 		}
 
 		static createClass(scope) {
@@ -4234,13 +4284,6 @@ body {
 			) {
 				modifiers.push('public');
 			}
-			/* Redundant as there will be no checks for static or object members in namespaces (always threated as static)
-			if(composite?.inheritance[0] === 'Namespace') {
-				if(!modifiers.includes('static')) {
-					modifiers.push('static');
-				}
-			}
-			*/
 
 			member.modifiers = modifiers;
 			member.identifier = identifier;
@@ -4257,7 +4300,7 @@ body {
 		}
 
 		static deleteMember(composite, identifier) {
-			let member = this.getMember(identifier);
+			let member = this.getMember(composite, identifier);
 
 			composite.members = composite.members.filter(v => v !== member);
 
@@ -4275,6 +4318,28 @@ body {
 		static deleteMembers(composite) {
 			for(let member of composite.members ?? []) {
 				this.deleteMember(composite, member.identifier);
+			}
+		}
+
+		static deleteFunctionMember(composite, functionMember) {
+			if(typeof functionMember.value !== 'number') {
+				return;
+			}
+
+			let function_ = this.getComposite(functionMember.value);
+
+			if(function_?.inheritance[0] !== 'Function') {
+				return;
+			}
+
+			composite.members = composite.members.filter(v => v !== functionMember);
+
+			this.releaseComposite(function_, composite);
+		}
+
+		static deleteFunctionMembers(composite) {
+			for(let member of composite.members ?? []) {
+				this.deleteFunctionMember(composite, member);
 			}
 		}
 
@@ -4300,28 +4365,6 @@ body {
 
 		}
 
-		static deleteFunction(composite, functionMember) {
-			if(typeof functionMember.value !== 'number') {
-				return;
-			}
-
-			let function_ = this.getComposite(functionMember.value);
-
-			if(function_?.inheritance[0] !== 'Function') {
-				return;
-			}
-
-			composite.members = composite.members.filter(v => v !== functionMember);
-
-			this.releaseComposite(function_, composite);
-		}
-
-		static deleteFunctions(composite) {
-			for(let member of composite.members ?? []) {
-				this.deleteFunction(composite, member);
-			}
-		}
-
 		// findObserver, getObserver, setObserver
 
 		static deleteObserver(composite, observer) {
@@ -4341,31 +4384,28 @@ body {
 		}
 
 		static observerRetains(retainedComposite, retainingComposite) {
-			return (
-				retainingComposite.observers?.chain?.some(v => v.value === retainedComposite.address) ||
-				retainingComposite.observers?.subscript?.some(v => v.value === retainedComposite.address)
-			);
+			return retainingComposite.observers?.some(v => v.value === retainedComposite.address);
 		}
 
-		static reset() {
-			this.memory = []
+		static reset(memory, preferences) {
+			this.memory = memory ?? []
 			this.preferences = {
 				allowedReportLevel: 2,
 				metaprogrammingLevel: 3,
-				arbitaryPrecisionArithmetics: true
+				arbitaryPrecisionArithmetics: true,
+				...(preferences ?? {})
 			}
 		}
 
 		static interpret(parserResult, memory = [], preferences = {}) {
-			this.reset();
+			this.reset(memory, preferences);
 
-			this.memory = memory;
-			this.preferences = { ...this.preferences, preferences }
-
-			let namespace = this.getComposite(0) ?? this.createNamespace(),
-				result = this.memory;
+			let namespace = this.getComposite(0) ?? this.createNamespace();
 
 			this.rules.module(parserResult.tree, namespace);
+
+			let result = this.memory;
+
 			this.reset();
 
 			return result;
