@@ -1,94 +1,18 @@
-if {
-	if {}
-}
-
-if a {
-	if b {
-		notClosure
-	}
-} else {
-	notClosure
-}
-
-if a {
-	if b {
-		notClosure
-	}
-} else { closure
-
-} {
-	notClosure
-}
-
-if a { notClosure }
-
-if b { closure }.inside { closure }
-{ notClosure }
-
-.outside
-
-if c {
-	notClosure
-}
-
-if d { closure } {
-	notClosure
-}
-
-if e { closure } { closure
-} {
-	notClosure
-}
-
-if f { closure }.inside {
-	{ notClosure }
-}
-
-if g {
-	notClosure
-}
-
-.outside {
-	notClosure
-}
-
-if h {
-	notClosure
-}
-
-(outside) {
-	notClosure
-}
-
-if k { closure }.inside { closure }
-/**/ { notClosure }
-
-.outside
-
-if l {
-  {
-    {
-      {
-        if i {
-          notClosure
-        }
-      }
+namespace A_ {
+    namespace B_ {
+	    namespace D_ {}
     }
-  }
+
+    namespace C_ {}
 }
 
-if o /**/
-{ /**/
-/**/
+//var A
+
+func test(a: inout _?, and b) {
+	return a != b
 }
 
-if m { n /**/
-/**/
-}
-/**/
-{
-/**/
-}
+var a: Function | bool = 1
 
 if i > -a { b } { c }  // sequence, prefixed
 if i > a { b } { c }   // sequence, non prefixed
@@ -105,14 +29,6 @@ for i in 0...3 {
 for i in 0...3 where i > -1 {  // sequence, prefixed
 	print(i)
 }
-
-var a: Function | bool = 1
-
-. if   == identifier
-a.if   == identifier
-a . if == identifier
-a .if  == identifier
-a. if  == keyword
 
 // ---- ---- ---- ----
 

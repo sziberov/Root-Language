@@ -744,23 +744,6 @@ body {
 		static reports;
 
 		static rules = {
-			anyType: () => {
-				let node = {
-					type: 'anyType',
-					range: {},
-					value: undefined
-				}
-
-				if(this.token.type !== 'keywordUnderscore') {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
-
-				return node;
-			},
 			argument: () => {
 				let node = {
 					type: 'argument',
@@ -1063,7 +1046,7 @@ body {
 				node.range.start = this.position++;
 				node.body = this.rules.chainBody();
 
-				if(node.modifiers?.values.some(v => v !== 'static')) {
+				if(node.modifiers.some(v => v !== 'static')) {
 					this.report(1, node.range.start, node.type, 'Can only have specific modifier (static).');
 				}
 				if(node.body == null) {
@@ -1159,7 +1142,7 @@ body {
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
@@ -1176,7 +1159,7 @@ body {
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.classBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+				if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.body == null) {
@@ -1245,32 +1228,6 @@ body {
 
 					this.report(1, node.range.start, node.type, 'Node doesn\'t have the closing brace and was decided to be autoclosed at the end of stream.');
 				}
-
-				return node;
-			},
-			compositeType: () => {
-				let node = {
-					type: 'compositeType',
-					range: {},
-					value: undefined
-				}
-
-				if(![
-					'keywordCapitalAny',
-					'keywordCapitalClass',
-					'keywordCapitalEnumeration',
-					'keywordCapitalFunction',
-					'keywordCapitalNamespace',
-					'keywordCapitalObject',
-					'keywordCapitalProtocol',
-					'keywordCapitalStructure'
-				].includes(this.token.type)) {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
 
 				return node;
 			},
@@ -1584,13 +1541,14 @@ body {
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
-					if(node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
-					} else {
-						delete node.identifier;
 					}
+
+					delete node.modifiers;
+					delete node.identifier;
 				} else
 				if(node.identifier == null) {
 					this.report(2, node.range.start, node.type, 'No identifier.');
@@ -1599,7 +1557,7 @@ body {
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.enumerationBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+				if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.body == null) {
@@ -1761,7 +1719,7 @@ body {
 					this.rules.operator();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
@@ -2190,7 +2148,7 @@ body {
 				node.signature = this.rules.functionSignature();
 				node.body = this.rules.functionBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public'].includes(v))) {
+				if(node.modifiers.some(v => !['private', 'protected', 'public'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.signature == null) {
@@ -2366,13 +2324,7 @@ body {
 				return node;
 			},
 			modifiers: () => {
-				let node = {
-					type: 'modifiers',
-					range: {
-						start: this.position
-					},
-					values: []
-				}
+				let values = []
 
 				while([
 					'keywordInfix',
@@ -2385,15 +2337,11 @@ body {
 					'keywordLazy',
 					'keywordFinal'
 				].includes(this.token.type)) {
-					node.values.push(this.token.value);
-					node.range.end = this.position++;
+					values.push(this.token.value);
+					this.position++;
 				}
 
-				if(node.values.length === 0) {
-					return;
-				}
-
-				return node;
+				return values;
 			},
 			module: () => {
 				let node = {
@@ -2432,7 +2380,7 @@ body {
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
@@ -2447,7 +2395,7 @@ body {
 
 				node.body = this.rules.namespaceBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+				if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.body == null) {
@@ -2590,7 +2538,7 @@ body {
 				node.operator = this.rules.operator();
 				node.body = this.rules.operatorBody();
 
-				if(!node.modifiers?.values.some(v => ['infix', 'postfix', 'prefix'].includes(v))) {
+				if(!node.modifiers.some(v => ['infix', 'postfix', 'prefix'].includes(v))) {
 					this.report(2, node.range.start, node.type, 'Should have specific modifier (infix, postfix, prefix).');
 				}
 				if(node.operator == null) {
@@ -2790,6 +2738,40 @@ body {
 
 				return node;
 			},
+			predefinedType: () => {
+				let node = {
+					type: 'predefinedType',
+					range: {},
+					value: undefined
+				}
+
+				if(![
+					'keywordUnderscore',
+
+					'keywordAny',
+					'keywordBool',
+					'keywordFloat',
+					'keywordInt',
+					'keywordString',
+
+					'keywordCapitalAny',
+					'keywordCapitalClass',
+					'keywordCapitalEnumeration',
+					'keywordCapitalFunction',
+					'keywordCapitalNamespace',
+					'keywordCapitalObject',
+					'keywordCapitalProtocol',
+					'keywordCapitalStructure'
+				].includes(this.token.type)) {
+					return;
+				}
+
+				node.value = this.token.value;
+				node.range.start =
+				node.range.end = this.position++;
+
+				return node;
+			},
 			prefixExpression: () => {
 				let node = {
 					type: 'prefixExpression',
@@ -2872,38 +2854,13 @@ body {
 			},
 			primaryType: () => {
 				let node =
-					this.rules.anyType() ??
 					this.rules.arrayType() ??
-					this.rules.compositeType() ??
 					this.rules.dictionaryType() ??
 					this.rules.functionType() ??
 					this.rules.parenthesizedType() ??
-					this.rules.primitiveType() ??
+					this.rules.predefinedType() ??
 					this.rules.protocolType() ??
 					this.rules.typeReference();
-
-				return node;
-			},
-			primitiveType: () => {
-				let node = {
-					type: 'primitiveType',
-					range: {},
-					value: undefined
-				}
-
-				if(![
-					'keywordAny',
-					'keywordBool',
-					'keywordFloat',
-					'keywordInt',
-					'keywordString'
-				].includes(this.token.type)) {
-					return;
-				}
-
-				node.value = this.token.value;
-				node.range.start =
-				node.range.end = this.position++;
 
 				return node;
 			},
@@ -2932,7 +2889,7 @@ body {
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
@@ -2948,7 +2905,7 @@ body {
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.protocolBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+				if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.body == null) {
@@ -3106,7 +3063,7 @@ body {
 				node.identifier = this.rules.identifier();
 
 				if(anonymous) {
-					if(node.modifiers != null || node.identifier != null) {
+					if(node.modifiers.length > 0 || node.identifier != null) {
 						this.position = node.range.start;
 
 						return;
@@ -3123,7 +3080,7 @@ body {
 				node.inheritance = this.rules.inheritanceClause();
 				node.body = this.rules.structureBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
+				if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.body == null) {
@@ -3184,7 +3141,7 @@ body {
 				node.signature = this.rules.functionSignature();
 				node.body = this.rules.subscriptBody(true) ?? this.rules.functionBody();
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
+				if(node.modifiers.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.signature == null) {
@@ -3425,7 +3382,7 @@ body {
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
-				if(node.modifiers?.values.some(v => !['private', 'protected', 'public', 'static', 'lazy', 'final'].includes(v))) {
+				if(node.modifiers.some(v => !['private', 'protected', 'public', 'static', 'lazy', 'final'].includes(v))) {
 					this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 				}
 				if(node.declarators.length === 0) {
@@ -3830,7 +3787,7 @@ body {
 			},
 			classDeclaration: (node, scope) => {
 				let composite = this.createClass(scope),
-					modifiers = node.modifiers?.values ?? [],
+					modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
@@ -3841,7 +3798,7 @@ body {
 			},
 			enumerationDeclaration: (node, scope) => {
 				let composite = this.createEnumeration(scope),
-					modifiers = node.modifiers?.values ?? [],
+					modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
@@ -3852,7 +3809,7 @@ body {
 			},
 			namespaceDeclaration: (node, scope) => {
 				let composite = this.createNamespace(scope),
-					modifiers = node.modifiers?.values ?? [],
+					modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
@@ -3863,7 +3820,7 @@ body {
 			},
 			protocolDeclaration: (node, scope) => {
 				let composite = this.createProtocol(scope),
-					modifiers = node.modifiers?.values ?? [],
+					modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
@@ -3874,7 +3831,7 @@ body {
 			},
 			structureDeclaration: (node, scope) => {
 				let composite = this.createStructure(scope),
-					modifiers = node.modifiers?.values ?? [],
+					modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
@@ -3884,7 +3841,7 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			variableDeclaration: (node, scope) => {
-				let modifiers = node.modifiers?.values ?? []
+				let modifiers = node.modifiers
 
 				for(let declarator of node.declarators) {
 					let identifier = declarator.identifier.value,
@@ -3902,17 +3859,11 @@ body {
 
 				return type;
 			},
-			anyType: (node, type) => {
-				type.inheritance.push(node.value);
-			},
-			compositeType: (node, type) => {
-				type.inheritance.push(node.value);
-			},
-			primitiveType: (node, type) => {
-				type.inheritance.push(node.value);
-			},
 			parenthesizedType: (node, type, scope) => {
 				this.rules[node.value?.type]?.(node.value, type, scope);
+			},
+			predefinedType: (node, type) => {
+				type.inheritance.push(node.value);
 			},
 			variadicType: (node, type, scope) => {
 				type.variadic = true;
@@ -4067,14 +4018,21 @@ body {
 		 * Returns true if the composite is accessible from the global one,
 		 * recursively checking its retainers list.
 		 */
-		static compositeAccessible(retainedComposite) {
+		static compositeAccessible(retainedComposite, retainChain = []) {
 			if(retainedComposite.address === 0) {
 				return true;
 			}
+
 			for(let retainer of retainedComposite.retainers) {
+				if(retainChain.includes(retainer)) {
+					continue;
+				}
+
+				retainChain.push(retainer);
+
 				let retainingComposite = this.getComposite(retainer);
 
-				if(retainingComposite != null && this.compositeAccessible(retainingComposite)) {
+				if(retainingComposite != null && this.compositeAccessible(retainingComposite, retainChain)) {
 					return true;
 				}
 			}
@@ -4302,6 +4260,10 @@ body {
 		static deleteMember(composite, identifier) {
 			let member = this.getMember(composite, identifier);
 
+			if(member == null) {
+				return;
+			}
+
 			composite.members = composite.members.filter(v => v !== member);
 
 			if(typeof member.value !== 'number') {
@@ -4344,9 +4306,19 @@ body {
 		}
 
 		static memberRetains(retainedComposite, retainingComposite) {
-			// TODO: Should also support in-type retains (or they should be ignored?) and retains by observers
+			// TODO: Should also support in-type retains (or they should be ignored?)
 
-			return retainingComposite.members?.some(v => v.value === retainedComposite.address);
+			for(let member of retainingComposite.members ?? []) {
+				if(member.value === retainedComposite.address) {
+					return true;
+				}
+
+				for(let observer of member.observers) {
+					if(observer.value === retainedComposite.address) {
+						return true;
+					}
+				}
+			}
 		}
 
 		static findFunction(composite, identifier, arguments_) {
@@ -4402,7 +4374,7 @@ body {
 
 			let namespace = this.getComposite(0) ?? this.createNamespace();
 
-			this.rules.module(parserResult.tree, namespace);
+			this.rules.module(JSON.parse(JSON.stringify(parserResult.tree)), namespace);
 
 			let result = this.memory;
 
