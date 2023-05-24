@@ -69,6 +69,7 @@ body {
 	<button id="change_tree">Change tree</button>
 	<div id="output_tokens" style="display: none;"></div>
 	<div id="output_ast"></div>
+	<div id="output_memory" style="display: none;"></div>
 </div>
 <div id="output_console"></div>
 <script>
@@ -3786,9 +3787,9 @@ body {
 				this.rules.statements(node.statements, scope);
 			},
 			classDeclaration: (node, scope) => {
-				let composite = this.createClass(scope),
-					modifiers = node.modifiers,
+				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					composite = this.createClass(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3797,9 +3798,9 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			enumerationDeclaration: (node, scope) => {
-				let composite = this.createEnumeration(scope),
-					modifiers = node.modifiers,
+				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					composite = this.createEnumeration(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3807,10 +3808,20 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.rules.statements(node.body?.statements, composite);
 			},
+			expressionsSequence: (node, scope) => {},
+			identifier: (node, scope) => {
+				let member = this.findMember(scope, node.value);
+
+				if(member == null) {
+					return;
+				}
+
+				return member.value;
+			},
 			namespaceDeclaration: (node, scope) => {
-				let composite = this.createNamespace(scope),
-					modifiers = node.modifiers,
+				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					composite = this.createNamespace(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3819,9 +3830,9 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			protocolDeclaration: (node, scope) => {
-				let composite = this.createProtocol(scope),
-					modifiers = node.modifiers,
+				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					composite = this.createProtocol(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3830,9 +3841,9 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			structureDeclaration: (node, scope) => {
-				let composite = this.createStructure(scope),
-					modifiers = node.modifiers,
+				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					composite = this.createStructure(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3915,9 +3926,10 @@ body {
 			return JSON.stringify(this.memory);
 		}
 
-		static createComposite(inheritance, scope) {
+		static createComposite(title, inheritance, scope) {
 			let composite = {
 				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
+				title: title,  // Merely for convenience
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
 				retainers: []  // List will allow to notify their observers if the composite will suddenly get destroyed
@@ -4042,8 +4054,8 @@ body {
 			return false;
 		}
 
-		static createClass(scope) {
-			let class_ = this.createComposite(['Class'], scope);
+		static createClass(title, scope) {
+			let class_ = this.createComposite(title, ['Class'], scope);
 
 			class_.members = []
 			class_.observers = []
@@ -4051,16 +4063,16 @@ body {
 			return class_;
 		}
 
-		static createEnumeration(scope) {
-			let enumeration = this.createComposite(['Enumeration'], scope);
+		static createEnumeration(title, scope) {
+			let enumeration = this.createComposite(title, ['Enumeration'], scope);
 
 			enumeration.members = []
 
 			return enumeration;
 		}
 
-		static createFunction(genericParameters, parameters, awaits, throws, returnType, statements, scope) {
-			let function_ = this.createComposite(['Function'], scope);
+		static createFunction(title, genericParameters, parameters, awaits, throws, returnType, statements, scope) {
+			let function_ = this.createComposite(title, ['Function'], scope);
 
 			function_.genericParameters = genericParameters;
 			function_.parameters = parameters;
@@ -4077,7 +4089,7 @@ body {
 		 * This can be useful for declarations, but scope itself can't be retained then.
 		 */
 		static callFunction(function_, arguments_, scope) {
-			let namespace = scope ?? this.createNamespace(this.getComposite(function_.scopeAddress)),
+			let namespace = scope ?? this.createNamespace(undefined, this.getComposite(function_.scopeAddress)),
 				result;
 
 			for(let argument of arguments_ ?? []) {
@@ -4093,8 +4105,8 @@ body {
 			return result;
 		}
 
-		static createNamespace(scope) {
-			let namespace = this.createComposite(['Namespace'], scope);
+		static createNamespace(title, scope) {
+			let namespace = this.createComposite(title, ['Namespace'], scope);
 
 			namespace.imports = []
 			namespace.operators = []
@@ -4105,23 +4117,23 @@ body {
 		}
 
 		static createObject(scope) {
-			let object = this.createComposite(['Object'], scope);
+			let object = this.createComposite(scope.title, ['Object'], scope);
 
 			object.members = []
 
 			return object;
 		}
 
-		static createProtocol(scope) {
-			let protocol = this.createComposite(['Protocol'], scope);
+		static createProtocol(title, scope) {
+			let protocol = this.createComposite(title, ['Protocol'], scope);
 
 			protocol.members = []
 
 			return protocol;
 		}
 
-		static createStructure(scope) {
-			let structure = this.createComposite(['Structure'], scope);
+		static createStructure(title, scope) {
+			let structure = this.createComposite(title, ['Structure'], scope);
 
 			structure.members = []
 			structure.observers = []
@@ -4235,6 +4247,7 @@ body {
 			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
 				oldValue = typeof member.value === 'number' ? this.getComposite(member.value) : undefined;
 
+			/* Default modifiers can be checked dynamically, not need to fill all arrays with defaults
 			if(
 				!modifiers.includes('private') &&
 				!modifiers.includes('protected') &&
@@ -4242,6 +4255,7 @@ body {
 			) {
 				modifiers.push('public');
 			}
+			*/
 
 			member.modifiers = modifiers;
 			member.identifier = identifier;
@@ -4359,6 +4373,26 @@ body {
 			return retainingComposite.observers?.some(v => v.value === retainedComposite.address);
 		}
 
+		static report(level, node, type, string) {
+			let position = node.range.start,
+				location = this.tokens[position].location;
+
+			if(this.reports.find(v =>
+				v.location.line === location.line &&
+				v.location.column === location.column &&
+				v.string === string) != null
+			) {
+				return;
+			}
+
+			this.reports.push({
+				level: level,
+				position: position,
+				location: location,
+				string: type+' -> '+string
+			});
+		}
+
 		static reset(memory, preferences) {
 			this.memory = memory ?? []
 			this.preferences = {
@@ -4372,7 +4406,7 @@ body {
 		static interpret(parserResult, memory = [], preferences = {}) {
 			this.reset(memory, preferences);
 
-			let namespace = this.getComposite(0) ?? this.createNamespace();
+			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 			this.rules.module(JSON.parse(JSON.stringify(parserResult.tree)), namespace);
 
@@ -4388,6 +4422,7 @@ body {
 		output_lint = document.getElementById('output_lint'),
 		output_tokens = document.getElementById('output_tokens'),
 		output_ast = document.getElementById('output_ast'),
+		output_memory = document.getElementById('output_memory'),
 		output_console = document.getElementById('output_console'),
 		change_tree = document.getElementById('change_tree');
 
@@ -4396,7 +4431,7 @@ body {
 			parserResult = Parser.parse(lexerResult),
 			interpreterResult = Interpreter.interpret(parserResult),
 			tokens = lexerResult.rawTokens,
-			reports = [...lexerResult.reports, ...parserResult.reports]
+			reports = [...lexerResult.reports, ...parserResult.reports/*, ...interpreterResult.reports*/]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
 		let lintHTML = '';
@@ -4503,6 +4538,7 @@ body {
 		output_lint.innerHTML = lintHTML;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
+		output_memory.innerText = JSON.stringify(interpreterResult, null, 4);
 		output_console.innerText = consoleHTML;
 	}
 
@@ -4515,11 +4551,21 @@ body {
 
 	change_tree.onclick = () => {
 		if(output_tokens.style.display !== 'none') {
-			output_tokens.style.display = 'none';
 			output_ast.style.display = 'block';
+
+			output_tokens.style.display =
+			output_memory.style.display = 'none';
+		} else
+		if(output_ast.style.display !== 'none') {
+			output_memory.style.display = 'block';
+
+			output_tokens.style.display =
+			output_ast.style.display = 'none';
 		} else {
 			output_tokens.style.display = 'block';
-			output_ast.style.display = 'none';
+
+			output_ast.style.display =
+			output_memory.style.display = 'none';
 		}
 	}
 
