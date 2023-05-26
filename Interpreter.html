@@ -2096,7 +2096,7 @@ body {
 					start = this.position;
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					return;
+					return nodes;
 				}
 
 				this.position++;
@@ -3779,17 +3779,45 @@ body {
 	}
 
 	class Interpreter {
+		static tokens;
+		static tree;
 		static memory;
 		static preferences;
+		static reports;
 
 		static rules = {
-			module: (node, scope) => {
-				this.rules.statements(node.statements, scope);
+			module: () => {
+				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
+
+				this.rules.statements(this.tree?.statements, namespace);
+			},
+			chainExpression: (node, scope) => {
+				let composite = this.rules[node.composite?.type](node.composite, scope);
+
+				if(typeof composite?.address !== 'number') {
+					this.report(2, node, 'Composite wasn\'t found.');
+
+					return;
+				}
+
+				let identifier = node.member;
+
+				if(identifier.type === 'stringExpression') {
+					identifier = {
+						value: this.rules.stringExpression?.(node.member, scope)
+					}
+				}
+
+				return this.rules.identifier(identifier, composite);
 			},
 			classDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
-					composite = this.createClass(identifier, scope),
+					inheritance = node.inheritance;
+
+			//	for(let type of inheritance) {}
+
+				let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3809,11 +3837,43 @@ body {
 				this.rules.statements(node.body?.statements, composite);
 			},
 			expressionsSequence: (node, scope) => {},
+			functionDeclaration: (node, scope) => {
+				let modifiers = node.modifiers,
+					identifier = node.identifier.value,
+					composite = this.createFunction(identifier, [], [], false, false, {}, [], scope),
+					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					value = composite,
+					observers = []
+
+				this.setMember(scope, modifiers, identifier, type, value, observers);
+			},
 			identifier: (node, scope) => {
+				let address;
+
+				if(node.value === 'self') {
+					address = scope.address;
+				}
+				if(node.value === 'Self') {
+					address = scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address;
+				}
+				if(node.value === 'super') {
+					address = scope.inheritance[1]
+				}
+
+				if(address != null) {
+					return this.getComposite(address);
+				}
+
 				let member = this.findMember(scope, node.value);
 
 				if(member == null) {
 					return;
+				}
+
+				// Access-related checks
+
+				if(typeof member.value === 'number') {
+					return this.getComposite(member.value);
 				}
 
 				return member.value;
@@ -3860,6 +3920,8 @@ body {
 						value = this.rules[declarator.value?.type]?.(declarator.value, scope),
 						observers = []
 
+					// Type-related checks
+
 					this.setMember(scope, modifiers, identifier, type, value, observers);
 				}
 			},
@@ -3869,6 +3931,28 @@ body {
 				this.rules[node?.type]?.(node, type, scope);
 
 				return type;
+			},
+			typeReference: (node, type, scope) => {
+				let member = this.findMember(scope, node.identifier.value);
+
+				if(typeof member?.value !== 'number') {
+					this.report(2, node, 'Can\'t find a reference member "'+member.identifier+'" in the scope.');
+
+					return;
+				}
+
+				let composite = this.getComposite(member.value);
+
+				if(composite.inheritance[0] === 'Object') {
+					this.report(2, node, 'Object can\'t be used as a type.');
+
+					return;
+				}
+
+				type.inheritance.push({
+					address: member.value,
+					genericInheritance: []
+				});
 			},
 			parenthesizedType: (node, type, scope) => {
 				this.rules[node.value?.type]?.(node.value, type, scope);
@@ -3903,18 +3987,6 @@ body {
 					type.inheritance.push(...this.rules.type(subtype, scope)?.inheritance);
 				}
 			},
-			typeReference: (node, type, scope) => {
-				let member = this.findMember(scope, node.identifier.value);
-
-				if(member == null || ['bool', 'float', 'int', 'string'].includes(member.type.inheritance[0])) {
-					return;
-				}
-
-				type.inheritance.push({
-					address: member.value,
-					genericInheritance: []
-				});
-			},
 			statements: (statements, scope) => {
 				for(let statement of statements ?? []) {
 					this.rules[statement.type]?.(statement, scope);
@@ -3932,7 +4004,8 @@ body {
 				title: title,  // Merely for convenience
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
-				retainers: []  // List will allow to notify their observers if the composite will suddenly get destroyed
+				retainersAddresses: []  // List allows to distinguish retain cycles and notify observers if the composite suddenly gets destroyed,
+										// as opossed to plain counter
 			}
 
 			this.memory.push(composite);
@@ -3968,27 +4041,18 @@ body {
 		static retainComposite(retainedComposite, retainingComposite) {
 			if(
 				this.compositeRetains(retainedComposite, retainingComposite) &&
-				!retainedComposite.retainers.includes(retainingComposite.address)
+				!retainedComposite.retainersAddresses.includes(retainingComposite.address)
 			) {
-				retainedComposite.retainers.push(retainingComposite.address);
+				retainedComposite.retainersAddresses.push(retainingComposite.address);
 			}
 		}
 
-		/*
-		 * Old note but not really much changed and tested:
-		 *
-		 * Most likely will not actually destroy any composite due to an internal retains by an owned members (etc.).
-		 * Probably that retains should be weak (ignored) by default, or performance will decrease drastically,
-		 * because, in favor of dynamic interpreting, we are not going to insert deallocs or anything into AST
-		 * (like ObjC and Swift do at the compilation stage). Besides, a type composites in common don't
-		 * have a way to be undeclared, but not in case of JS or Root, so that also should be kept in mind.
-		 */
 		static releaseComposite(retainedComposite, retainingComposite) {
 			if(this.compositeRetains(retainedComposite, retainingComposite)) {
 				return;
 			}
 
-			retainedComposite.retainers = retainedComposite.retainers.filter(v => v !== retainingComposite.address);
+			retainedComposite.retainersAddresses = retainedComposite.retainersAddresses.filter(v => v !== retainingComposite.address);
 
 			if(!this.compositeRetained(retainedComposite)) {
 				this.destroyComposite(retainedComposite);
@@ -3998,14 +4062,13 @@ body {
 		/*
 		 * Returns a real state of retainment.
 		 *
-		 * Composite considered retained if:
-		 * - It is used as a retainer's scope, while this retainer is not the Function type.
+		 * Composite considered really retained if:
+		 * - It is used as a retainer's scope.
 		 * - It is used by a retainer's import, member or observer.
 		 */
 		static compositeRetains(retainedComposite, retainingComposite) {
 			return (
-				retainedComposite.address === retainingComposite.scopeAddress &&
-				retainingComposite.inheritance[0] !== 'Function' ||
+				retainedComposite.address === retainingComposite.scopeAddress ||
 				this.importRetains(retainedComposite, retainingComposite) ||
 				this.memberRetains(retainedComposite, retainingComposite) ||
 				this.observerRetains(retainedComposite, retainingComposite)
@@ -4013,44 +4076,47 @@ body {
 		}
 
 		/*
-		 * Composite considered retained if:
-		 * - It is accessible from global composite.
-		 * - It is accessible from scope of any function in call stack.
+		 * Returns a significant state of retainment.
+		 *
+		 * Composite considered significantly retained if:
+		 * - It is reachable from the global composite.
+		 * - It is reachable from a scope of any function in the call stack.
 		 */
-		static compositeRetained(retainedComposite) {
+		static compositeRetained(composite) {
 			if(
-				this.compositeAccessible(retainedComposite) ||
-				this.compositeCalled(retainedComposite)
+				this.compositeGloballyReachable(composite) ||
+				this.compositeFunctionallyReachable(composite)
 			) {
 				return true;
 			}
 		}
 
 		/*
-		 * Returns true if the composite is accessible from the global one,
-		 * recursively checking its retainers list.
+		 * Returns true if the composite is reachable from the global one, recursively checking its retainers addresses.
+		 *
+		 * retainChain is used to distinguish a retain cycles and meant to be set internally only.
 		 */
-		static compositeAccessible(retainedComposite, retainChain = []) {
-			if(retainedComposite.address === 0) {
+		static compositeGloballyReachable(composite, retainChain = []) {
+			if(composite.address === 0) {
 				return true;
 			}
 
-			for(let retainer of retainedComposite.retainers) {
-				if(retainChain.includes(retainer)) {
+			for(let retainerAddress of composite.retainersAddresses) {
+				if(retainChain.includes(retainerAddress)) {
 					continue;
 				}
 
-				retainChain.push(retainer);
+				retainChain.push(retainerAddress);
 
-				let retainingComposite = this.getComposite(retainer);
+				let retainingComposite = this.getComposite(retainerAddress);
 
-				if(retainingComposite != null && this.compositeAccessible(retainingComposite, retainChain)) {
+				if(retainingComposite != null && this.compositeGloballyReachable(retainingComposite, retainChain)) {
 					return true;
 				}
 			}
 		}
 
-		static compositeCalled(composite) {
+		static compositeFunctionallyReachable(composite) {
 			return false;
 		}
 
@@ -4085,11 +4151,11 @@ body {
 		}
 
 		/*
-		 * Setting the scope forces a function to be run in it without creating an interlayering namespace.
-		 * This can be useful for declarations, but scope itself can't be retained then.
+		 * Forwarding allows a function to be run in its scope directly, without creating a temporary namespace.
 		 */
-		static callFunction(function_, arguments_, scope) {
-			let namespace = scope ?? this.createNamespace(undefined, this.getComposite(function_.scopeAddress)),
+		static callFunction(function_, arguments_, forwarded) {
+			let functionScope = this.getComposite(function_.scopeAddress),
+				namespace = !forwarded ? this.createNamespace(undefined, functionScope) : functionScope,
 				result;
 
 			for(let argument of arguments_ ?? []) {
@@ -4098,12 +4164,14 @@ body {
 
 			result = this.rules.statements(function_.statements, namespace);
 
-			if(scope == null) {
-				this.releaseComposite(namespace, function_);
+			if(!forwarded && !this.compositeRetained(namespace)) {
+				this.destroyComposite(namespace);
 			}
 
 			return result;
 		}
+
+		static bindFunction(function_, scope) {}
 
 		static createNamespace(title, scope) {
 			let namespace = this.createComposite(title, ['Namespace'], scope);
@@ -4347,9 +4415,7 @@ body {
 			}
 		}
 
-		static getFunction(composite, identifier, arguments_) {
-
-		}
+		static getFunction(composite, identifier, arguments_) {}
 
 		// findObserver, getObserver, setObserver
 
@@ -4373,7 +4439,7 @@ body {
 			return retainingComposite.observers?.some(v => v.value === retainedComposite.address);
 		}
 
-		static report(level, node, type, string) {
+		static report(level, node, string) {
 			let position = node.range.start,
 				location = this.tokens[position].location;
 
@@ -4389,11 +4455,13 @@ body {
 				level: level,
 				position: position,
 				location: location,
-				string: type+' -> '+string
+				string: node.type+' -> '+string
 			});
 		}
 
 		static reset(memory, preferences) {
+			this.tokens = []
+			this.tree = undefined;
 			this.memory = memory ?? []
 			this.preferences = {
 				allowedReportLevel: 2,
@@ -4401,16 +4469,21 @@ body {
 				arbitaryPrecisionArithmetics: true,
 				...(preferences ?? {})
 			}
+			this.reports = []
 		}
 
-		static interpret(parserResult, memory = [], preferences = {}) {
+		static interpret(lexerResult, parserResult, memory = [], preferences = {}) {
 			this.reset(memory, preferences);
 
-			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
+			this.tokens = lexerResult.tokens;
+			this.tree = JSON.parse(JSON.stringify(parserResult.tree));
 
-			this.rules.module(JSON.parse(JSON.stringify(parserResult.tree)), namespace);
+			this.rules.module();
 
-			let result = this.memory;
+			let result = {
+				memory: this.memory,
+				reports: this.reports
+			}
 
 			this.reset();
 
@@ -4427,11 +4500,13 @@ body {
 		change_tree = document.getElementById('change_tree');
 
 	function parse() {
+		console.clear();
+
 		let lexerResult = Lexer.tokenize(input.value),
 			parserResult = Parser.parse(lexerResult),
-			interpreterResult = Interpreter.interpret(parserResult),
+			interpreterResult = Interpreter.interpret(lexerResult, parserResult),
 			tokens = lexerResult.rawTokens,
-			reports = [...lexerResult.reports, ...parserResult.reports/*, ...interpreterResult.reports*/]
+			reports = [...lexerResult.reports, ...parserResult.reports, ...interpreterResult.reports]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
 		let lintHTML = '';
@@ -4517,7 +4592,6 @@ body {
 
 		let consoleHTML = '';
 
-		console.clear();
 		for(let report of reports) {
 			let level = report.level.toString()
 									.replace('0', 'Info')
@@ -4533,12 +4607,12 @@ body {
 		}
 		console.log(lexerResult.tokens);
 		console.log(parserResult.tree);
-		console.log(interpreterResult)
+		console.log(interpreterResult.memory);
 
 		output_lint.innerHTML = lintHTML;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
-		output_memory.innerText = JSON.stringify(interpreterResult, null, 4);
+		output_memory.innerText = JSON.stringify(interpreterResult.memory, null, 4);
 		output_console.innerText = consoleHTML;
 	}
 

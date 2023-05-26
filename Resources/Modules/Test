@@ -4,9 +4,13 @@ namespace A_ {
     }
 
     namespace C_ {}
+
+    func D_() {}
 }
 
-//var A
+//var f = A_.D_,
+//	A_,
+//	f
 
 func test(a: inout _?, and b) {
 	return a != b
