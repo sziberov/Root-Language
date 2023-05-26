@@ -76,10 +76,8 @@ body {
 	class Lexer {
 		static code;
 		static position;
-		static location;
 		static tokens;
 		static states;
-		static reports;
 
 		static rules = [
 			[['/*', '*/'], (v) => {
@@ -460,6 +458,27 @@ body {
 			return this.getToken();
 		}
 
+		static get location() {
+			let location = {
+				line: 0,
+				column: 0,
+				...(this.token.location ?? {})
+			}
+
+			for(let position = this.token.position ?? 0; position < this.position; position++) {
+				let character = this.code[position]
+
+				if(character === '\n') {
+					location.line++;
+					location.column = 0;
+				} else {
+					location.column += character === '\t' ? 3 : 1;
+				}
+			}
+
+			return location;
+		}
+
 		static get atComments() {
 			return this.atState('comment');
 		}
@@ -506,7 +525,7 @@ body {
 		static addToken(type, value) {
 			this.tokens.push({
 				position: this.position,
-				location: {...this.location},
+				location: this.location,
 				type: type,
 				value: value ?? this.code[this.position]
 			});
@@ -621,46 +640,28 @@ body {
 			}
 		}
 
-		static report(level, string) {
-			this.reports.push({
-				level: level,
-				position: this.position,
-				location: {...this.location},
-				string: string
-			});
-		}
-
 		static getSave() {
 			return {
 				position: this.position,
-				location: {...this.location},
 				tokens: JSON.stringify(this.tokens),
-				states: JSON.stringify(this.states),
-				reports: this.reports.length
+				states: JSON.stringify(this.states)
 			}
 		}
 
 		static restoreSave(save) {
 			this.position = save.position;
-			this.location = {...save.location}
 			this.tokens = JSON.parse(save.tokens);
 			this.states = JSON.parse(save.states);
-			this.reports.length = save.reports;
 		}
 
 		static reset() {
 			this.code = '';
 			this.position = 0;
-			this.location = {
-				line: 0,
-				column: 0
-			}
 			this.tokens = []
 			this.states = []
 				// angle - used to distinguish between common operator and generic type's closing >
 				// brace - used in statements
 				// parenthesis - used in string expressions
-			this.reports = []
 		}
 
 		static atSubstring(substring) {
@@ -703,16 +704,6 @@ body {
 				if(trigger != null && !actions(trigger)) {  // Multiple rules can be executed on same position if some of them return true
 					this.position += trigger.length;  // Rules shouldn't explicitly set position
 
-					for(let character of trigger) {
-						if(character === '\n') {
-							this.location.line++;
-							this.location.column = 0;
-						} else {
-							this.location.column++;
-						}
-					}
-				//	this.report(0, '  END: ['+trigger.replaceAll('\n', '\\n')+'], STATES: '+this.states);
-
 					break;
 				}
 			}
@@ -729,8 +720,7 @@ body {
 
 			let result = {
 				rawTokens: this.tokens,
-				tokens: this.tokens.filter(v => !this.ignorable(v.type)),
-				reports: this.reports
+				tokens: this.tokens.filter(v => !this.ignorable(v.type))
 			}
 
 			this.reset();
@@ -4506,7 +4496,7 @@ body {
 			parserResult = Parser.parse(lexerResult),
 			interpreterResult = Interpreter.interpret(lexerResult, parserResult),
 			tokens = lexerResult.rawTokens,
-			reports = [...lexerResult.reports, ...parserResult.reports, ...interpreterResult.reports]
+			reports = [...parserResult.reports, ...interpreterResult.reports]
 					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
 
 		let lintHTML = '';
