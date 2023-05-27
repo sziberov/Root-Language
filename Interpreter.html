@@ -753,6 +753,7 @@ body {
 				}
 
 				node.value = this.rules.expressionsSequence();
+
 				if(node.label == null && node.value == null) {
 					return;
 				}
@@ -3838,17 +3839,14 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 			},
 			identifier: (node, scope) => {
-				let address;
-
-				if(node.value === 'self') {
-					address = scope.address;
-				}
-				if(node.value === 'Self') {
-					address = scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address;
-				}
-				if(node.value === 'super') {
-					address = scope.inheritance[1]
-				}
+				let address = {
+					global: () => undefined,  // Global-object is no thing
+					Global: () => 0,  // Global-type
+					self: () => scope.address,  // Self-object or a type
+					Self: () => scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address,  // Self-type
+					super: () => undefined,  // Super-object or a type
+					Super: () => undefined  // Super-type
+				}[node.value]?.();
 
 				if(address != null) {
 					return this.getComposite(address);

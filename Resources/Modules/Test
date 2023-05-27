@@ -180,6 +180,11 @@ switch catImageView.visibility {
     default -> println('gone')
 }
 
+var switchedByDictionary = [
+	case1: { 0 },
+	case2: { nil }
+][case_]?()
+
 var A = 1
 
 print(A)		// 1
