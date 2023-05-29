@@ -5,12 +5,18 @@ namespace A_ {
 
     namespace C_ {}
 
-    func D_() {}
+    func D_() {
+    	struct E_ {}
+
+        return E_
+    }
 }
 
 //var f = A_.D_,
 //	A_,
 //	f
+
+//return A_.D_()
 
 func test(a: inout _?, and b) {
 	return a != b

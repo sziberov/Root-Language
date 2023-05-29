@@ -69,7 +69,7 @@ body {
 	<button id="change_tree">Change tree</button>
 	<div id="output_tokens" style="display: none;"></div>
 	<div id="output_ast"></div>
-	<div id="output_memory" style="display: none;"></div>
+	<div id="output_composites" style="display: none;"></div>
 </div>
 <div id="output_console"></div>
 <script>
@@ -3772,7 +3772,8 @@ body {
 	class Interpreter {
 		static tokens;
 		static tree;
-		static memory;
+		static composites;
+		static calls;
 		static preferences;
 		static reports;
 
@@ -3781,6 +3782,17 @@ body {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 				this.rules.statements(this.tree?.statements, namespace);
+			},
+			callExpression: (node, scope) => {
+				let callee = this.rules[node.callee.type]?.(node.callee, scope);
+
+				if(callee?.inheritance[0] !== 'Function') {
+					this.report(2, node, 'Composite is not function type or wasn\'t found.');
+
+					return;
+				}
+
+				return this.callFunction(callee);
 			},
 			chainExpression: (node, scope) => {
 				let composite = this.rules[node.composite?.type](node.composite, scope);
@@ -3831,7 +3843,8 @@ body {
 			functionDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
-					composite = this.createFunction(identifier, [], [], false, false, {}, [], scope),
+					statements = node.body?.statements,
+					composite = this.createFunction(identifier, [], [], false, false, {}, statements, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -3948,6 +3961,17 @@ body {
 			predefinedType: (node, type) => {
 				type.inheritance.push(node.value);
 			},
+			returnStatement: (node, scope) => {
+				let value = this.rules[node.value?.type]?.(node.value, scope);
+
+				if(scope.address === 0) {
+					this.report(0, node, JSON.stringify(value));
+
+					return;
+				}
+
+				return value;
+			},
 			variadicType: (node, type, scope) => {
 				type.variadic = true;
 
@@ -3977,18 +4001,37 @@ body {
 			},
 			statements: (statements, scope) => {
 				for(let statement of statements ?? []) {
-					this.rules[statement.type]?.(statement, scope);
+					let value = this.rules[statement.type]?.(statement, scope);
+
+					if(statement.type === 'returnStatement') {
+						return value;
+					}
 				}
 			}
 		}
 
-		static serializeMemory() {
-			return JSON.stringify(this.memory);
+		static serializeMemory() /*getSave()*/ {
+			// TODO: Should support references to AST nodes (many references - one definition)
+
+			/*
+			return {
+				tokens: JSON.stringify(this.tokens),
+				tree: JSON.stringify(this.tree),
+				composites: JSON.stringify(this.composites),
+				calls: JSON.stringify(this.calls),
+				preferences: JSON.stringify(this.preferences),
+				reports: JSON.stringify(this.reports)
+			}
+			*/
+
+			return JSON.stringify(this.composites);
 		}
+
+		static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
 
 		static createComposite(title, inheritance, scope) {
 			let composite = {
-				address: this.memory.reduce((a, b) => b.address > a ? b.address : a, -1)+1,
+				address: this.composites.length,
 				title: title,  // Merely for convenience
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
@@ -3996,7 +4039,7 @@ body {
 										// as opossed to plain counter
 			}
 
-			this.memory.push(composite);
+			this.composites.push(composite);
 
 			if(scope != null) {
 				this.retainComposite(scope, composite);
@@ -4019,11 +4062,11 @@ body {
 				this.releaseComposite(scope, composite);
 			}
 
-			this.memory = this.memory.filter(v => v !== composite);
+			delete this.composites[composite.address]
 		}
 
 		static getComposite(address) {
-			return this.memory.find(v => v.address === address);
+			return this.composites[address]
 		}
 
 		static retainComposite(retainedComposite, retainingComposite) {
@@ -4144,19 +4187,28 @@ body {
 		static callFunction(function_, arguments_, forwarded) {
 			let functionScope = this.getComposite(function_.scopeAddress),
 				namespace = !forwarded ? this.createNamespace(undefined, functionScope) : functionScope,
-				result;
+				call = {
+					function: function_,
+					namespace: namespace,
+					return: undefined
+				}
+
+			this.calls.push(call);
 
 			for(let argument of arguments_ ?? []) {
 				this.setMember(namespace, [], argument.identifier, argument.type, argument.value, []);
 			}
 
-			result = this.rules.statements(function_.statements, namespace);
+			// TODO: Can be retained return value with the new scope, that must be retained by the caller
+			call.return = this.rules.statements(function_.statements, namespace);
 
 			if(!forwarded && !this.compositeRetained(namespace)) {
 				this.destroyComposite(namespace);
 			}
 
-			return result;
+			this.calls = this.calls.filter(v => v !== call);
+
+			return call.return;
 		}
 
 		static bindFunction(function_, scope) {}
@@ -4447,10 +4499,11 @@ body {
 			});
 		}
 
-		static reset(memory, preferences) {
+		static reset(composites, preferences) {
 			this.tokens = []
 			this.tree = undefined;
-			this.memory = memory ?? []
+			this.composites = composites ?? []
+			this.calls = []
 			this.preferences = {
 				allowedReportLevel: 2,
 				metaprogrammingLevel: 3,
@@ -4460,8 +4513,8 @@ body {
 			this.reports = []
 		}
 
-		static interpret(lexerResult, parserResult, memory = [], preferences = {}) {
-			this.reset(memory, preferences);
+		static interpret(lexerResult, parserResult, composites = [], preferences = {}) {
+			this.reset(composites, preferences);
 
 			this.tokens = lexerResult.tokens;
 			this.tree = JSON.parse(JSON.stringify(parserResult.tree));
@@ -4469,7 +4522,7 @@ body {
 			this.rules.module();
 
 			let result = {
-				memory: this.memory,
+				composites: this.composites,
 				reports: this.reports
 			}
 
@@ -4483,7 +4536,7 @@ body {
 		output_lint = document.getElementById('output_lint'),
 		output_tokens = document.getElementById('output_tokens'),
 		output_ast = document.getElementById('output_ast'),
-		output_memory = document.getElementById('output_memory'),
+		output_composites = document.getElementById('output_composites'),
 		output_console = document.getElementById('output_console'),
 		change_tree = document.getElementById('change_tree');
 
@@ -4595,12 +4648,12 @@ body {
 		}
 		console.log(lexerResult.tokens);
 		console.log(parserResult.tree);
-		console.log(interpreterResult.memory);
+		console.log(interpreterResult.composites);
 
 		output_lint.innerHTML = lintHTML;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
-		output_memory.innerText = JSON.stringify(interpreterResult.memory, null, 4);
+		output_composites.innerText = JSON.stringify(interpreterResult.composites, null, 4);
 		output_console.innerText = consoleHTML;
 	}
 
@@ -4616,10 +4669,10 @@ body {
 			output_ast.style.display = 'block';
 
 			output_tokens.style.display =
-			output_memory.style.display = 'none';
+			output_composites.style.display = 'none';
 		} else
 		if(output_ast.style.display !== 'none') {
-			output_memory.style.display = 'block';
+			output_composites.style.display = 'block';
 
 			output_tokens.style.display =
 			output_ast.style.display = 'none';
@@ -4627,7 +4680,7 @@ body {
 			output_tokens.style.display = 'block';
 
 			output_ast.style.display =
-			output_memory.style.display = 'none';
+			output_composites.style.display = 'none';
 		}
 	}
 
