@@ -3781,13 +3781,17 @@ body {
 			module: () => {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
+			//	this.calls.push({
+			//		namespace: namespace
+			//	});
+
 				this.rules.statements(this.tree?.statements, namespace);
 
-				let lastNamespace = this.calls.at(-1)?.namespace;
+			//	let lastNamespace = this.calls.at(-1)?.namespace;
 
-				if(lastNamespace != null && !this.compositeReachable(lastNamespace, namespace)) {
-					this.destroyComposite(lastNamespace);
-				}
+			//	if(lastNamespace != null && !this.compositeReachable(lastNamespace, namespace)) {
+			//		this.destroyComposite(lastNamespace);
+			//	}
 			},
 			callExpression: (node, scope) => {
 				let callee = this.rules[node.callee.type]?.(node.callee, scope);
@@ -3971,11 +3975,7 @@ body {
 			returnStatement: (node, scope) => {
 				let value = this.rules[node.value?.type]?.(node.value, scope);
 
-				if(scope.address === 0) {
-					this.report(0, node, JSON.stringify(value));
-
-					return;
-				}
+				this.report(0, node, scope.address+': '+JSON.stringify(value));
 
 				return value;
 			},
@@ -4007,10 +4007,25 @@ body {
 				}
 			},
 			statements: (statements, scope) => {
+				let currentCall = this.calls.at(-1);
+
 				for(let statement of statements ?? []) {
-					let value = this.rules[statement.type]?.(statement, scope);
+					let value = this.rules[statement.type]?.(statement, scope),
+						lastCall = this.calls.at(-1);
+
+					if(lastCall != null && lastCall !== currentCall) {
+						let currentNamespace = currentCall?.namespace ?? scope,
+							lastNamespace = lastCall.namespace;
+
+						if(!this.compositeReachable(lastNamespace, currentNamespace) && !this.compositeRetains(lastNamespace, value)) {
+							this.destroyComposite(lastNamespace);
+						}
+
+						this.calls.pop();
+					}
 
 					if(statement.type === 'returnStatement') {
+						console.log('ke: '+JSON.stringify(value)+', scope: '+scope.title);
 						return value;
 					}
 				}
@@ -4051,11 +4066,12 @@ body {
 			if(scope != null) {
 				this.retainComposite(scope, composite);
 			}
-
+			console.log('cr: '+composite.title);
 			return composite;
 		}
 
 		static destroyComposite(composite) {
+			console.log('de: '+composite.title);
 			this.deleteImports(composite);
 			this.deleteFunctionMembers(composite);
 			this.deleteMembers(composite);
@@ -4195,7 +4211,7 @@ body {
 		 */
 		static callFunction(callee, arguments_, forwarded) {
 			let calleeScope = this.getComposite(callee.scopeAddress),
-				namespace = !forwarded ? this.createNamespace('Scope<'+(callee.title ?? callee.address)+'>', calleeScope) : calleeScope,
+				namespace = !forwarded ? this.createNamespace((callee.title ?? '#'+callee.address)+'()', calleeScope) : calleeScope,
 				call = {
 					callee: callee,
 					namespace: namespace
@@ -4207,11 +4223,13 @@ body {
 
 			this.calls.push(call);
 
-			call.return = this.rules.statements(callee.statements, namespace);
-
 			// TODO: Namespace should be destroyed if it is not retained by scope of caller function (directly or indirectly)
 
-			return call.return;
+			let result = this.rules.statements(callee.statements, namespace);
+
+			console.log('re: '+JSON.stringify(result)+', scope: '+namespace.title);
+
+			return result;
 		}
 
 		static popCall() {
