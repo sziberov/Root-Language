@@ -4013,6 +4013,10 @@ body {
 					let value = this.rules[statement.type]?.(statement, scope),
 						lastCall = this.calls.at(-1);
 
+					if(statement.type === 'returnStatement') {
+						console.log('ke: '+JSON.stringify(value)+', scope: '+scope.title);
+					}
+
 					if(lastCall != null && lastCall !== currentCall) {
 						let currentNamespace = currentCall?.namespace ?? scope,
 							lastNamespace = lastCall.namespace;
@@ -4023,9 +4027,11 @@ body {
 
 						this.calls.pop();
 					}
+					if(currentCall == null && value?.address != null && !this.compositeGloballyReachable(value)) {
+						this.destroyComposite(value);
+					}
 
 					if(statement.type === 'returnStatement') {
-						console.log('ke: '+JSON.stringify(value)+', scope: '+scope.title);
 						return value;
 					}
 				}
