@@ -1,22 +1,22 @@
-namespace A_ {
-    namespace B_ {
-	    namespace D_ {}
+func D() {
+	struct E {
+		func F() {
+			struct G {}
+
+			return G
+		}
     }
 
-    namespace C_ {}
-
-    func D_() {
-    	struct E_ {}
-
-        return E_
-    }
+    return E.F()
 }
 
-//var f = A_.D_,
-//	A_,
-//	f
+var retainTest = D()
 
-//return A_.D_()
+return retainTest
+
+//var f = A.D,
+//	A,
+//	f
 
 func test(a: inout _?, and b) {
 	return a != b

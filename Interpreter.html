@@ -3782,12 +3782,18 @@ body {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 				this.rules.statements(this.tree?.statements, namespace);
+
+				let lastNamespace = this.calls.at(-1)?.namespace;
+
+				if(lastNamespace != null && !this.compositeReachable(lastNamespace, namespace)) {
+					this.destroyComposite(lastNamespace);
+				}
 			},
 			callExpression: (node, scope) => {
 				let callee = this.rules[node.callee.type]?.(node.callee, scope);
 
 				if(callee?.inheritance[0] !== 'Function') {
-					this.report(2, node, 'Composite is not function type or wasn\'t found.');
+					this.report(2, node, 'Composite is not a function or wasn\'t found.');
 
 					return;
 				}
@@ -3844,7 +3850,8 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					statements = node.body?.statements,
-					composite = this.createFunction(identifier, [], [], false, false, {}, statements, scope),
+					returnType = this.createType(false, false, [], true, false),
+					composite = this.createFunction(identifier, [], [], -1, -1, returnType, statements, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
 					value = composite,
 					observers = []
@@ -4111,44 +4118,46 @@ body {
 		 *
 		 * Composite considered significantly retained if:
 		 * - It is reachable from the global composite.
-		 * - It is reachable from a scope of any function in the call stack.
+		 * - It is reachable from a scope of most recent function in the call stack.
 		 */
 		static compositeRetained(composite) {
-			if(
+			return (
 				this.compositeGloballyReachable(composite) ||
 				this.compositeFunctionallyReachable(composite)
-			) {
-				return true;
-			}
+			);
 		}
 
 		/*
-		 * Returns true if the composite is reachable from the global one, recursively checking its retainers addresses.
+		 * Returns true if the retainedComposite is reachable from the retainingComposite, recursively checking its retainers addresses.
 		 *
 		 * retainChain is used to distinguish a retain cycles and meant to be set internally only.
 		 */
-		static compositeGloballyReachable(composite, retainChain = []) {
-			if(composite.address === 0) {
+		static compositeReachable(retainedComposite, retainingComposite, retainChain = []) {
+			if(retainedComposite.address === retainingComposite.address) {
 				return true;
 			}
 
-			for(let retainerAddress of composite.retainersAddresses) {
+			for(let retainerAddress of retainedComposite.retainersAddresses) {
 				if(retainChain.includes(retainerAddress)) {
 					continue;
 				}
 
 				retainChain.push(retainerAddress);
 
-				let retainingComposite = this.getComposite(retainerAddress);
+				let localRetainingComposite = this.getComposite(retainerAddress);
 
-				if(retainingComposite != null && this.compositeGloballyReachable(retainingComposite, retainChain)) {
+				if(localRetainingComposite != null && this.compositeReachable(localRetainingComposite, retainingComposite, retainChain)) {
 					return true;
 				}
 			}
 		}
 
+		static compositeGloballyReachable(composite) {
+			return this.compositeReachable(composite, this.getComposite(0));
+		}
+
 		static compositeFunctionallyReachable(composite) {
-			return false;
+			return false; //this.compositeReachable(composite, this.calls.at(-1)?.namespace ?? this.getComposite(0));
 		}
 
 		static createClass(title, scope) {
@@ -4184,31 +4193,43 @@ body {
 		/*
 		 * Forwarding allows a function to be run in its scope directly, without creating a temporary namespace.
 		 */
-		static callFunction(function_, arguments_, forwarded) {
-			let functionScope = this.getComposite(function_.scopeAddress),
-				namespace = !forwarded ? this.createNamespace(undefined, functionScope) : functionScope,
+		static callFunction(callee, arguments_, forwarded) {
+			let calleeScope = this.getComposite(callee.scopeAddress),
+				namespace = !forwarded ? this.createNamespace('Scope<'+(callee.title ?? callee.address)+'>', calleeScope) : calleeScope,
 				call = {
-					function: function_,
-					namespace: namespace,
-					return: undefined
+					callee: callee,
+					namespace: namespace
 				}
-
-			this.calls.push(call);
 
 			for(let argument of arguments_ ?? []) {
 				this.setMember(namespace, [], argument.identifier, argument.type, argument.value, []);
 			}
 
-			// TODO: Can be retained return value with the new scope, that must be retained by the caller
-			call.return = this.rules.statements(function_.statements, namespace);
+			this.calls.push(call);
 
-			if(!forwarded && !this.compositeRetained(namespace)) {
-				this.destroyComposite(namespace);
-			}
+			call.return = this.rules.statements(callee.statements, namespace);
 
-			this.calls = this.calls.filter(v => v !== call);
+			// TODO: Namespace should be destroyed if it is not retained by scope of caller function (directly or indirectly)
 
 			return call.return;
+		}
+
+		static popCall() {
+			let currentCall = this.calls.at(-1),
+				previousCall = this.calls.at(-2);
+
+			if(currentCall == null || previousCall == null) {
+				return;
+			}
+
+			let currentNamespace = currentCall.namespace,
+				previousNamespace = previousCall.namespace;
+
+			if(!this.compositeReachable(currentNamespace, previousNamespace)) {
+				this.destroyComposite(currentNamespace);
+			}
+
+			this.calls.pop();
 		}
 
 		static bindFunction(function_, scope) {}
