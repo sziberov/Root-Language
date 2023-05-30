@@ -2,12 +2,16 @@ func D() {
 	struct E {
 		func F() {
 			struct G {
+				func a()
+
 				func H() {
 					struct J {}  // J > H(), G, F(), E, D(), Global
 
 					return J
 				}
 			}
+
+			G.a()
 
 			return G.H()
 		}

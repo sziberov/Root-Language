@@ -4000,35 +4000,34 @@ body {
 				}
 			},
 			statements: (statements, scope) => {
-				let currentCall = this.calls.at(-1);
+				let previousCall = this.calls.at(-1);  // Current but potentially previous
 
 				for(let statement of statements ?? []) {
-					let value = this.rules[statement.type]?.(statement, scope),
-						lastCall = this.calls.at(-1);
+					let currentReturn = this.rules[statement.type]?.(statement, scope),
+						currentCall = this.calls.at(-1);
 
 					if(statement.type === 'returnStatement') {
-						console.log('ke: '+JSON.stringify(value)+', scope: '+scope.title);
+						console.log('ke: '+JSON.stringify(currentReturn)+', scope: '+scope.title);
 					}
 
-					if(lastCall != null && lastCall !== currentCall) {
-						let currentNamespace = currentCall?.namespace ?? scope,
-							lastNamespace = lastCall.namespace;
+					if(previousCall != null && currentCall != null && previousCall !== currentCall) {  // Nested function has been called
+						let currentNamespace = currentCall.namespace;
 
 						console.log(0);
-						if(!this.compositeReachable(lastNamespace, currentNamespace) && (value == null || !this.compositeReachable(lastNamespace, value))) {
+						if(!this.compositeRetained(currentNamespace)) {
 							console.log(1);
-							this.destroyComposite(lastNamespace);
+							this.destroyComposite(currentNamespace);
 						}
 
 						this.calls.pop();
 					}
-					if(currentCall.callee == null && value?.address != null && !this.compositeGloballyReachable(value)) {
+					if(previousCall.callee == null && currentReturn?.address != null && !this.compositeGloballyReachable(currentReturn)) {  // Return to global
 						console.log(2);
-						this.destroyComposite(value);
+						this.destroyComposite(currentReturn);
 					}
 
 					if(statement.type === 'returnStatement') {
-						return value;
+						return currentReturn;
 					}
 				}
 			}
@@ -4142,8 +4141,8 @@ body {
 		 * Returns a significant state of retainment.
 		 *
 		 * Composite considered significantly retained if:
-		 * - It is reachable from the global composite.
-		 * - It is reachable from a scope of most recent function in the call stack.
+		 * - It is reachable from the global scope.
+		 * - It is reachable from a previous scope or a current returned value of functions in the call stack.
 		 */
 		static compositeRetained(composite) {
 			return (
@@ -4182,7 +4181,21 @@ body {
 		}
 
 		static compositeFunctionallyReachable(composite) {
-			return false; //this.compositeReachable(composite, this.calls.at(-1)?.namespace ?? this.getComposite(0));
+			let previousCall = this.calls.at(-2),
+				currentCall = this.calls.at(-1);
+
+			if(previousCall == null || currentCall == null) {
+				return false;
+			}
+
+			let previousNamespace = previousCall.namespace,
+				currentNamespace = currentCall.namespace,
+				currentReturn = currentCall.return;
+
+			return (
+				this.compositeReachable(composite, previousNamespace) || currentReturn != null &&
+				this.compositeReachable(composite, currentReturn)
+			);
 		}
 
 		static createClass(title, scope) {
@@ -4223,7 +4236,8 @@ body {
 				namespace = !forwarded ? this.createNamespace((callee.title ?? '#'+callee.address)+'()', calleeScope) : calleeScope,
 				call = {
 					callee: callee,
-					namespace: namespace
+					namespace: namespace,
+					return: undefined
 				}
 
 			for(let argument of arguments_ ?? []) {
@@ -4234,11 +4248,11 @@ body {
 
 			// TODO: Namespace should be destroyed if it is not retained by scope of caller function (directly or indirectly)
 
-			let result = this.rules.statements(callee.statements, namespace);
+			call.return = this.rules.statements(callee.statements, namespace);
 
-			console.log('re: '+JSON.stringify(result)+', scope: '+namespace.title);
+			console.log('re: '+JSON.stringify(call.return)+', scope: '+namespace.title);
 
-			return result;
+			return call.return;
 		}
 
 		static bindFunction(function_, scope) {}
