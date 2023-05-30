@@ -1,9 +1,15 @@
 func D() {
 	struct E {
 		func F() {
-			struct G {}
+			struct G {
+				func H() {
+					struct J {}  // J > H(), G, F(), E, D(), Global
 
-			return G
+					return J
+				}
+			}
+
+			return G.H()
 		}
     }
 

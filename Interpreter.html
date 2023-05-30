@@ -3781,17 +3781,10 @@ body {
 			module: () => {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
-			//	this.calls.push({
-			//		namespace: namespace
-			//	});
-
+				this.calls.push({
+					namespace: namespace
+				});
 				this.rules.statements(this.tree?.statements, namespace);
-
-			//	let lastNamespace = this.calls.at(-1)?.namespace;
-
-			//	if(lastNamespace != null && !this.compositeReachable(lastNamespace, namespace)) {
-			//		this.destroyComposite(lastNamespace);
-			//	}
 			},
 			callExpression: (node, scope) => {
 				let callee = this.rules[node.callee.type]?.(node.callee, scope);
@@ -4021,13 +4014,16 @@ body {
 						let currentNamespace = currentCall?.namespace ?? scope,
 							lastNamespace = lastCall.namespace;
 
-						if(!this.compositeReachable(lastNamespace, currentNamespace) && !this.compositeRetains(lastNamespace, value)) {
+						console.log(0);
+						if(!this.compositeReachable(lastNamespace, currentNamespace) && (value == null || !this.compositeReachable(lastNamespace, value))) {
+							console.log(1);
 							this.destroyComposite(lastNamespace);
 						}
 
 						this.calls.pop();
 					}
-					if(currentCall == null && value?.address != null && !this.compositeGloballyReachable(value)) {
+					if(currentCall.callee == null && value?.address != null && !this.compositeGloballyReachable(value)) {
+						console.log(2);
 						this.destroyComposite(value);
 					}
 
@@ -4072,12 +4068,17 @@ body {
 			if(scope != null) {
 				this.retainComposite(scope, composite);
 			}
-			console.log('cr: '+composite.title);
+
+			console.log('cr: '+composite.title+', '+composite.address);
+
 			return composite;
 		}
 
 		static destroyComposite(composite) {
-			console.log('de: '+composite.title);
+			console.log('de: '+composite.title+', '+composite.address);
+
+			delete this.composites[composite.address]
+
 			this.deleteImports(composite);
 			this.deleteFunctionMembers(composite);
 			this.deleteMembers(composite);
@@ -4090,8 +4091,6 @@ body {
 
 				this.releaseComposite(scope, composite);
 			}
-
-			delete this.composites[composite.address]
 		}
 
 		static getComposite(address) {
@@ -4127,6 +4126,10 @@ body {
 		 * - It is used by a retainer's import, member or observer.
 		 */
 		static compositeRetains(retainedComposite, retainingComposite) {
+			if(this.composites[retainingComposite?.address] == null) {
+				return false;
+			}
+
 			return (
 				retainedComposite.address === retainingComposite.scopeAddress ||
 				this.importRetains(retainedComposite, retainingComposite) ||
@@ -4236,24 +4239,6 @@ body {
 			console.log('re: '+JSON.stringify(result)+', scope: '+namespace.title);
 
 			return result;
-		}
-
-		static popCall() {
-			let currentCall = this.calls.at(-1),
-				previousCall = this.calls.at(-2);
-
-			if(currentCall == null || previousCall == null) {
-				return;
-			}
-
-			let currentNamespace = currentCall.namespace,
-				previousNamespace = previousCall.namespace;
-
-			if(!this.compositeReachable(currentNamespace, previousNamespace)) {
-				this.destroyComposite(currentNamespace);
-			}
-
-			this.calls.pop();
 		}
 
 		static bindFunction(function_, scope) {}
