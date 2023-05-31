@@ -3814,7 +3814,11 @@ body {
 					}
 				}
 
-				return this.callFunction(callee, arguments_);
+				this.report(0, node, 'ca: '+callee.title+', '+callee.address);
+				let value = this.callFunction(callee, arguments_);
+				this.report(0, node, 'ke: '+JSON.stringify(value));
+
+				return value;
 			},
 			chainExpression: (node, scope) => {
 				let composite = this.rules[node.composite?.type](node.composite, scope);
@@ -3985,11 +3989,7 @@ body {
 				type.inheritance.push(node.value);
 			},
 			returnStatement: (node, scope) => {
-				let value = this.rules[node.value?.type]?.(node.value, scope);
-
-				this.report(0, node, scope.address+': '+JSON.stringify(value));
-
-				return value;
+				return this.rules[node.value?.type]?.(node.value, scope);
 			},
 			variadicType: (node, type, scope) => {
 				type.variadic = true;
@@ -4055,13 +4055,13 @@ body {
 				this.retainComposite(scope, composite);
 			}
 
-			console.log('cr: '+composite.title+', '+composite.address);
+			this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
 
 			return composite;
 		}
 
 		static destroyComposite(composite) {
-			console.log('de: '+composite.title+', '+composite.address);
+			this.report(1, undefined, 'de: '+composite.title+', '+composite.address);
 
 			delete this.composites[composite.address]
 
@@ -4129,7 +4129,7 @@ body {
 		 *
 		 * Composite considered significantly retained if:
 		 * - It is reachable from the global scope.
-		 * - It is reachable from a previous scope or a current return value in the call stack.
+		 * - It is reachable from a previous scope in the call stack.
 		 */
 		static compositeRetained(composite) {
 			return (
@@ -4168,21 +4168,13 @@ body {
 		}
 
 		static compositeFunctionallyReachable(composite) {
-			let previousCall = this.calls.at(-2),
-				currentCall = this.calls.at(-1);
+			let previousCall = this.calls.at(-2);
 
-			if(previousCall == null || currentCall == null) {
+			if(previousCall == null) {
 				return false;
 			}
 
-			let previousNamespace = previousCall.namespace,
-				currentNamespace = currentCall.namespace,
-				currentReturn = currentCall.return;
-
-			return (
-				this.compositeReachable(composite, previousNamespace) || currentReturn != null &&
-				this.compositeReachable(composite, currentReturn)
-			);
+			return this.compositeReachable(composite, previousCall.namespace);
 		}
 
 		static createClass(title, scope) {
@@ -4219,7 +4211,6 @@ body {
 		 * Forwarding allows a function to be run in its scope directly, without creating a temporary namespace.
 		 */
 		static callFunction(callee, arguments_, forwarded) {
-			console.log('ca: '+callee.title);
 			let calleeScope = this.getComposite(callee.scopeAddress),
 				namespace = !forwarded ? this.createNamespace((callee.title ?? '#'+callee.address)+'()', calleeScope) : calleeScope,
 				call = {
@@ -4234,7 +4225,6 @@ body {
 
 			this.calls.push(call);
 			call.return = this.evaluateRules(callee.statements, namespace);
-			console.log('re: '+JSON.stringify(call.return)+', scope: '+namespace.title);
 
 			return call.return;
 		}
@@ -4253,22 +4243,26 @@ body {
 					currentCall = this.calls.at(-1),
 					currentNamespace = currentCall?.namespace;
 
-				if(rule.type === 'returnStatement') {
-					console.log('ke: '+JSON.stringify(currentReturn)+', scope: '+scope.title);
-				}
-
 				if(previousCall != null) {  // Evaluated after some function call
 					if(currentCall != null && previousCall !== currentCall) {  // Rule called another function
 						if(!this.compositeRetained(currentNamespace)) {
 							this.destroyComposite(currentNamespace);
 						}
 
-						this.calls.pop();
-					}
-					if(previousCall.callee == null) {  // Evaluated to global
-						if(currentReturn?.address != null && !this.compositeGloballyReachable(currentReturn)) {
+						if(
+							previousCall.callee != null &&  // Evaluated to local
+							currentReturn?.address != null && !this.compositeRetained(currentReturn)
+						) {
 							this.destroyComposite(currentReturn);
 						}
+
+						this.calls.pop();
+					}
+					if(
+						previousCall.callee == null &&  // Evaluated to global
+						currentReturn?.address != null && !this.compositeRetained(currentReturn)
+					) {
+						this.destroyComposite(currentReturn);
 					}
 				}
 
@@ -4545,7 +4539,7 @@ body {
 		}
 
 		static report(level, node, string) {
-			let position = node.range.start,
+			let position = node?.range.start ?? 0,
 				location = this.tokens[position].location;
 
 			if(this.reports.find(v =>
@@ -4560,7 +4554,7 @@ body {
 				level: level,
 				position: position,
 				location: location,
-				string: node.type+' -> '+string
+				string: (node?.type ?? '?')+' -> '+string
 			});
 		}
 
@@ -4613,7 +4607,7 @@ body {
 			interpreterResult = Interpreter.interpret(lexerResult, parserResult),
 			tokens = lexerResult.rawTokens,
 			reports = [...parserResult.reports, ...interpreterResult.reports]
-					  .sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column);
+					  /*.sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column)*/;
 
 		let lintHTML = '';
 
