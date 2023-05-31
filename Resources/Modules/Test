@@ -1,3 +1,21 @@
+func A() {
+	struct AB {}  // Retain chain: AB -> A() -> Global
+
+    return AB
+}
+
+func B(BB) {
+    var BC = BB,  // Preserve value locally or not - same result, remove function's namespace from memory and return value to caller
+        BD = A()  // New local value will be removed from memory after (and with) functions namespace
+
+    return BB  // BC - same result
+}
+
+var retainTest = B(BB: A())  // Preserve value globally, simple return cleans up memory
+
+return retainTest
+
+/*
 func D() {
 	struct E {
 		func F() {
@@ -23,6 +41,7 @@ func D() {
 var retainTest = D()
 
 return retainTest
+*/
 
 //var f = A.D,
 //	A,
