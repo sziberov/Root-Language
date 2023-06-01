@@ -3788,19 +3788,21 @@ body {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 				// No need to wrap a module script into a complete function, but should emulate call
-				// so compositeFunctionallyReachable() can do its work
+				// so reference counting can be done properly
 
 				this.calls.push({
-					namespace: namespace
+					function: undefined,
+					namespace: namespace,
+					return: undefined
 				});
 				this.evaluateRules(this.tree?.statements, namespace);
 				this.calls.pop();
 			},
 			callExpression: (node, scope) => {
-				let callee = this.rules[node.callee.type]?.(node.callee, scope),
+				let function_ = this.rules[node.callee.type]?.(node.callee, scope),
 					arguments_ = []
 
-				if(callee?.inheritance[0] !== 'Function') {
+				if(function_?.inheritance[0] !== 'Function') {
 					this.report(2, node, 'Composite is not a function or wasn\'t found.');
 
 					return;
@@ -3814,8 +3816,8 @@ body {
 					}
 				}
 
-				this.report(0, node, 'ca: '+callee.title+', '+callee.address);
-				let value = this.callFunction(callee, arguments_);
+				this.report(0, node, 'ca: '+function_.title+', '+function_.address);
+				let value = this.callFunction(function_, arguments_);
 				this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
@@ -4061,7 +4063,7 @@ body {
 		}
 
 		static destroyComposite(composite) {
-			this.report(1, undefined, 'de: '+composite.title+', '+composite.address);
+			this.report(1, undefined, 'de: '+JSON.stringify(composite));
 
 			delete this.composites[composite.address]
 
@@ -4129,7 +4131,7 @@ body {
 		 *
 		 * Composite considered significantly retained if:
 		 * - It is reachable from the global scope.
-		 * - It is reachable from a previous scope in the call stack.
+		 * - It is reachable from a previous scope or a current return value in the call stack.
 		 */
 		static compositeRetained(composite) {
 			return (
@@ -4168,13 +4170,20 @@ body {
 		}
 
 		static compositeFunctionallyReachable(composite) {
-			let previousCall = this.calls.at(-2);
+			let previousCall = this.calls.at(-2),
+				currentCall = this.calls.at(-1);
 
-			if(previousCall == null) {
+			if(previousCall == null || currentCall == null) {
 				return false;
 			}
 
-			return this.compositeReachable(composite, previousCall.namespace);
+			let previousNamespace = previousCall.namespace,
+				currentReturn = currentCall.return;
+
+			return (
+				this.compositeReachable(composite, previousNamespace) || currentReturn != null &&
+				this.compositeReachable(composite, currentReturn)
+			);
 		}
 
 		static createClass(title, scope) {
@@ -4210,11 +4219,11 @@ body {
 		/*
 		 * Forwarding allows a function to be run in its scope directly, without creating a temporary namespace.
 		 */
-		static callFunction(callee, arguments_, forwarded) {
-			let calleeScope = this.getComposite(callee.scopeAddress),
-				namespace = !forwarded ? this.createNamespace((callee.title ?? '#'+callee.address)+'()', calleeScope) : calleeScope,
+		static callFunction(function_, arguments_, forwarded) {
+			let functionScope = this.getComposite(function_.scopeAddress),
+				namespace = !forwarded ? this.createNamespace((function_.title ?? '#'+function_.address)+'()', functionScope) : functionScope,
 				call = {
-					callee: callee,
+					function: function_,
 					namespace: namespace,
 					return: undefined
 				}
@@ -4224,50 +4233,32 @@ body {
 			}
 
 			this.calls.push(call);
-			call.return = this.evaluateRules(callee.statements, namespace);
+			this.evaluateRules(function_.statements, namespace);
+
+			if(!this.compositeRetained(namespace)) {
+				this.destroyComposite(namespace);
+			}
+
+			this.calls.pop();
 
 			return call.return;
 		}
 
 		static bindFunction(function_, scope) {}
 
-		/*
-		 * Meant to be used for statements inside of a bodies. It supports up to one nested function call (which
-		 * is sufficient with current architecture), cleaning up any garbage leaved after it.
-		 */
 		static evaluateRules(rules, scope) {
-			let previousCall = this.calls.at(-1);  // Current but potentially previous
-
 			for(let rule of rules ?? []) {
-				let currentReturn = this.rules[rule.type]?.(rule, scope),
-					currentCall = this.calls.at(-1),
-					currentNamespace = currentCall?.namespace;
+				let value = this.rules[rule.type]?.(rule, scope);
 
-				if(previousCall != null) {  // Evaluated after some function call
-					if(currentCall != null && previousCall !== currentCall) {  // Rule called another function
-						if(!this.compositeRetained(currentNamespace)) {
-							this.destroyComposite(currentNamespace);
-						}
-
-						if(
-							previousCall.callee != null &&  // Evaluated to local
-							currentReturn?.address != null && !this.compositeRetained(currentReturn)
-						) {
-							this.destroyComposite(currentReturn);
-						}
-
-						this.calls.pop();
-					}
-					if(
-						previousCall.callee == null &&  // Evaluated to global
-						currentReturn?.address != null && !this.compositeRetained(currentReturn)
-					) {
-						this.destroyComposite(currentReturn);
-					}
+				if(rule.type === 'returnStatement') {
+					this.calls.at(-1).return = value;
+				}
+				if(value?.address != null && !this.compositeRetained(value)) {
+					this.destroyComposite(value);
 				}
 
 				if(rule.type === 'returnStatement') {
-					return currentReturn;
+					break;
 				}
 			}
 		}
