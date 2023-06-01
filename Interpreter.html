@@ -4044,11 +4044,10 @@ body {
 		static createComposite(title, inheritance, scope) {
 			let composite = {
 				address: this.composites.length,
-				title: title,  // Merely for convenience
+				title: title,
 				inheritance: inheritance,
 				scopeAddress: scope?.address,
-				retainersAddresses: []  // List allows to distinguish retain cycles and notify observers if the composite suddenly gets destroyed,
-										// as opossed to plain counter
+				retainersAddresses: []
 			}
 
 			this.composites.push(composite);
@@ -4217,7 +4216,8 @@ body {
 		}
 
 		/*
-		 * Forwarding allows a function to be run in its scope directly, without creating a temporary namespace.
+		 * Forwarding allows a function to be run in its scope directly. Although do not creating a temporary namespace
+		 * also means that the scope will be not protected from destroy by release sequence while function still running.
 		 */
 		static callFunction(function_, arguments_, forwarded) {
 			let functionScope = this.getComposite(function_.scopeAddress),
@@ -4246,6 +4246,10 @@ body {
 
 		static bindFunction(function_, scope) {}
 
+		/*
+		 * Meant to be used for statements inside of a bodies. As it is a part of a function call flow,
+		 * at least one call should be present in the call stack.
+		 */
 		static evaluateRules(rules, scope) {
 			for(let rule of rules ?? []) {
 				let value = this.rules[rule.type]?.(rule, scope);
