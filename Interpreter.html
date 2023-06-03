@@ -3808,7 +3808,7 @@ body {
 				let function_ = this.rules[node.callee.type]?.(node.callee, scope),
 					arguments_ = []
 
-				if(function_?.inheritance[0] !== 'Function') {
+				if(function_?.type !== 'reference' || (function_ = this.getComposite(function_.value)) == null || function_.inheritance[0] !== 'Function') {
 					this.report(2, node, 'Composite is not a function or wasn\'t found.');
 
 					return;
@@ -3831,7 +3831,7 @@ body {
 			chainExpression: (node, scope) => {
 				let composite = this.rules[node.composite?.type](node.composite, scope);
 
-				if(typeof composite?.address !== 'number') {
+				if(composite?.type !== 'reference' || (composite = this.getComposite(composite.value)) == null) {
 					this.report(2, node, 'Composite wasn\'t found.');
 
 					return;
@@ -3856,7 +3856,7 @@ body {
 
 				let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -3867,7 +3867,7 @@ body {
 					identifier = node.identifier.value,
 					composite = this.createEnumeration(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -3886,7 +3886,7 @@ body {
 					returnType = this.createType(false, false, [], true, false),
 					composite = this.createFunction(identifier, [], [], -1, -1, returnType, statements, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -3904,7 +3904,7 @@ body {
 				}[node.value]?.();
 
 				if(address != null) {
-					return this.getComposite(address);
+					return this.createValue('reference', address);
 				}
 
 				let member = this.findMember(scope, node.value);
@@ -3914,10 +3914,6 @@ body {
 				}
 
 				// TODO: Access-related checks
-
-				if(typeof member.value === 'number' && !['int', 'float'].includes(member.type.inheritance[0])) {
-					return this.getComposite(member.value);
-				}
 
 				return member.value;
 			},
@@ -3931,7 +3927,7 @@ body {
 					identifier = node.identifier.value,
 					composite = this.createNamespace(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -3942,7 +3938,7 @@ body {
 					identifier = node.identifier.value,
 					composite = this.createProtocol(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -3955,7 +3951,15 @@ body {
 					if(segment.type === 'stringSegment') {
 						string += segment.value;
 					} else {
-						string += this.rules[segment.value?.type]?.(segment.value, scope) ?? '';
+						let value = this.rules[segment.value?.type]?.(segment.value, scope);
+
+						if(['boolean', 'float', 'integer', 'string'].includes(value.type)) {
+							value = value.value;
+						} else {
+							value = '[not implemented]';  // TODO: Primitives to string conversion
+						}
+
+						string += value ?? '';
 					}
 				}
 
@@ -3968,7 +3972,7 @@ body {
 					identifier = node.identifier.value,
 					composite = this.createStructure(identifier, scope),
 					type = this.createType(false, true, [composite.address, 'Self'], false, false),
-					value = composite,
+					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -4314,7 +4318,7 @@ body {
 		}
 
 		static createObject(scope) {
-			let object = this.createComposite(scope.title, ['Object'], scope);
+			let object = this.createComposite((scope.title ?? '#'+scope.address)+'()', ['Object'], scope);
 
 			object.members = []
 
@@ -4432,15 +4436,30 @@ body {
 		}
 
 		static findMember(composite, identifier) {
-			while(composite != null) {
-				let member = this.getMember(composite, identifier);
+			// TODO: Imports lookup
 
-				if(member != null) {
-					return member;
+			let member = {
+				identifier: identifier
+			}
+
+			while(composite != null) {
+				let member_ = this.getMember(composite, identifier);
+
+				if(member_ != null) {
+					member.modifiers ??= member_.modifiers;
+					member.type ??= member_.type;
+					member.value ??= member_.value;
+					member.observers ??= member_.observers;
+
+					if(!Object.values(member).includes(undefined)) {
+						break;
+					}
 				}
 
 				composite = this.getComposite(composite.scopeAddress);
 			}
+
+			return member;
 		}
 
 		static getMember(composite, identifier) {
