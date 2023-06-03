@@ -363,7 +363,7 @@ body {
 					'any', 'async', 'await', 'awaits',
 					'bool', 'break',
 					'case', 'catch', 'class', 'continue',
-					'default', 'do',
+					'default', 'dict', 'do',
 					'else', 'enum', 'extension',
 					'fallthrough', 'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'inout', 'int', 'is',
@@ -2742,6 +2742,7 @@ body {
 
 					'keywordAny',
 					'keywordBool',
+					'keywordDict',
 					'keywordFloat',
 					'keywordInt',
 					'keywordString',
@@ -3798,6 +3799,11 @@ body {
 				this.evaluateRules(this.tree?.statements, namespace);
 				this.calls.pop();
 			},
+			booleanLiteral: (node) => {
+				// TODO: Instantinate Boolean()
+
+				return this.createValue('boolean', node.value === 'keywordTrue');
+			},
 			callExpression: (node, scope) => {
 				let function_ = this.rules[node.callee.type]?.(node.callee, scope),
 					arguments_ = []
@@ -3816,9 +3822,9 @@ body {
 					}
 				}
 
-				this.report(0, node, 'ca: '+function_.title+', '+function_.address);
+			//	this.report(0, node, 'ca: '+function_.title+', '+function_.address);
 				let value = this.callFunction(function_, arguments_);
-				this.report(0, node, 'ke: '+JSON.stringify(value));
+			//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
 			},
@@ -3868,6 +3874,11 @@ body {
 				this.evaluateRules(node.body?.statements, composite);
 			},
 			expressionsSequence: (node, scope) => {},
+			floatLiteral: (node) => {
+				// TODO: Instantinate Float()
+
+				return this.createValue('float', node.value*1);
+			},
 			functionDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
@@ -3886,8 +3897,10 @@ body {
 					Global: () => 0,  // Global-type
 					self: () => scope.address,  // Self-object or a type
 					Self: () => scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address,  // Self-type
+					metaSelf: () => undefined,  // Self-object or a type descriptor
 					super: () => undefined,  // Super-object or a type
-					Super: () => undefined  // Super-type
+					Super: () => undefined,  // Super-type,
+					arguments: () => undefined  // Function arguments array
 				}[node.value]?.();
 
 				if(address != null) {
@@ -3900,13 +3913,18 @@ body {
 					return;
 				}
 
-				// Access-related checks
+				// TODO: Access-related checks
 
-				if(typeof member.value === 'number') {
+				if(typeof member.value === 'number' && !['int', 'float'].includes(member.type.inheritance[0])) {
 					return this.getComposite(member.value);
 				}
 
 				return member.value;
+			},
+			integerLiteral: (node) => {
+				// TODO: Instantinate Integer()
+
+				return this.createValue('integer', node.value*1);
 			},
 			namespaceDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
@@ -3930,6 +3948,21 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
 			},
+			stringLiteral: (node, scope) => {
+				let string = '';
+
+				for(let segment of node.segments) {
+					if(segment.type === 'stringSegment') {
+						string += segment.value;
+					} else {
+						string += this.rules[segment.value?.type]?.(segment.value, scope) ?? '';
+					}
+				}
+
+				// TODO: Instantinate String()
+
+				return this.createValue('string', string);
+			},
 			structureDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
@@ -3942,7 +3975,7 @@ body {
 				this.evaluateRules(node.body?.statements, composite);
 			},
 			variableDeclaration: (node, scope) => {
-				let modifiers = node.modifiers
+				let modifiers = node.modifiers;
 
 				for(let declarator of node.declarators) {
 					let identifier = declarator.identifier.value,
@@ -4056,13 +4089,13 @@ body {
 				this.retainComposite(scope, composite);
 			}
 
-			this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
+		//	this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
 
 			return composite;
 		}
 
 		static destroyComposite(composite) {
-			this.report(1, undefined, 'de: '+JSON.stringify(composite));
+		//	this.report(1, undefined, 'de: '+JSON.stringify(composite));
 
 			delete this.composites[composite.address]
 
@@ -4211,6 +4244,8 @@ body {
 			function_.throws = throws;
 			function_.returnType = returnType;
 			function_.statements = statements;
+			function_.members = []
+			function_.observers = []
 
 			return function_;
 		}
@@ -4310,6 +4345,13 @@ body {
 				inheritance: inheritance,
 				nillable: nillable,
 				variadic: variadic
+			}
+		}
+
+		static createValue(type, value) {
+			return {
+				type: type,  // 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string'
+				value: value
 			}
 		}
 
@@ -4482,7 +4524,7 @@ body {
 		}
 
 		static memberRetains(retainedComposite, retainingComposite) {
-			// TODO: Should also support in-type retains (or they should be ignored?)
+			// In-type retains check will not be supported until appearance of case where it's needed
 
 			for(let member of retainingComposite.members ?? []) {
 				if(member.value === retainedComposite.address) {
