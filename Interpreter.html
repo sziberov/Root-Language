@@ -3808,7 +3808,7 @@ body {
 				return this.createValue('boolean', node.value === 'true');
 			},
 			callExpression: (node, scope) => {
-				let function_ = this.dereferenceValue(this.rules[node.callee.type]?.(node.callee, scope)),
+				let function_ = this.getValueComposite(this.rules[node.callee.type]?.(node.callee, scope)),
 					arguments_ = []
 
 				if(function_ == null || function_.inheritance[0] !== 'Function') {
@@ -3832,7 +3832,7 @@ body {
 				return value;
 			},
 			chainExpression: (node, scope) => {
-				let composite = this.dereferenceValue(this.rules[node.composite?.type](node.composite, scope));
+				let composite = this.getValueComposite(this.rules[node.composite?.type](node.composite, scope));
 
 				if(composite == null) {
 					this.report(2, node, 'Composite wasn\'t found.');
@@ -4218,7 +4218,7 @@ body {
 			}
 
 			let previousNamespace = previousCall.namespace,
-				currentReturn = this.dereferenceValue(currentCall.return);
+				currentReturn = this.getValueComposite(currentCall.return);
 
 			return (
 				this.compositeReachable(composite, previousNamespace) || currentReturn != null &&
@@ -4295,13 +4295,14 @@ body {
 		 */
 		static evaluateRules(rules, scope) {
 			for(let rule of rules ?? []) {
-				let value = this.rules[rule.type]?.(rule, scope);
+				let value = this.rules[rule.type]?.(rule, scope),
+					composite = this.getValueComposite(value);
 
 				if(rule.type === 'returnStatement') {
 					this.calls.at(-1).return = value;
 				}
-				if((value = this.dereferenceValue(value)) != null && !this.compositeRetained(value)) {
-					this.destroyComposite(value);
+				if(composite != null && !this.compositeRetained(composite)) {
+					this.destroyComposite(composite);
 				}
 
 				if(rule.type === 'returnStatement') {
@@ -4356,19 +4357,19 @@ body {
 			}
 		}
 
-		static createValue(type, value) {
+		static createValue(type, object) {
 			return {
 				type: type,  // 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string'
-				value: value
+				object: object
 			}
 		}
 
-		static dereferenceValue(value) {
+		static getValueComposite(value) {
 			if(!['pointer', 'reference'].includes(value?.type)) {
 				return;
 			}
 
-			return this.getComposite(value.value);
+			return this.getComposite(value.object);
 		}
 
 		static findImport(composite, identifier) {
@@ -4479,19 +4480,7 @@ body {
 		}
 
 		static setMember(composite, modifiers, identifier, type, value, observers) {
-			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
-				oldValue = this.dereferenceValue(member.value),
-				newValue = this.dereferenceValue(value);
-
-			/* Default modifiers can be checked dynamically, not need to fill all arrays with defaults
-			if(
-				!modifiers.includes('private') &&
-				!modifiers.includes('protected') &&
-				!modifiers.includes('public')
-			) {
-				modifiers.push('public');
-			}
-			*/
+			let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1]
 
 			member.modifiers = modifiers;
 			member.identifier = identifier;
@@ -4499,11 +4488,14 @@ body {
 			member.value = value;
 			member.observers = observers;
 
-			if(oldValue != null && oldValue !== newValue) {
-				this.releaseComposite(oldValue, composite);
+			let ovc = this.getValueComposite(member.value),  // Old/new value composite
+				nvc = this.getValueComposite(value);
+
+			if(ovc != null && ovc !== nvc) {
+				this.releaseComposite(ovc, composite);
 			}
-			if(newValue != null) {
-				this.retainComposite(newValue, composite);
+			if(nvc != null) {
+				this.retainComposite(nvc, composite);
 			}
 		}
 
@@ -4520,7 +4512,7 @@ body {
 				return;
 			}
 
-			let value = this.dereferenceValue(member.value);
+			let value = this.getValueComposite(member.value);
 
 			if(value != null) {
 				this.releaseComposite(value, composite);
@@ -4559,7 +4551,7 @@ body {
 			// In-type retains check will not be supported until appearance of case where it's needed
 
 			for(let member of retainingComposite.members ?? []) {
-				if(this.dereferenceValue(member.value) === retainedComposite) {
+				if(this.getValueComposite(member.value) === retainedComposite) {
 					return true;
 				}
 
