@@ -80,6 +80,18 @@ body {
 		static states;
 
 		static rules = [
+			['#!', (v) => {
+				if(this.atComments || this.atString) {
+					this.ruleHelpers.continueString();
+					this.token.value += v;
+				} else
+				if(this.position === 0) {
+					this.addToken('commentShebang', v);
+					this.addState('comment');
+				} else {
+					return true;
+				}
+			}],
 			[['/*', '*/'], (v) => {
 				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
@@ -280,7 +292,7 @@ body {
 				}
 			}],
 			[/\n/g, (v) => {
-				if(this.atComments && this.token.type !== 'commentLine' || this.atString) {
+				if(this.atComments && !['commentShebang', 'commentLine'].includes(this.token.type) || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -290,7 +302,7 @@ body {
 				if(this.token.type !== 'whitespace') {
 					this.addToken('whitespace', v);
 
-					if(this.getToken(-1).type === 'commentLine') {
+					if(this.atComments) {
 						this.removeState('comment');
 					}
 				} else {
@@ -336,7 +348,7 @@ body {
 				this.ruleHelpers.finalizeOperator();
 				this.addToken('numberInteger', v);
 			}],
-			[/[a-z_][a-z0-9_]*/gi, (v) => {
+			[/[a-z_$][a-z0-9_$]*/gi, (v) => {
 				if(this.atComments || this.atString) {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
@@ -406,7 +418,7 @@ body {
 				}
 			}],
 			[/./g, (v) => {
-				if(this.token.type === 'commentBlock' || this.token.type === 'commentLine' && v !== '\n' || this.atString || this.token.type === 'unsupported') {
+				if(this.atComments || this.atString || this.token.type === 'unsupported') {
 					this.ruleHelpers.continueString();
 					this.token.value += v;
 
@@ -2195,7 +2207,7 @@ body {
 				let node = {
 					type: 'inoutExpression',
 					range: {},
-					identifier: undefined
+					value: undefined
 				}
 
 				if(this.token.type !== 'operatorPrefix' || this.token.value !== '&') {
@@ -2203,15 +2215,15 @@ body {
 				}
 
 				node.range.start = this.position++;
-				node.identifier = this.rules.identifier();
+				node.value = this.rules.postfixExpression();
 
-				if(node.identifier == null) {
+				if(node.value == null) {
 					this.position--;
 
 					return;
 				}
 
-				node.range.end = node.identifier.range.end;
+				node.range.end = this.position-1;
 
 				return node;
 			},
@@ -3827,7 +3839,7 @@ body {
 
 			//	this.report(0, node, 'ca: '+function_.title+', '+function_.address);
 				let value = this.callFunction(function_, arguments_);
-			//	this.report(0, node, 'ke: '+JSON.stringify(value));
+				this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
 			},
@@ -3920,6 +3932,20 @@ body {
 
 				return member.value;
 			},
+			inoutExpression: (node, scope) => {
+				let value = this.rules[node.value?.type]?.(node.value, scope);
+
+				if(value?.type === 'pointer') {
+					return value;
+				}
+				if(value?.type !== 'reference') {
+					this.report(2, node, 'Non-reference value ("'+(value?.type ?? 'nil')+'") can\'t be used as a pointer.');
+
+					return;
+				}
+
+				return this.createValue('pointer', value.object);
+			},
 			integerLiteral: (node) => {
 				// TODO: Instantinate Integer()
 
@@ -3935,6 +3961,56 @@ body {
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
+			},
+			parenthesizedExpression: (node, scope) => {
+				return this.rules[node.value?.type]?.(node.value, scope);
+			},
+			prefixExpression: (node, scope) => {
+				let value = this.rules[node.value?.type]?.(node.value, scope);
+
+				if(value == null) {
+					return;
+				}
+
+				if(node.operator?.value === '!' && value.type === 'boolean') {
+					return this.createValue('boolean', !value.object);
+				}
+				if(node.operator?.value === '++' && value.type === 'integer') {
+					value.object++;
+
+					return this.createValue('integer', value.object);
+				}
+				if(node.operator?.value === '--' && value.type === 'integer') {
+					value.object--;
+
+					return this.createValue('integer', value.object);
+				}
+
+				//TODO: Dynamic operators lookup
+
+				return value;
+			},
+			postfixExpression: (node, scope) => {
+				let value = this.rules[node.value?.type]?.(node.value, scope);
+
+				if(value == null) {
+					return;
+				}
+
+				if(node.operator?.value === '++' && value.type === 'integer') {
+					value.object++;
+
+					return this.createValue('integer', value.object-1);
+				}
+				if(node.operator?.value === '--' && value.type === 'integer') {
+					value.object--;
+
+					return this.createValue('integer', value.object+1);
+				}
+
+				//TODO: Dynamic operators lookup
+
+				return value;
 			},
 			protocolDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
@@ -3957,7 +4033,7 @@ body {
 						let value = this.rules[segment.value?.type]?.(segment.value, scope);
 
 						if(['boolean', 'float', 'integer', 'string'].includes(value?.type)) {
-							value = value.value;
+							value = value.object;
 						} else
 						if(value != null) {
 							value = '[not implemented]';  // TODO: Primitives to string conversion
@@ -4259,12 +4335,16 @@ body {
 		}
 
 		/*
-		 * Forwarding allows a function to be run in its scope directly. Although do not creating a temporary namespace
-		 * also means that the scope will be not protected from destroy by release sequence while function still running.
+		 * Forwarding allows a function's statements to be evaluated in its scope directly. Although do not creating a
+		 * temporary namespace also means that the scope will not be protected from destroy by release sequence while function is running.
+		 *
+		 * If no scope is specified, default function's scope is used.
 		 */
-		static callFunction(function_, arguments_, forwarded) {
-			let functionScope = this.getComposite(function_.scopeAddress),
-				namespace = !forwarded ? this.createNamespace((function_.title ?? '#'+function_.address)+'()', functionScope) : functionScope,
+		static callFunction(function_, arguments_, forwarded, scope) {
+			scope ??= this.getComposite(function_.scopeAddress);
+
+			let namespaceTitle = (function_.title ?? '#'+function_.address)+'()',
+				namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
 				call = {
 					function: function_,
 					namespace: namespace,
@@ -4323,7 +4403,8 @@ body {
 		}
 
 		static createObject(scope) {
-			let object = this.createComposite((scope.title ?? '#'+scope.address)+'()', ['Object'], scope);
+			let title = (scope.title ?? '#'+scope.address)+'()',
+				object = this.createComposite(title, ['Object'], scope);
 
 			object.members = []
 
