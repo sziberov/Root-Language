@@ -386,7 +386,7 @@ body {
 					'return',
 					'static', 'string', 'struct', 'switch',
 					'throw', 'throws', 'true', 'try',
-					'var',
+					'var', 'virtual',
 					'where', 'while',
 					'_'
 				]
@@ -2331,21 +2331,37 @@ body {
 				return node;
 			},
 			modifiers: () => {
-				let values = []
+				let values = [],
+					start = this.position,
+					keywords = [
+						'keywordInfix',
+						'keywordPostfix',
+						'keywordPrefix',
 
-				while([
-					'keywordInfix',
-					'keywordPostfix',
-					'keywordPrefix',
-					'keywordPrivate',
-					'keywordProtected',
-					'keywordPublic',
-					'keywordStatic',
-					'keywordLazy',
-					'keywordFinal'
-				].includes(this.token.type)) {
+						'keywordPrivate',
+						'keywordProtected',
+						'keywordPublic',
+
+						'keywordFinal',
+						'keywordLazy',
+						'keywordStatic',
+						'keywordVirtual'
+					]
+
+				while(keywords.includes(this.token.type)) {
 					values.push(this.token.value);
 					this.position++;
+				}
+
+				let operator = ['infix', 'postfix', 'prefix'],
+					access = ['private', 'protected', 'public']
+
+				if(
+					values.filter(v => operator.includes(v)).length > 1 ||
+					values.filter(v => access.includes(v)).length > 1 ||
+					values.includes('final') && values.includes('virtual')
+				) {
+					this.report(1, start, 'modifiers', 'Mutual exclusion.');
 				}
 
 				return values;
