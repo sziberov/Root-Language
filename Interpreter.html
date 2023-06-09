@@ -3914,7 +3914,9 @@ body {
 					Self: () => scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address,  // Self-type
 					metaSelf: () => undefined,  // Self-object or a type descriptor
 					super: () => undefined,  // Super-object or a type
-					Super: () => undefined,  // Super-type,
+					Super: () => undefined,  // Super-type
+					sub: () => undefined,  // Sub-object(s?)
+					Sub: () => undefined,  // Sub-type(s?)
 					arguments: () => undefined  // Function arguments array
 				}[node.value]?.();
 
@@ -4440,7 +4442,7 @@ body {
 
 		static createValue(type, object) {
 			return {
-				type: type,  // 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string'
+				type: type,  // 'boolean', 'dictionary', 'float', 'integer', 'node', 'pointer', 'reference', 'string'
 				object: object
 			}
 		}
