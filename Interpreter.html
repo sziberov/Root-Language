@@ -3886,7 +3886,7 @@ body {
 			//	for(let type of inheritance) {}
 
 				let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3897,7 +3897,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createEnumeration(identifier, scope),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3914,9 +3914,9 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					statements = node.body?.statements,
-					returnType = this.createType(false, [], true, false),
+					returnType = [this.createTypePart(undefined, undefined, ['predefined', 'nillable'], '_')],  // TODO: Real type from node
 					composite = this.createFunction(identifier, [], [], -1, -1, returnType, statements, scope),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],  // TODO: Real type from function
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3953,16 +3953,16 @@ body {
 			inoutExpression: (node, scope) => {
 				let value = this.rules[node.value?.type]?.(node.value, scope);
 
-				if(value?.type === 'pointer') {
+				if(value?.primitiveType === 'pointer') {
 					return value;
 				}
-				if(value?.type !== 'reference') {
-					this.report(2, node, 'Non-reference value ("'+(value?.type ?? 'nil')+'") can\'t be used as a pointer.');
+				if(value?.primitiveType !== 'reference') {
+					this.report(2, node, 'Non-reference value ("'+(value?.primitiveType ?? 'nil')+'") can\'t be used as a pointer.');
 
 					return;
 				}
 
-				return this.createValue('pointer', value.object);
+				return this.createValue('pointer', value.primitiveValue);
 			},
 			integerLiteral: (node) => {
 				// TODO: Instantinate Integer()
@@ -3973,7 +3973,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createNamespace(identifier, scope),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3990,18 +3990,18 @@ body {
 					return;
 				}
 
-				if(node.operator?.value === '!' && value.type === 'boolean') {
-					return this.createValue('boolean', !value.object);
+				if(node.operator?.value === '!' && value.primitiveType === 'boolean') {
+					return this.createValue('boolean', !value.primitiveValue);
 				}
-				if(node.operator?.value === '++' && value.type === 'integer') {
-					value.object++;
+				if(node.operator?.value === '++' && value.primitiveType === 'integer') {
+					value.primitiveValue++;
 
-					return this.createValue('integer', value.object);
+					return this.createValue('integer', value.primitiveValue);
 				}
-				if(node.operator?.value === '--' && value.type === 'integer') {
-					value.object--;
+				if(node.operator?.value === '--' && value.primitiveType === 'integer') {
+					value.primitiveValue--;
 
-					return this.createValue('integer', value.object);
+					return this.createValue('integer', value.primitiveValue);
 				}
 
 				//TODO: Dynamic operators lookup
@@ -4015,15 +4015,15 @@ body {
 					return;
 				}
 
-				if(node.operator?.value === '++' && value.type === 'integer') {
-					value.object++;
+				if(node.operator?.value === '++' && value.primitiveType === 'integer') {
+					value.primitiveValue++;
 
-					return this.createValue('integer', value.object-1);
+					return this.createValue('integer', value.primitiveValue-1);
 				}
-				if(node.operator?.value === '--' && value.type === 'integer') {
-					value.object--;
+				if(node.operator?.value === '--' && value.primitiveType === 'integer') {
+					value.primitiveValue--;
 
-					return this.createValue('integer', value.object+1);
+					return this.createValue('integer', value.primitiveValue+1);
 				}
 
 				//TODO: Dynamic operators lookup
@@ -4034,7 +4034,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createProtocol(identifier, scope),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -4050,8 +4050,8 @@ body {
 					} else {
 						let value = this.rules[segment.value?.type]?.(segment.value, scope);
 
-						if(['boolean', 'float', 'integer', 'string'].includes(value?.type)) {
-							value = value.object;
+						if(['boolean', 'float', 'integer', 'string'].includes(value?.primitiveType)) {
+							value = value.primitiveValue;
 						} else
 						if(value != null) {
 							value = '[not implemented]';  // TODO: Primitives to string conversion
@@ -4069,7 +4069,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createStructure(identifier, scope),
-					type = this.createType(false, [composite.address, 'Self'], false, false),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -4091,61 +4091,141 @@ body {
 				}
 			},
 			type: (node, scope) => {
-				let type = this.createType(false, [], true, false);
+				let type = [this.createTypePart()]
 
-				this.rules[node?.type]?.(node, type, scope);
+				this.rules[node?.type]?.(node, type, type[0], scope);
 
 				return type;
 			},
-			typeIdentifier: (node, type, scope) => {
+			typeIdentifier: (node, type, typePart, scope) => {
 				let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
 				if(composite == null || composite.inheritance[0] === 'Object') {
 					this.report(2, node, 'Composite is an object or wasn\'t found.');
+				}
 
+				if(!typePart.flags.includes('reference')) {
+					typePart.flags.push('reference');
+				} else {
+					this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
+				}
+
+				typePart.value = composite?.address;
+
+				if(composite == null || node.genericArguments.length === 0) {
 					return;
 				}
 
-				type.inheritance.push({
-					address: composite.address,
-					genericInheritance: []
-				});
+				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
+					typePart.flags.push('genericArguments');
+				} else {
+					typePart = this.createTypePart(type, typePart, ['genericArguments']);
+				}
+
+				for(let genericArgument of node.genericArguments) {
+					let typePart_ = this.createTypePart(type, typePart);
+
+					this.rules[genericArgument.type]?.(genericArgument, type, typePart_, scope);
+				}
 			},
-			parenthesizedType: (node, type, scope) => {
-				this.rules[node.value?.type]?.(node.value, type, scope);
+			parenthesizedType: (node, type, typePart, scope) => {
+				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
 			},
-			predefinedType: (node, type) => {
-				type.inheritance.push(node.value);
+			predefinedType: (node, type, typePart) => {
+				if(!typePart.flags.includes('predefined')) {
+					typePart.flags.push('predefined');
+				} else {
+					this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+node.value+'".');
+				}
+
+				typePart.value = node.value;
 			},
 			returnStatement: (node, scope) => {
 				return this.rules[node.value?.type]?.(node.value, scope);
 			},
-			variadicType: (node, type, scope) => {
-				type.variadic = true;
+			defaultType: (node, type, typePart, scope) => {
+				if(
+					!typePart.flags.includes('default') &&
+					!typePart.flags.includes('nillable')
+				) {
+					typePart.flags.push('default');
+				}
 
-				this.rules[node.value?.type]?.(node.value, type, scope);
+				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
 			},
-			inoutType: (node, type, scope) => {
-				type.inout = true;
+			nillableType: (node, type, typePart, scope) => {
+				if(
+					!typePart.flags.includes('default') &&
+					!typePart.flags.includes('nillable')
+				) {
+					typePart.flags.push('nillable');
+				}
 
-				this.rules[node.value?.type]?.(node.value, type, scope);
+				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
 			},
-			unionType: (node, type, scope) => {
+			variadicType: (node, type, typePart, scope) => {
+				if(!typePart.flags.includes('variadic')) {
+					typePart.flags.push('variadic');
+				}
+
+				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			},
+			inoutType: (node, type, typePart, scope) => {
+				if(!typePart.flags.includes('inout')) {
+					typePart.flags.push('inout');
+				}
+
+				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			},
+			unionType: (node, type, typePart, scope) => {
+				if(node.subtypes.length === 0) {
+					return;
+				}
+
+				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
+					typePart.flags.push('union');
+				} else {
+					typePart = this.createTypePart(type, typePart, ['union']);
+				}
+
 				for(let subtype of node.subtypes) {
-					let subinheritance = this.rules.type(subtype, scope)?.inheritance;
+					let typePart_ = this.createTypePart(type, typePart);
 
-					if(subinheritance.length > 1) {
-						type.inheritance.push(subinheritance);
-					} else
-					if(subinheritance.length === 1) {
-						type.inheritance.push(subinheritance[0]);
-					}
+					this.rules[subtype.type]?.(subtype, type, typePart_, scope);
 				}
 			},
-			intersectionType: (node, type, scope) => {
-				for(let subtype of node.subtypes) {
-					type.inheritance.push(...this.rules.type(subtype, scope)?.inheritance);
+			intersectionType: (node, type, typePart, scope) => {
+				if(node.subtypes.length === 0) {
+					return;
 				}
+
+				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
+					typePart.flags.push('intersection');
+				} else {
+					typePart = this.createTypePart(type, typePart, ['intersection']);
+				}
+
+				for(let subtype of node.subtypes) {
+					let typePart_ = this.createTypePart(type, typePart);
+
+					this.rules[subtype.type]?.(subtype, type, typePart_, scope);
+				}
+			}
+		}
+
+		static ruleHelpers = {
+			typePartHasCollectionFlag(typePart) {
+				let collectionFlags = [
+					'array',
+					'dictionary',
+					'genericArguments',
+					'genericParameters',
+					'intersection',
+					'parameters',
+					'union'
+				]
+
+				return typePart.flags.some(v => collectionFlags.includes(v));
 			}
 		}
 
@@ -4172,7 +4252,7 @@ body {
 			let composite = {
 				address: this.composites.length,
 				title: title,
-				inheritance: inheritance,
+				inheritance: inheritance ?? [],
 				scopeAddress: scope?.address,
 				retainersAddresses: []
 			}
@@ -4332,12 +4412,12 @@ body {
 		static createFunction(title, genericParameters, parameters, awaits, throws, returnType, statements, scope) {
 			let function_ = this.createComposite(title, ['Function'], scope);
 
-			function_.genericParameters = genericParameters;
-			function_.parameters = parameters;
+			function_.genericParameters = genericParameters ?? []
+			function_.parameters = parameters ?? []
 			function_.awaits = awaits;
 			function_.throws = throws;
 			function_.returnType = returnType;
-			function_.statements = statements;
+			function_.statements = statements ?? []
 			function_.members = []
 			function_.observers = []
 
@@ -4440,36 +4520,50 @@ body {
 
 		static createType() {}
 
-		static getType(value) {
-			let subtype = {
+		static createTypePart(type, superTypePart, flags, value) {
+			let typePart = {
 				super: undefined,
-				mask: [],
-				value: undefined
+				flags: flags ?? [],
+				value: value
 			}
 
-			if(!['node', 'pointer', 'reference'].includes(value.type)) {
-				subtype.mask.push('predefined');
-				subtype.value = value.type;
-			} else
-			if(value.type === 'node') {
-				subtype.mask.push('node');
-				subtype.value = value.object.type;
-			} else {
-				if(value.type === 'pointer') {
-					subtype.mask.push('inout');
+			if(type != null) {
+				if(typePart != null) {
+					typePart.super = type.indexOf(superTypePart);
 				}
 
-				subtype.mask.push('reference');
-				subtype.value = value.object;
+				type.push(typePart);
+			}
 
-				let composite = this.getValueComposite(value.object);
+			return typePart;
+		}
+
+		static getType(value) {
+			let typePart = this.createTypePart();
+
+			if(!['node', 'pointer', 'reference'].includes(value.primitiveType)) {
+				typePart.flags.push('predefined');
+				typePart.value = value.primitiveType;
+			} else
+			if(value.primitiveType === 'node') {
+				typePart.flags.push('node');
+				typePart.value = value.primitiveValue.type;
+			} else {
+				if(value.primitiveType === 'pointer') {
+					typePart.flags.push('inout');
+				}
+
+				typePart.flags.push('reference');
+				typePart.value = value.primitiveValue;
+
+				let composite = this.getValueComposite(value);
 
 				while(composite != null) {
 					if(composite.inheritance[0] !== 'Object') {
-						if(composite.address === value.object) {
-							subtype.mask.push('self');
+						if(composite.address === value.primitiveValue) {
+							typePart.flags.push('self');
 						} else {
-							subtype.value = composite.address;
+							typePart.value = composite.address;
 						}
 					} else {
 						composite = this.getComposite(composite.scopeAddress);
@@ -4477,22 +4571,22 @@ body {
 				}
 			}
 
-			return [subtype]
+			return [typePart]
 		}
 
-		static createValue(type, object) {
+		static createValue(primitiveType, primitiveValue) {
 			return {
-				type: type,  // 'boolean', 'dictionary', 'float', 'integer', 'node', 'pointer', 'reference', 'string'
-				object: object
+				primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'node', 'pointer', 'reference', 'string'
+				primitiveValue: primitiveValue	// boolean, integer, map (object), string, AST node
 			}
 		}
 
 		static getValueComposite(value) {
-			if(!['pointer', 'reference'].includes(value?.type)) {
+			if(!['pointer', 'reference'].includes(value?.primitiveType)) {
 				return;
 			}
 
-			return this.getComposite(value.object);
+			return this.getComposite(value.primitiveValue);
 		}
 
 		static findImport(composite, identifier) {

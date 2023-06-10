@@ -1,10 +1,10 @@
-// Rules for a type descriptor parts:
-// - One TDP can have only one collection mask.
-// - TDPs that have collection masks should also have children.
-// - Non-first collection masks are attached as a separate child TDPs.
+// Rules for a type parts:
+// - One TP can have only one collection flag.
+// - TPs that have collection flags should also have children.
+// - Non-first collection flags are attached as a separate child TPs.
 // - Masks that are not mutually exclusive can be combined.
 // - Masks can not be ambigously combined (e.g. variadic array type vs array of variadic type).
-// - TDPs should be minimalistic and can not be redundant.
+// - TPs should be minimalistic and can not be redundant.
 
 //    inout A! | _? & Global<B>...
 // 0: inout    |               ...
@@ -17,32 +17,32 @@
 let type0 = [
 	{
 		super: undefined,
-		mask: ['inout', 'union', 'variadic'],
+		flags: ['inout', 'union', 'variadic'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['reference', 'default'],
+		flags: ['reference', 'default'],
 		value: 'A'  // Composite's address
 	},
 	{
 		super: 0,
-		mask: ['intersection'],
+		flags: ['intersection'],
 		value: undefined
 	},
 	{
 		super: 2,
-		mask: ['predefined', 'nillable'],
+		flags: ['predefined', 'nillable'],
 		value: '_'
 	},
 	{
 		super: 2,
-		mask: ['reference', 'genericArguments'],
+		flags: ['reference', 'genericArguments'],
 		value: 'Global'
 	},
 	{
 		super: 4,
-		mask: ['reference'],
+		flags: ['reference'],
 		value: 'B'
 	}
 ]
@@ -57,27 +57,27 @@ let type0 = [
 let type1 = [
 	{
 		super: undefined,
-		mask: ['intersection'],
+		flags: ['intersection'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['union'],
+		flags: ['union'],
 		value: undefined
 	},
 	{
 		super: 1,
-		mask: ['reference'],
+		flags: ['reference'],
 		value: 'A'
 	},
 	{
 		super: 1,
-		mask: ['reference'],
+		flags: ['reference'],
 		value: 'B'
 	},
 	{
 		super: 0,
-		mask: ['reference'],
+		flags: ['reference'],
 		value: 'C'
 	}
 ]
@@ -88,7 +88,7 @@ let type1 = [
 let type2 = [
 	{
 		super: undefined,
-		mask: ['predefined'],
+		flags: ['predefined'],
 		value: 'Function'
 	}
 ]
@@ -103,27 +103,27 @@ let type2 = [
 let type3 = [
 	{
 		super: undefined,
-		mask: ['function', 'genericParameters', 'awaits?', 'throws?'],
+		flags: ['function', 'genericParameters', 'awaits?', 'throws?'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['variadic'],
+		flags: ['variadic'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['parameters'],
+		flags: ['parameters'],
 		value: undefined
 	},
 	{
 		super: 2,
-		mask: ['variadic'],
+		flags: ['variadic'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['return', 'predefined', 'nillable'],
+		flags: ['return', 'predefined', 'nillable'],
 		value: '_'
 	}
 ]
@@ -137,22 +137,22 @@ let type3 = [
 let type3 = [
 	{
 		super: undefined,
-		mask: ['function', 'awaits', 'throws'],
+		flags: ['function', 'awaits', 'throws'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['array', 'variadic'],
+		flags: ['array', 'variadic'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['variadic'],
+		flags: ['variadic'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['return', 'predefined'],
+		flags: ['return', 'predefined'],
 		value: '_'
 	}
 ]
@@ -164,12 +164,12 @@ let type3 = [
 let type4 = [
 	{
 		super: undefined,
-		mask: ['function', 'nillable'],
+		flags: ['function', 'nillable'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['return', 'predefined'],
+		flags: ['return', 'predefined'],
 		value: '_'
 	}
 ]
@@ -181,12 +181,12 @@ let type4 = [
 let type5 = [
 	{
 		super: undefined,
-		mask: ['function', 'genericParameters'],
+		flags: ['function', 'genericParameters'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['predefined'],
+		flags: ['predefined'],
 		value: '_'
 	}
 ]
@@ -198,12 +198,12 @@ let type5 = [
 let type6 = [
 	{
 		super: undefined,
-		mask: ['array'],
+		flags: ['array'],
 		value: undefined
 	},
 	{
 		super: 0,
-		mask: ['predefined', 'nillable'],
+		flags: ['predefined', 'nillable'],
 		value: '_'
 	}
 ]
@@ -215,12 +215,12 @@ let type6 = [
 let type7 = [
 	{
 		super: undefined,
-		mask: ['reference', 'genericArguments'],
+		flags: ['reference', 'genericArguments'],
 		value: 'Array'
 	},
 	{
 		super: 0,
-		mask: ['predefined', 'nillable'],
+		flags: ['predefined', 'nillable'],
 		value: '_'
 	}
 ]
