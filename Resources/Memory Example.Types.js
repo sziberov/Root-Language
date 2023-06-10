@@ -6,13 +6,13 @@
 // - Masks can not be ambigously combined (e.g. variadic array type vs array of variadic type).
 // - TDPs should be minimalistic and can not be redundant.
 
-//    inout A! | _? & Global<C>...
+//    inout A! | _? & Global<B>...
 // 0: inout    |               ...
 // 1:       A!
 // 2:               &
 // 3:            _?
 // 4:                 Global< >
-// 5:                        C
+// 5:                        B
 
 let type0 = [
 	{
@@ -23,7 +23,7 @@ let type0 = [
 	{
 		super: 0,
 		mask: ['reference', 'default'],
-		value: 1
+		value: 'A'  // Composite's address
 	},
 	{
 		super: 0,
@@ -38,12 +38,12 @@ let type0 = [
 	{
 		super: 2,
 		mask: ['reference', 'genericArguments'],
-		value: 0
+		value: 'Global'
 	},
 	{
 		super: 4,
 		mask: ['reference'],
-		value: 3
+		value: 'B'
 	}
 ]
 
@@ -68,17 +68,17 @@ let type1 = [
 	{
 		super: 1,
 		mask: ['reference'],
-		value: 1
+		value: 'A'
 	},
 	{
 		super: 1,
 		mask: ['reference'],
-		value: 2
+		value: 'B'
 	},
 	{
 		super: 0,
 		mask: ['reference'],
-		value: 3
+		value: 'C'
 	}
 ]
 
@@ -174,11 +174,28 @@ let type4 = [
 	}
 ]
 
+//    <T>() / <T: _>()
+// 0: < >() / <    >()
+// 1:  T    /  T: _
+
+let type5 = [
+	{
+		super: undefined,
+		mask: ['function', 'genericParameters'],
+		value: undefined
+	},
+	{
+		super: 0,
+		mask: ['predefined'],
+		value: '_'
+	}
+]
+
 //    [_?]
 // 0: [  ]
 // 1:  _?
 
-let type5 = [
+let type6 = [
 	{
 		super: undefined,
 		mask: ['array'],
@@ -195,11 +212,11 @@ let type5 = [
 // 0: Array<  >
 // 1:       _?
 
-let type6 = [
+let type7 = [
 	{
 		super: undefined,
 		mask: ['reference', 'genericArguments'],
-		value: 1 // Array's address
+		value: 'Array'
 	},
 	{
 		super: 0,

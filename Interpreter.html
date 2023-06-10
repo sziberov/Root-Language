@@ -1837,7 +1837,7 @@ body {
 				if(this.token.type.startsWith('operator') && this.token.value === '<') {
 					this.position++;
 					node.genericParameters = this.ruleHelpers.sequentialNodes(
-						['type'],
+						['genericParameter'],
 						() => this.token.type.startsWith('operator') && this.token.value === ','
 					);
 
@@ -4437,6 +4437,8 @@ body {
 
 			return structure;
 		}
+
+		static createType() {}
 
 		static getType(value) {
 			let subtype = {
