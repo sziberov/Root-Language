@@ -4131,6 +4131,35 @@ body {
 			parenthesizedType: (node, type, typePart, scope) => {
 				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
 			},
+			arrayType: (node, type, typePart, scope) => {
+				let array = this.getValueComposite(this.findMember(scope, 'Array')?.value);
+
+				if(array != null) {
+					if(!typePart.flags.includes('reference')) {
+						typePart.flags.push('reference');
+					} else {
+						this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+array.address+'".');
+					}
+
+					typePart.value = array.address;
+				}
+
+				let collectionFlag = array != null ? 'genericArguments' : 'array';
+
+				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
+					typePart.flags.push(collectionFlag);
+				} else {
+					typePart = this.createTypePart(type, typePart, [collectionFlag]);
+				}
+
+				if(node.value == null) {
+					this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
+				} else {
+					typePart = this.createTypePart(type, typePart);
+
+					this.rules[node.value.type]?.(node.value, type, typePart, scope);
+				}
+			},
 			predefinedType: (node, type, typePart) => {
 				if(!typePart.flags.includes('predefined')) {
 					typePart.flags.push('predefined');

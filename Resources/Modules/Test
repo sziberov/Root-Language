@@ -1,3 +1,7 @@
+struct Array {}
+
+var a: [Global]
+
 func A() {
 	struct AB {}  // Retain chain: AB -> A() -> Global
 
