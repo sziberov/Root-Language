@@ -4438,13 +4438,44 @@ body {
 			return structure;
 		}
 
-		static createType(inout, inheritance, nillable, variadic) {
-			return {
-				inout: inout,
-				inheritance: inheritance,
-				nillable: nillable,
-				variadic: variadic
+		static getType(value) {
+			let subtype = {
+				super: undefined,
+				mask: [],
+				value: undefined
 			}
+
+			if(!['node', 'pointer', 'reference'].includes(value.type)) {
+				subtype.mask.push('predefined');
+				subtype.value = value.type;
+			} else
+			if(value.type === 'node') {
+				subtype.mask.push('node');
+				subtype.value = value.object.type;
+			} else {
+				if(value.type === 'pointer') {
+					subtype.mask.push('inout');
+				}
+
+				subtype.mask.push('reference');
+				subtype.value = value.object;
+
+				let composite = this.getValueComposite(value.object);
+
+				while(composite != null) {
+					if(composite.inheritance[0] !== 'Object') {
+						if(composite.address === value.object) {
+							subtype.mask.push('self');
+						} else {
+							subtype.value = composite.address;
+						}
+					} else {
+						composite = this.getComposite(composite.scopeAddress);
+					}
+				}
+			}
+
+			return [subtype]
 		}
 
 		static createValue(type, object) {
