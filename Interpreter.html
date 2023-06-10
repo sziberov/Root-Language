@@ -2104,7 +2104,7 @@ body {
 
 				this.position++;
 				nodes = this.ruleHelpers.sequentialNodes(
-					['typeReference'],
+					['typeIdentifier'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
@@ -2884,7 +2884,7 @@ body {
 					this.rules.parenthesizedType() ??
 					this.rules.predefinedType() ??
 					this.rules.protocolType() ??
-					this.rules.typeReference();
+					this.rules.typeIdentifier();
 
 				return node;
 			},
@@ -3314,9 +3314,9 @@ body {
 
 				return node;
 			},
-			typeReference: () => {
+			typeIdentifier: () => {
 				let node = {
-					type: 'typeReference',
+					type: 'typeIdentifier',
 					range: {
 						start: this.position
 					},
@@ -3886,7 +3886,7 @@ body {
 			//	for(let type of inheritance) {}
 
 				let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3897,7 +3897,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createEnumeration(identifier, scope),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3914,9 +3914,9 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					statements = node.body?.statements,
-					returnType = this.createType(false, false, [], true, false),
+					returnType = this.createType(false, [], true, false),
 					composite = this.createFunction(identifier, [], [], -1, -1, returnType, statements, scope),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -3973,7 +3973,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createNamespace(identifier, scope),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -4034,7 +4034,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createProtocol(identifier, scope),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -4069,7 +4069,7 @@ body {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
 					composite = this.createStructure(identifier, scope),
-					type = this.createType(false, true, [composite.address, 'Self'], false, false),
+					type = this.createType(false, [composite.address, 'Self'], false, false),
 					value = this.createValue('reference', composite.address),
 					observers = []
 
@@ -4091,31 +4091,23 @@ body {
 				}
 			},
 			type: (node, scope) => {
-				let type = this.createType(false, false, [], true, false);
+				let type = this.createType(false, [], true, false);
 
 				this.rules[node?.type]?.(node, type, scope);
 
 				return type;
 			},
-			typeReference: (node, type, scope) => {
-				let member = this.findMember(scope, node.identifier.value);
+			typeIdentifier: (node, type, scope) => {
+				let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
-				if(typeof member?.value !== 'number') {
-					this.report(2, node, 'Can\'t find a reference member "'+member.identifier+'" in the scope.');
-
-					return;
-				}
-
-				let composite = this.getComposite(member.value);
-
-				if(composite.inheritance[0] === 'Object') {
-					this.report(2, node, 'Object can\'t be used as a type.');
+				if(composite == null || composite.inheritance[0] === 'Object') {
+					this.report(2, node, 'Composite is an object or wasn\'t found.');
 
 					return;
 				}
 
 				type.inheritance.push({
-					address: member.value,
+					address: composite.address,
 					genericInheritance: []
 				});
 			},
@@ -4370,7 +4362,7 @@ body {
 				}
 
 			for(let argument of arguments_ ?? []) {
-				this.setMember(namespace, [], argument.label, this.createType(false, false, [], true, false), argument.value, []);
+				this.setMember(namespace, [], argument.label, this.createType(false, [], true, false), argument.value, []);
 			}
 
 			this.calls.push(call);
@@ -4446,10 +4438,9 @@ body {
 			return structure;
 		}
 
-		static createType(inout, fixed, inheritance, nillable, variadic) {
+		static createType(inout, inheritance, nillable, variadic) {
 			return {
 				inout: inout,
-				fixed: fixed,
 				inheritance: inheritance,
 				nillable: nillable,
 				variadic: variadic
