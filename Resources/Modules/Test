@@ -1,3 +1,19 @@
+func do_(a) {
+  a()
+}
+
+struct Person {
+  var age = 0
+
+  func change() {
+    do_(func () {
+      self.age++
+    })
+  }
+}
+
+Person.change()
+
 struct Array {}
 
 var a: [Global]

@@ -1744,7 +1744,7 @@ body {
 				node.body = this.rules.functionBody();
 
 				if(node.signature == null) {
-					this.report(2, node.range.start, node.type, 'No signature.');
+					this.report(1, node.range.start, node.type, 'No signature.');
 				}
 				if(node.body == null) {
 					this.report(0, node.range.start, node.type, 'No body.');
@@ -3846,9 +3846,9 @@ body {
 					}
 				}
 
-			//	this.report(0, node, 'ca: '+function_.title+', '+function_.address);
+				this.report(0, node, 'ca: '+function_.title+', '+function_.address);
 				let value = this.callFunction(function_, arguments_);
-			//	this.report(0, node, 'ke: '+JSON.stringify(value));
+				this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
 			},
@@ -3943,16 +3943,25 @@ body {
 				return this.createValue('float', node.value*1);
 			},
 			functionDeclaration: (node, scope) => {
-				let modifiers = node.modifiers,
-					identifier = node.identifier.value,
-					signature = this.rules.functionSignature(node.signature, scope),
-					statements = node.body?.statements,
-					composite = this.createFunction(identifier, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, statements, scope),
-					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],  // TODO: Real type from function signature
-					value = this.createValue('reference', composite.address),
+				let identifier = node.identifier?.value;
+
+				if(identifier == null) {
+					return;
+				}
+
+				let signature = this.rules.functionSignature(node.signature, scope),
+					function_ = this.createFunction(identifier, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, node.body?.statements, scope),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], function_.address)],  // TODO: Real type from function signature
+					value = this.createValue('reference', function_.address),
 					observers = []
 
-				this.setMember(scope, modifiers, identifier, type, value, observers);
+				this.setMember(scope, node.modifiers, identifier, type, value, observers);
+			},
+			functionExpression: (node, scope) => {
+				let signature = this.rules.functionSignature(node.signature, scope),
+					function_ = this.createFunction(undefined, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, node.body?.statements, scope);
+
+				return this.createValue('reference', function_.address);
 			},
 			functionSignature: (node, scope) => {
 				let genericParameters = [],
@@ -4068,7 +4077,7 @@ body {
 				this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
 			},
 			optionalType: (node, scope, type, typePart, titles, mainTitle) => {
-				if(!typePart.flags.some(v => exclusions.includes(v))) {
+				if(!typePart.flags.some(v => titles.includes(v))) {
 					typePart.flags.push(titles[mainTitle ?? 0]);
 				}
 
@@ -4249,7 +4258,7 @@ body {
 			variadicGenericParameter: (node, scope) => {
 				return {
 					identifier: undefined,
-					type: [this.ruleHelpers.createTypePart(undefined, undefined, ['variadic'])]
+					type: [this.createTypePart(undefined, undefined, ['variadic'])]
 				}
 			},
 			variadicType: (n, s, t, tp) => {
@@ -4323,13 +4332,13 @@ body {
 				this.retainComposite(scope, composite);
 			}
 
-		//	this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
+			this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
 
 			return composite;
 		}
 
 		static destroyComposite(composite) {
-		//	this.report(1, undefined, 'de: '+JSON.stringify(composite));
+			this.report(1, undefined, 'de: '+JSON.stringify(composite));
 
 			delete this.composites[composite.address]
 
@@ -4501,8 +4510,12 @@ body {
 					return: undefined
 				}
 
-			for(let argument of arguments_ ?? []) {
-				this.setMember(namespace, [], argument.label, this.createType(false, [], true, false), argument.value, []);
+			for(let i = 0; i < (arguments_ ?? []).length; i++) {
+				let argument = arguments_[i],
+					parameter = function_.parameters[i],
+					label = argument.label ?? parameter?.identifier ?? '$'+i;
+
+				this.setMember(namespace, [], label, parameter.type, argument.value, []);
 			}
 
 			this.calls.push(call);
