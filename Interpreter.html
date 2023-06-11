@@ -402,9 +402,13 @@ body {
 					if(v === '_') {
 						type += 'Underscore';
 					} else {
-						let value = v[0].toUpperCase()+v.slice(1);
+						let capitalizedV = v[0].toUpperCase()+v.slice(1);
 
-						type += v[0] === value[0] ? 'Capital'+value : value;
+						if(v[0] === capitalizedV[0]) {
+							type += 'Capital';
+						}
+
+						type += capitalizedV;
 					}
 				}
 
@@ -816,7 +820,7 @@ body {
 				node.value = this.rules.type();
 
 				if(this.token.type !== 'bracketClosed') {
-					this.position--;
+					this.position = node.range.start;
 
 					return;
 				}
@@ -1454,7 +1458,7 @@ body {
 				node.key = this.rules.type();
 
 				if(!this.token.type.startsWith('operator') || this.token.value !== ':') {
-					this.position--;
+					this.position = node.range.start;
 
 					return;
 				}
@@ -4093,11 +4097,11 @@ body {
 			type: (node, scope) => {
 				let type = [this.createTypePart()]
 
-				this.rules[node?.type]?.(node, type, type[0], scope);
+				this.rules[node?.type]?.(node, scope, type, type[0]);
 
 				return type;
 			},
-			typeIdentifier: (node, type, typePart, scope) => {
+			typeIdentifier: (node, scope, type, typePart) => {
 				let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
 				if(composite == null || composite.inheritance[0] === 'Object') {
@@ -4116,51 +4120,44 @@ body {
 					return;
 				}
 
-				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
-					typePart.flags.push('genericArguments');
-				} else {
-					typePart = this.createTypePart(type, typePart, ['genericArguments']);
-				}
+				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, 'genericArguments');
 
 				for(let genericArgument of node.genericArguments) {
-					let typePart_ = this.createTypePart(type, typePart);
-
-					this.rules[genericArgument.type]?.(genericArgument, type, typePart_, scope);
+					this.ruleHelpers.createArgumentTypePart(type, typePart, genericArgument, scope);
 				}
 			},
-			parenthesizedType: (node, type, typePart, scope) => {
-				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			parenthesizedType: (node, scope, type, typePart) => {
+				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
 			},
-			arrayType: (node, type, typePart, scope) => {
-				let array = this.getValueComposite(this.findMember(scope, 'Array')?.value);
+			collectionType: (node, scope, type, typePart, title) => {
+				let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
+					composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
 
-				if(array != null) {
+				if(composite != null) {
 					if(!typePart.flags.includes('reference')) {
 						typePart.flags.push('reference');
 					} else {
-						this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+array.address+'".');
+						this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
 					}
 
-					typePart.value = array.address;
+					typePart.value = composite.address;
 				}
 
-				let collectionFlag = array != null ? 'genericArguments' : 'array';
+				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, composite != null ? 'genericArguments' : title);
 
-				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
-					typePart.flags.push(collectionFlag);
-				} else {
-					typePart = this.createTypePart(type, typePart, [collectionFlag]);
+				if(title === 'dictionary') {
+					this.ruleHelpers.createArgumentTypePart(type, typePart, node.key, scope);
 				}
 
-				if(node.value == null) {
-					this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
-				} else {
-					typePart = this.createTypePart(type, typePart);
-
-					this.rules[node.value.type]?.(node.value, type, typePart, scope);
-				}
+				this.ruleHelpers.createArgumentTypePart(type, typePart, node.value, scope);
 			},
-			predefinedType: (node, type, typePart) => {
+			arrayType: (n, s, t, tp) => {
+				this.rules.collectionType(n, s, t, tp, 'array');
+			},
+			dictionaryType: (n, s, t, tp) => {
+				this.rules.collectionType(n, s, t, tp, 'dictionary');
+			},
+			predefinedType: (node, scope, type, typePart) => {
 				if(!typePart.flags.includes('predefined')) {
 					typePart.flags.push('predefined');
 				} else {
@@ -4172,78 +4169,46 @@ body {
 			returnStatement: (node, scope) => {
 				return this.rules[node.value?.type]?.(node.value, scope);
 			},
-			defaultType: (node, type, typePart, scope) => {
-				if(
-					!typePart.flags.includes('default') &&
-					!typePart.flags.includes('nillable')
-				) {
-					typePart.flags.push('default');
+			optionalType: (node, scope, type, typePart, titles, position) => {
+				if(!typePart.flags.some(v => exclusions.includes(v))) {
+					typePart.flags.push(titles[position ?? 0]);
 				}
 
-				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
 			},
-			nillableType: (node, type, typePart, scope) => {
-				if(
-					!typePart.flags.includes('default') &&
-					!typePart.flags.includes('nillable')
-				) {
-					typePart.flags.push('nillable');
-				}
-
-				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			defaultType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
 			},
-			variadicType: (node, type, typePart, scope) => {
-				if(!typePart.flags.includes('variadic')) {
-					typePart.flags.push('variadic');
-				}
-
-				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			nillableType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
 			},
-			inoutType: (node, type, typePart, scope) => {
-				if(!typePart.flags.includes('inout')) {
-					typePart.flags.push('inout');
-				}
-
-				this.rules[node.value?.type]?.(node.value, type, typePart, scope);
+			variadicType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['variadic']);
 			},
-			unionType: (node, type, typePart, scope) => {
+			inoutType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['inout']);
+			},
+			combiningType: (node, scope, type, typePart, title) => {
 				if(node.subtypes.length === 0) {
 					return;
 				}
 
-				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
-					typePart.flags.push('union');
-				} else {
-					typePart = this.createTypePart(type, typePart, ['union']);
-				}
+				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, title);
 
 				for(let subtype of node.subtypes) {
-					let typePart_ = this.createTypePart(type, typePart);
-
-					this.rules[subtype.type]?.(subtype, type, typePart_, scope);
+					this.ruleHelpers.createArgumentTypePart(type, typePart, subtype, scope);
 				}
 			},
-			intersectionType: (node, type, typePart, scope) => {
-				if(node.subtypes.length === 0) {
-					return;
-				}
-
-				if(!this.ruleHelpers.typePartHasCollectionFlag(typePart)) {
-					typePart.flags.push('intersection');
-				} else {
-					typePart = this.createTypePart(type, typePart, ['intersection']);
-				}
-
-				for(let subtype of node.subtypes) {
-					let typePart_ = this.createTypePart(type, typePart);
-
-					this.rules[subtype.type]?.(subtype, type, typePart_, scope);
-				}
+			unionType: (n, s, t, tp) => {
+				this.rules.combiningType(n, s, t, tp, 'union');
+			},
+			intersectionType: (n, s, t, tp) => {
+				this.rules.combiningType(n, s, t, tp, 'intersection');
 			}
 		}
 
 		static ruleHelpers = {
-			typePartHasCollectionFlag(typePart) {
+			createCollectionTypePart: (type, typePart, collectionFlag) => {
 				let collectionFlags = [
 					'array',
 					'dictionary',
@@ -4254,7 +4219,20 @@ body {
 					'union'
 				]
 
-				return typePart.flags.some(v => collectionFlags.includes(v));
+				if(typePart.flags.some(v => collectionFlags.includes(v))) {
+					return this.createTypePart(type, typePart, [collectionFlag]);
+				} else {
+					typePart.flags.push(collectionFlag);
+
+					return typePart;
+				}
+			},
+			createArgumentTypePart: (type, typePart, node, scope) => {
+				if(node == null) {
+					this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
+				} else {
+					this.rules[node.type]?.(node, scope, type, this.createTypePart(type, typePart));
+				}
 			}
 		}
 
@@ -4794,19 +4772,13 @@ body {
 		}
 
 		static memberRetains(retainedComposite, retainingComposite) {
-			// In-type retains check will not be supported until appearance of case where it's needed
+			// In-type retains check will not be enabled until appearance of case where it's needed
 
-			for(let member of retainingComposite.members ?? []) {
-				if(this.getValueComposite(member.value) === retainedComposite) {
-					return true;
-				}
-
-				for(let observer of member.observers) {
-					if(observer.value === retainedComposite.address) {
-						return true;
-					}
-				}
-			}
+			return retainingComposite.members?.some(member =>
+			//	member.type.some(v => v.flags.include('reference') && v.value === retainedComposite.address) ||
+				this.getValueComposite(member.value) === retainedComposite ||
+				member.observers.some(v => v.value === retainedComposite.address)
+			);
 		}
 
 		static findFunction(composite, identifier, arguments_) {
