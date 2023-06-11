@@ -3486,6 +3486,59 @@ body {
 
 		static ruleHelpers = {
 			/*
+			 * Trying to set the node's value to a functionBody or an expressionsSequence.
+			 *
+			 * Trailing closures can be unwrapped from the condition-callExpression/subscriptExpression or from a last
+			 * callExpression/subscriptExpression that is stored in the condition-expressionsSequence.
+			 * Nested into prefixExpression ones are also supported.
+			 *
+			 * Useful for completing preconditional statements, such as if or for.
+			 */
+			preconditionalStatementValue: (node, conditionType, valueType) => {
+				node[valueType] = this.rules.functionBody();
+
+				if(node[conditionType] == null || node[valueType] != null) {
+					return;
+				}
+
+				let node_ = node[conditionType],
+					sequence,
+					prefixed;
+
+				if(sequence = node_.type === 'expressionsSequence') {
+					node_ = node_.values.at(-1);
+				}
+				if(prefixed = node_.type === 'prefixExpression') {
+					node_ = node_.value;
+				}
+
+				if(['callExpression', 'subscriptExpression'].includes(node_.type) && node_.closure != null && node_.closure.signature == null) {
+					this.position = node_.closure.range.start;
+
+					if(sequence) {
+						if(prefixed) {
+							node[conditionType].values.at(-1).value =     node[conditionType].values.at(-1).value.callee;
+							node[conditionType].values.at(-1).range.end = node[conditionType].values.at(-1).value.range.end;
+							node[conditionType].range.end =               node[conditionType].values.at(-1).range.end;
+						} else {
+							node[conditionType].values.splice(-1, 1, node[conditionType].values.at(-1).callee);
+							node[conditionType].range.end =          node[conditionType].values.at(-1).range.end;
+						}
+					} else {
+						if(prefixed) {
+							node[conditionType].value =     node[conditionType].value.callee;
+							node[conditionType].range.end = node[conditionType].value.range.end;
+						} else {
+							node[conditionType] = node[conditionType].callee;
+						}
+					}
+
+					node[valueType] = this.rules.functionBody();
+				}
+
+				node[valueType] ??= this.rules.expressionsSequence();
+			},
+			/*
 			 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
 			 *
 			 * Additionally a separator between the nodes can be set.
@@ -3683,59 +3736,6 @@ body {
 				nodes = nodes.filter(v => v.type !== 'separator');
 
 				return nodes;
-			},
-			/*
-			 * Trying to set the node's value to a functionBody or an expressionsSequence.
-			 *
-			 * Trailing closures can be unwrapped from the condition-callExpression/subscriptExpression or from a last
-			 * callExpression/subscriptExpression that is stored in the condition-expressionsSequence.
-			 * Nested into prefixExpression ones are also supported.
-			 *
-			 * Useful for completing preconditional statements, such as if or for.
-			 */
-			preconditionalStatementValue: (node, conditionType, valueType) => {
-				node[valueType] = this.rules.functionBody();
-
-				if(node[conditionType] == null || node[valueType] != null) {
-					return;
-				}
-
-				let node_ = node[conditionType],
-					sequence,
-					prefixed;
-
-				if(sequence = node_.type === 'expressionsSequence') {
-					node_ = node_.values.at(-1);
-				}
-				if(prefixed = node_.type === 'prefixExpression') {
-					node_ = node_.value;
-				}
-
-				if(['callExpression', 'subscriptExpression'].includes(node_.type) && node_.closure != null && node_.closure.signature == null) {
-					this.position = node_.closure.range.start;
-
-					if(sequence) {
-						if(prefixed) {
-							node[conditionType].values.at(-1).value =     node[conditionType].values.at(-1).value.callee;
-							node[conditionType].values.at(-1).range.end = node[conditionType].values.at(-1).value.range.end;
-							node[conditionType].range.end =               node[conditionType].values.at(-1).range.end;
-						} else {
-							node[conditionType].values.splice(-1, 1, node[conditionType].values.at(-1).callee);
-							node[conditionType].range.end =          node[conditionType].values.at(-1).range.end;
-						}
-					} else {
-						if(prefixed) {
-							node[conditionType].value =     node[conditionType].value.callee;
-							node[conditionType].range.end = node[conditionType].value.range.end;
-						} else {
-							node[conditionType] = node[conditionType].callee;
-						}
-					}
-
-					node[valueType] = this.rules.functionBody();
-				}
-
-				node[valueType] ??= this.rules.expressionsSequence();
 			}
 		}
 
@@ -3814,25 +3814,14 @@ body {
 		static reports;
 
 		static rules = {
+			arrayType: (n, s, t, tp) => {
+				this.rules.collectionType(n, s, t, tp, 'array');
+			},
 			argument: (node, scope) => {
 				return {
 					label: node.label?.value,
 					value: this.rules[node.value.type]?.(node.value, scope)
 				}
-			},
-			module: () => {
-				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
-
-				// No need to wrap a module script into a complete function, but should emulate call
-				// so reference counting can be done properly
-
-				this.calls.push({
-					function: undefined,
-					namespace: namespace,
-					return: undefined
-				});
-				this.evaluateRules(this.tree?.statements, namespace);
-				this.calls.pop();
 			},
 			booleanLiteral: (node) => {
 				// TODO: Instantinate Boolean()
@@ -3859,7 +3848,7 @@ body {
 
 			//	this.report(0, node, 'ca: '+function_.title+', '+function_.address);
 				let value = this.callFunction(function_, arguments_);
-				this.report(0, node, 'ke: '+JSON.stringify(value));
+			//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
 			},
@@ -3897,6 +3886,45 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
 			},
+			collectionType: (node, scope, type, typePart, title) => {
+				let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
+					composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
+
+				if(composite != null) {
+					if(!typePart.flags.includes('reference')) {
+						typePart.flags.push('reference');
+					} else {
+						this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
+					}
+
+					typePart.value = composite.address;
+				}
+
+				typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, composite != null ? 'genericArguments' : title);
+
+				if(title === 'dictionary') {
+					this.ruleHelpers.createArgumentTypePart(type, typePart, node.key, scope);
+				}
+
+				this.ruleHelpers.createArgumentTypePart(type, typePart, node.value, scope);
+			},
+			combiningType: (node, scope, type, typePart, title) => {
+				if(node.subtypes.length === 0) {
+					return;
+				}
+
+				typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, title);
+
+				for(let subtype of node.subtypes) {
+					this.ruleHelpers.createArgumentTypePart(type, typePart, subtype, scope);
+				}
+			},
+			defaultType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
+			},
+			dictionaryType: (n, s, t, tp) => {
+				this.rules.collectionType(n, s, t, tp, 'dictionary');
+			},
 			enumerationDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
@@ -3917,14 +3945,46 @@ body {
 			functionDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
+					signature = this.rules.functionSignature(node.signature, scope),
 					statements = node.body?.statements,
-					returnType = [this.createTypePart(undefined, undefined, ['predefined', 'nillable'], '_')],  // TODO: Real type from node
-					composite = this.createFunction(identifier, [], [], -1, -1, returnType, statements, scope),
-					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],  // TODO: Real type from function
+					composite = this.createFunction(identifier, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, statements, scope),
+					type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],  // TODO: Real type from function signature
 					value = this.createValue('reference', composite.address),
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
+			},
+			functionSignature: (node, scope) => {
+				let genericParameters = [],
+					parameters = [],
+					awaits = node?.awaits ?? false,
+					throws = node?.throws ?? false,
+					returnType = this.rules.type(node?.return, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
+
+				for(let genericParameter of node?.genericParameters ?? []) {
+					if((genericParameter = this.rules[genericParameter.type]?.(genericParameter, scope)) != null) {
+						genericParameters.push(genericParameter);
+					}
+				}
+				for(let parameter of node?.parameters ?? []) {
+					if((parameter = this.rules.parameter(parameter, scope)) != null) {
+						parameters.push(parameter);
+					}
+				}
+
+				return {
+					genericParameters: genericParameters,
+					parameters: parameters,
+					awaits: awaits,
+					throws: throws,
+					returnType: returnType
+				}
+			},
+			genericParameter: (node, scope) => {
+				return {
+					identifier: node.identifier.value,
+					type: this.rules.type(node.type_, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
+				}
 			},
 			identifier: (node, scope) => {
 				let address = {
@@ -3968,10 +4028,30 @@ body {
 
 				return this.createValue('pointer', value.primitiveValue);
 			},
+			inoutType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['inout']);
+			},
 			integerLiteral: (node) => {
 				// TODO: Instantinate Integer()
 
 				return this.createValue('integer', node.value*1);
+			},
+			intersectionType: (n, s, t, tp) => {
+				this.rules.combiningType(n, s, t, tp, 'intersection');
+			},
+			module: () => {
+				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
+
+				// No need to wrap a module script into a complete function, but should emulate call
+				// so reference counting can be done properly
+
+				this.calls.push({
+					function: undefined,
+					namespace: namespace,
+					return: undefined
+				});
+				this.evaluateRules(this.tree?.statements, namespace);
+				this.calls.pop();
 			},
 			namespaceDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
@@ -3984,8 +4064,60 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
 			},
+			nillableType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
+			},
+			optionalType: (node, scope, type, typePart, titles, mainTitle) => {
+				if(!typePart.flags.some(v => exclusions.includes(v))) {
+					typePart.flags.push(titles[mainTitle ?? 0]);
+				}
+
+				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
+			},
+			parameter: (node, scope) => {
+				return {
+					label: node.label?.value,
+					identifier: node.identifier.value,
+					type: this.rules.type(node.type_, scope) ?? [this.ruleHelpers.createDefaultTypePart()],
+					value: node.value != null ? this.createValue('node', node.value) : undefined
+				}
+			},
 			parenthesizedExpression: (node, scope) => {
 				return this.rules[node.value?.type]?.(node.value, scope);
+			},
+			parenthesizedType: (node, scope, type, typePart) => {
+				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
+			},
+			postfixExpression: (node, scope) => {
+				let value = this.rules[node.value?.type]?.(node.value, scope);
+
+				if(value == null) {
+					return;
+				}
+
+				if(node.operator?.value === '++' && value.primitiveType === 'integer') {
+					value.primitiveValue++;
+
+					return this.createValue('integer', value.primitiveValue-1);
+				}
+				if(node.operator?.value === '--' && value.primitiveType === 'integer') {
+					value.primitiveValue--;
+
+					return this.createValue('integer', value.primitiveValue+1);
+				}
+
+				//TODO: Dynamic operators lookup
+
+				return value;
+			},
+			predefinedType: (node, scope, type, typePart) => {
+				if(!typePart.flags.includes('predefined')) {
+					typePart.flags.push('predefined');
+				} else {
+					this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+node.value+'".');
+				}
+
+				typePart.value = node.value;
 			},
 			prefixExpression: (node, scope) => {
 				let value = this.rules[node.value?.type]?.(node.value, scope);
@@ -4012,28 +4144,6 @@ body {
 
 				return value;
 			},
-			postfixExpression: (node, scope) => {
-				let value = this.rules[node.value?.type]?.(node.value, scope);
-
-				if(value == null) {
-					return;
-				}
-
-				if(node.operator?.value === '++' && value.primitiveType === 'integer') {
-					value.primitiveValue++;
-
-					return this.createValue('integer', value.primitiveValue-1);
-				}
-				if(node.operator?.value === '--' && value.primitiveType === 'integer') {
-					value.primitiveValue--;
-
-					return this.createValue('integer', value.primitiveValue+1);
-				}
-
-				//TODO: Dynamic operators lookup
-
-				return value;
-			},
 			protocolDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
 					identifier = node.identifier.value,
@@ -4044,6 +4154,9 @@ body {
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
+			},
+			returnStatement: (node, scope) => {
+				return this.rules[node.value?.type]?.(node.value, scope);
 			},
 			stringLiteral: (node, scope) => {
 				let string = '';
@@ -4080,24 +4193,14 @@ body {
 				this.setMember(scope, modifiers, identifier, type, value, observers);
 				this.evaluateRules(node.body?.statements, composite);
 			},
-			variableDeclaration: (node, scope) => {
-				let modifiers = node.modifiers;
-
-				for(let declarator of node.declarators) {
-					let identifier = declarator.identifier.value,
-						type = this.rules.type(declarator.type_, scope),
-						value = this.rules[declarator.value?.type]?.(declarator.value, scope),
-						observers = []
-
-					// Type-related checks
-
-					this.setMember(scope, modifiers, identifier, type, value, observers);
-				}
-			},
 			type: (node, scope) => {
+				if(this.rules[node?.type] == null) {
+					return;
+				}
+
 				let type = [this.createTypePart()]
 
-				this.rules[node?.type]?.(node, scope, type, type[0]);
+				this.rules[node.type](node, scope, type, type[0]);
 
 				return type;
 			},
@@ -4120,95 +4223,52 @@ body {
 					return;
 				}
 
-				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, 'genericArguments');
+				typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, 'genericArguments');
 
 				for(let genericArgument of node.genericArguments) {
 					this.ruleHelpers.createArgumentTypePart(type, typePart, genericArgument, scope);
 				}
 			},
-			parenthesizedType: (node, scope, type, typePart) => {
-				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
-			},
-			collectionType: (node, scope, type, typePart, title) => {
-				let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
-					composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
-
-				if(composite != null) {
-					if(!typePart.flags.includes('reference')) {
-						typePart.flags.push('reference');
-					} else {
-						this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
-					}
-
-					typePart.value = composite.address;
-				}
-
-				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, composite != null ? 'genericArguments' : title);
-
-				if(title === 'dictionary') {
-					this.ruleHelpers.createArgumentTypePart(type, typePart, node.key, scope);
-				}
-
-				this.ruleHelpers.createArgumentTypePart(type, typePart, node.value, scope);
-			},
-			arrayType: (n, s, t, tp) => {
-				this.rules.collectionType(n, s, t, tp, 'array');
-			},
-			dictionaryType: (n, s, t, tp) => {
-				this.rules.collectionType(n, s, t, tp, 'dictionary');
-			},
-			predefinedType: (node, scope, type, typePart) => {
-				if(!typePart.flags.includes('predefined')) {
-					typePart.flags.push('predefined');
-				} else {
-					this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+node.value+'".');
-				}
-
-				typePart.value = node.value;
-			},
-			returnStatement: (node, scope) => {
-				return this.rules[node.value?.type]?.(node.value, scope);
-			},
-			optionalType: (node, scope, type, typePart, titles, position) => {
-				if(!typePart.flags.some(v => exclusions.includes(v))) {
-					typePart.flags.push(titles[position ?? 0]);
-				}
-
-				this.rules[node.value?.type]?.(node.value, scope, type, typePart);
-			},
-			defaultType: (n, s, t, tp) => {
-				this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
-			},
-			nillableType: (n, s, t, tp) => {
-				this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
-			},
-			variadicType: (n, s, t, tp) => {
-				this.rules.optionalType(n, s, t, tp, ['variadic']);
-			},
-			inoutType: (n, s, t, tp) => {
-				this.rules.optionalType(n, s, t, tp, ['inout']);
-			},
-			combiningType: (node, scope, type, typePart, title) => {
-				if(node.subtypes.length === 0) {
-					return;
-				}
-
-				typePart = this.ruleHelpers.createCollectionTypePart(type, typePart, title);
-
-				for(let subtype of node.subtypes) {
-					this.ruleHelpers.createArgumentTypePart(type, typePart, subtype, scope);
-				}
-			},
 			unionType: (n, s, t, tp) => {
 				this.rules.combiningType(n, s, t, tp, 'union');
 			},
-			intersectionType: (n, s, t, tp) => {
-				this.rules.combiningType(n, s, t, tp, 'intersection');
+			variableDeclaration: (node, scope) => {
+				let modifiers = node.modifiers;
+
+				for(let declarator of node.declarators) {
+					let identifier = declarator.identifier.value,
+						type = this.rules.type(declarator.type_, scope),
+						value = this.rules[declarator.value?.type]?.(declarator.value, scope),
+						observers = []
+
+					// Type-related checks
+
+					this.setMember(scope, modifiers, identifier, type, value, observers);
+				}
+			},
+			variadicGenericParameter: (node, scope) => {
+				return {
+					identifier: undefined,
+					type: [this.ruleHelpers.createTypePart(undefined, undefined, ['variadic'])]
+				}
+			},
+			variadicType: (n, s, t, tp) => {
+				this.rules.optionalType(n, s, t, tp, ['variadic']);
 			}
 		}
 
 		static ruleHelpers = {
-			createCollectionTypePart: (type, typePart, collectionFlag) => {
+			createArgumentTypePart: (type, typePart, node, scope) => {
+				if(node == null) {
+					this.ruleHelpers.createDefaultTypePart(type, typePart);
+				} else {
+					this.rules[node.type]?.(node, scope, type, this.createTypePart(type, typePart));
+				}
+			},
+			createDefaultTypePart: (type, typePart) => {
+				return this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
+			},
+			createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
 				let collectionFlags = [
 					'array',
 					'dictionary',
@@ -4225,13 +4285,6 @@ body {
 					typePart.flags.push(collectionFlag);
 
 					return typePart;
-				}
-			},
-			createArgumentTypePart: (type, typePart, node, scope) => {
-				if(node == null) {
-					this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
-				} else {
-					this.rules[node.type]?.(node, scope, type, this.createTypePart(type, typePart));
 				}
 			}
 		}
