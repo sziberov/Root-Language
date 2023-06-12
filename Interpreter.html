@@ -3809,7 +3809,8 @@ body {
 		static tokens;
 		static tree;
 		static composites;
-		static calls;
+		static scopes;
+		static controlTransfer;
 		static preferences;
 		static reports;
 
@@ -4002,7 +4003,7 @@ body {
 					self: () => scope.address,  // Self-object or a type
 					Self: () => scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address,  // Self-type
 					metaSelf: () => undefined,  // Self-object or a type descriptor
-					super: () => undefined,  // Super-object or a type
+					super: () => scope.scopeAddress,  // Super-object or a type
 					Super: () => undefined,  // Super-type
 					sub: () => undefined,  // Sub-object(s?)
 					Sub: () => undefined,  // Sub-type(s?)
@@ -4028,17 +4029,10 @@ body {
 					return;
 				}
 
-				// Mix between module script and function call
-
 				let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.address)+', If>', scope),
-					condition = this.rules[node.condition.type]?.(node.condition, namespace),
-					call = {
-						function: undefined,
-						namespace: namespace,
-						return: undefined
-					}
+					condition = this.rules[node.condition.type]?.(node.condition, namespace);
 
-				this.calls.push(call);
+				this.addScope(namespace);
 
 				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
@@ -4046,14 +4040,14 @@ body {
 					if(node.then?.type === 'functionBody') {
 						this.evaluateNodes(node.then.statements, namespace);
 					} else {
-						call.return = this.rules[node.then?.type]?.(node.then, namespace);
+						this.setControlTransfer(this.rules[node.then?.type]?.(node.then, namespace));
 					}
 				} else
 				if(node.else?.type !== 'ifStatement') {
 					if(node.else?.type === 'functionBody') {
 						this.evaluateNodes(node.else.statements, namespace);
 					} else {
-						call.return = this.rules[node.else?.type]?.(node.else, namespace);
+						this.setControlTransfer(this.rules[node.else?.type]?.(node.else, namespace));
 					}
 				}
 
@@ -4061,13 +4055,17 @@ body {
 					this.destroyComposite(namespace);
 				}
 
-				this.calls.pop();
+				this.removeScope();
 
-				if(!condition && node.else?.type === 'ifStatement') {
-					call.return = this.rules.ifStatement(node.else, scope);
+				if(this.controlTransfer?.type === 'returnStatement') {
+					return this.controlTransfer.value;
 				}
 
-				return call.return;
+				if(!condition && node.else?.type === 'ifStatement') {
+					this.rules.ifStatement(node.else, scope);
+				}
+
+				return this.controlTransfer?.value;
 			},
 			inoutExpression: (node, scope) => {
 				let value = this.rules[node.value?.type]?.(node.value, scope);
@@ -4097,16 +4095,9 @@ body {
 			module: () => {
 				let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
-				// No need to wrap a module script into a complete function, but should emulate call
-				// so reference counting can be done properly
-
-				this.calls.push({
-					function: undefined,
-					namespace: namespace,
-					return: undefined
-				});
+				this.addScope(namespace);
 				this.evaluateNodes(this.tree?.statements, namespace);
-				this.calls.pop();
+				this.removeScope();
 			},
 			namespaceDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
@@ -4352,7 +4343,7 @@ body {
 				tokens: JSON.stringify(this.tokens),
 				tree: JSON.stringify(this.tree),
 				composites: JSON.stringify(this.composites),
-				calls: JSON.stringify(this.calls),
+				calls: JSON.stringify(this.scopes),
 				preferences: JSON.stringify(this.preferences),
 				reports: JSON.stringify(this.reports)
 			}
@@ -4452,7 +4443,7 @@ body {
 		 *
 		 * Composite considered significantly retained if:
 		 * - It is reachable from the global scope.
-		 * - It is reachable from a previous scope or a current return value in the call stack.
+		 * - It is reachable from a previous scope or a current non-global return value.
 		 */
 		static compositeRetained(composite) {
 			return (
@@ -4491,19 +4482,17 @@ body {
 		}
 
 		static compositeFunctionallyReachable(composite) {
-			let previousCall = this.calls.at(-2),
-				currentCall = this.calls.at(-1);
+			let previousNamespace = this.getScope(-1)?.namespace;
 
-			if(previousCall == null || currentCall == null) {
+			if(previousNamespace == null) {  // In global
 				return false;
 			}
 
-			let previousNamespace = previousCall.namespace,
-				currentReturn = this.getValueComposite(currentCall.return);
+			let returnValue = this.getValueComposite(this.controlTransfer?.value);
 
 			return (
-				this.compositeReachable(composite, previousNamespace) || currentReturn != null &&
-				this.compositeReachable(composite, currentReturn)
+				this.compositeReachable(composite, previousNamespace) || returnValue != null &&
+				this.compositeReachable(composite, returnValue)
 			);
 		}
 
@@ -4549,12 +4538,7 @@ body {
 			scope ??= this.getComposite(function_.scopeAddress);
 
 			let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.address)+'>',
-				namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
-				call = {
-					function: function_,
-					namespace: namespace,
-					return: undefined
-				}
+				namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope;
 
 			for(let i = 0; i < (arguments_ ?? []).length; i++) {
 				let argument = arguments_[i],
@@ -4564,43 +4548,81 @@ body {
 				this.setMember(namespace, [], label, parameter.type, argument.value, []);
 			}
 
-			this.calls.push(call);
+			this.addScope(namespace, function_);
 			this.evaluateNodes(function_.statements, namespace);
 
 			if(!this.compositeRetained(namespace)) {
 				this.destroyComposite(namespace);
 			}
 
-			this.calls.pop();
+			let returnValue = this.controlTransfer?.value;
 
-			return call.return;
+			this.resetControlTransfer();
+			this.removeScope();
+
+			return returnValue;
 		}
 
 		static bindFunction(function_, scope) {}
 
+		static getScope(offset = 0) {
+			return this.scopes[this.scopes.length-1+offset]
+		}
+
+		static addScope(namespace, function_) {
+			this.scopes.push({
+				namespace: namespace,
+				function: function_
+			});
+		}
+
+		static removeScope() {
+			this.scopes.pop();
+		}
+
 		/*
-		 * Meant to be used for statements inside of a bodies. Last statement in a body will
-		 * be treated like a returning one even if it's not an explicit return.
+		 * Meant to be used for statements inside of a bodies.
 		 *
-		 * As it is a part of a function call flow, at least one call should be present in the call stack.
+		 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
+		 * Manual control transfer is supported but should be also implemented by rules.
+		 *
+		 * At least one scope should be present in the stack for ARC to correctly detect references.
 		 */
 		static evaluateNodes(nodes, scope) {
+			let controlTransferTypes = [
+				'breakStatement',
+				'continueStatement',
+				'returnStatement'
+			]
+
 			for(let node of nodes ?? []) {
 				let value = this.rules[node.type]?.(node, scope),
-					composite = this.getValueComposite(value),
-					returning = node.type === 'returnStatement' || node === nodes.at(-1);
+					returned = this.controlTransfer?.value === value,
+					returning = controlTransferTypes.includes(node.type) || node === nodes.at(-1),
+					composite = this.getValueComposite(value);
 
-				if(returning) {
-					this.calls.at(-1).return = value;
+				if(!returned && returning) {
+					this.setControlTransfer(value, node.type);
 				}
 				if(composite != null && !this.compositeRetained(composite)) {
 					this.destroyComposite(composite);
 				}
 
-				if(returning) {
+				if(controlTransferTypes.includes(this.controlTransfer?.type)) {
 					break;
 				}
 			}
+		}
+
+		static setControlTransfer(value, type) {
+			this.controlTransfer = {
+				value: value,
+				type: type
+			}
+		}
+
+		static resetControlTransfer() {
+			this.controlTransfer = undefined;
 		}
 
 		static createNamespace(title, scope) {
@@ -4959,7 +4981,8 @@ body {
 			this.tokens = []
 			this.tree = undefined;
 			this.composites = composites ?? []
-			this.calls = []
+			this.scopes = []
+			this.controlTransfer = undefined;
 			this.preferences = {
 				allowedReportLevel: 2,
 				metaprogrammingLevel: 3,

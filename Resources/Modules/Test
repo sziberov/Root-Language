@@ -1,3 +1,25 @@
+func testFlowTransfer() {
+    if true {
+        if true {
+        	var a = 1
+
+        	return a
+        } else
+        if true {
+        	return 2
+
+        	3
+        }
+    } else {
+        4
+    }
+
+    //5
+}
+
+var flowTransferTest = testFlowTransfer()
+
+
 func do_(a) {
   a()
 }
