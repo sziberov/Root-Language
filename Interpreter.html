@@ -4030,29 +4030,21 @@ body {
 				}
 
 				let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.address)+', If>', scope),
-					condition = this.rules[node.condition.type]?.(node.condition, namespace);
+					condition;
 
 				this.addScope(namespace);
 
+				condition = this.rules[node.condition.type]?.(node.condition, namespace);
 				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
-				if(condition) {
-					if(node.then?.type === 'functionBody') {
-						this.evaluateNodes(node.then.statements, namespace);
-					} else {
-						this.setControlTransfer(this.rules[node.then?.type]?.(node.then, namespace));
-					}
-				} else
-				if(node.else?.type !== 'ifStatement') {
-					if(node.else?.type === 'functionBody') {
-						this.evaluateNodes(node.else.statements, namespace);
-					} else {
-						this.setControlTransfer(this.rules[node.else?.type]?.(node.else, namespace));
-					}
-				}
+				if(condition || node.else?.type !== 'ifStatement') {
+					let branch = condition ? 'then' : 'else';
 
-				if(!this.compositeRetained(namespace)) {
-					this.destroyComposite(namespace);
+					if(node[branch]?.type === 'functionBody') {
+						this.evaluateNodes(node[branch].statements, namespace);
+					} else {
+						this.setControlTransfer(this.rules[node[branch]?.type]?.(node[branch], namespace));
+					}
 				}
 
 				this.removeScope();
@@ -4098,6 +4090,7 @@ body {
 				this.addScope(namespace);
 				this.evaluateNodes(this.tree?.statements, namespace);
 				this.removeScope();
+				this.resetControlTransfer();
 			},
 			namespaceDeclaration: (node, scope) => {
 				let modifiers = node.modifiers,
@@ -4550,15 +4543,11 @@ body {
 
 			this.addScope(namespace, function_);
 			this.evaluateNodes(function_.statements, namespace);
-
-			if(!this.compositeRetained(namespace)) {
-				this.destroyComposite(namespace);
-			}
+			this.removeScope();
 
 			let returnValue = this.controlTransfer?.value;
 
 			this.resetControlTransfer();
-			this.removeScope();
 
 			return returnValue;
 		}
@@ -4569,6 +4558,12 @@ body {
 			return this.scopes[this.scopes.length-1+offset]
 		}
 
+		/*
+		 * Should be used for function bodies before evaluating its contents,
+		 * so ARC can correctly detect any references.
+		 *
+		 * Additionally function itself can be specified for debugging purposes.
+		 */
 		static addScope(namespace, function_) {
 			this.scopes.push({
 				namespace: namespace,
@@ -4576,17 +4571,24 @@ body {
 			});
 		}
 
+		/*
+		 * Removes from the stack and automatically destroys a last scope.
+		 */
 		static removeScope() {
+			let namespace = this.scopes.at(-1)?.namespace;
+
+			if(namespace != null && !this.compositeRetained(namespace)) {
+				this.destroyComposite(namespace);
+			}
+
 			this.scopes.pop();
 		}
 
 		/*
-		 * Meant to be used for statements inside of a bodies.
+		 * Should be used for statements inside of a bodies.
 		 *
 		 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
 		 * Manual control transfer is supported but should be also implemented by rules.
-		 *
-		 * At least one scope should be present in the stack for ARC to correctly detect references.
 		 */
 		static evaluateNodes(nodes, scope) {
 			let controlTransferTypes = [
