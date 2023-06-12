@@ -224,18 +224,20 @@ func getMnemonic(color: Color) =
         .VIOLET -> "фазаны"
 	}
 
-func getWarmth(color: Int) = when(color) {
-    RED, YELLOW -> "warm"
-    GREEN -> "neutral"
-    BLUE -> "cold"
-    else -> "unknown"
+func getWarmth(color: Int) {
+	when color {
+	    RED || YELLOW: 'warm'
+	    GREEN: 'neutral'
+	    BLUE: 'cold'
+	    else: 'unknown'
+	}
 }
 */
 
-switch catImageView.visibility {
+when catImageView.visibility {
     View.VISIBLE -> println('visible')
     View.INVISIBLE -> println('invisible')
-    default -> println('gone')
+    else -> println('gone')
 }
 
 var switchedByDictionary = [

@@ -375,7 +375,7 @@ body {
 					'any', 'async', 'await', 'awaits',
 					'bool', 'break',
 					'case', 'catch', 'class', 'continue',
-					'default', 'dict', 'do',
+					'dict', 'do',
 					'else', 'enum', 'extension',
 					'fallthrough', 'false', 'final', 'float', 'for', 'func',
 					'if', 'import', 'in', 'infix', 'inout', 'int', 'is',
@@ -384,10 +384,10 @@ body {
 					'operator',
 					'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
 					'return',
-					'static', 'string', 'struct', 'switch',
+					'static', 'string', 'struct',
 					'throw', 'throws', 'true', 'try',
 					'var', 'virtual',
-					'where', 'while',
+					'when', 'where', 'while',
 					'_'
 				]
 
@@ -417,7 +417,7 @@ body {
 				}
 				this.addToken(type, v);
 
-				if(['For', 'If', 'Switch', 'While'].some(v => type.endsWith(v))) {
+				if(['For', 'If', 'When', 'While'].some(v => type.endsWith(v))) {
 					this.addState('statement');
 				}
 			}],
@@ -455,10 +455,10 @@ body {
 				}
 			},
 			specifyOperatorType: () => {
-				switch(this.token.type) {
-					case 'operator':		this.token.type = 'operatorPrefix';	break;
-					case 'operatorPostfix':	this.token.type = 'operatorInfix';	break;
-				}
+				this.token.type = {
+					operator: 'operatorPrefix',
+					operatorPostfix: 'operatorInfix'
+				}[this.token.type] ?? this.token.type;
 			},
 			finalizeOperator: () => {
 				this.ruleHelpers.mergeOperators();
@@ -3884,7 +3884,7 @@ body {
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-				this.evaluateRules(node.body?.statements, composite);
+				this.evaluateNodes(node.body?.statements, composite);
 			},
 			collectionType: (node, scope, type, typePart, title) => {
 				let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -3934,7 +3934,7 @@ body {
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-				this.evaluateRules(node.body?.statements, composite);
+				this.evaluateNodes(node.body?.statements, composite);
 			},
 			expressionsSequence: (node, scope) => {},
 			floatLiteral: (node) => {
@@ -4023,6 +4023,52 @@ body {
 
 				return member.value;
 			},
+			ifStatement: (node, scope) => {
+				if(node.condition == null) {
+					return;
+				}
+
+				// Mix between module script and function call
+
+				let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.address)+', If>', scope),
+					condition = this.rules[node.condition.type]?.(node.condition, namespace),
+					call = {
+						function: undefined,
+						namespace: namespace,
+						return: undefined
+					}
+
+				this.calls.push(call);
+
+				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
+
+				if(condition) {
+					if(node.then?.type === 'functionBody') {
+						this.evaluateNodes(node.then.statements, namespace);
+					} else {
+						call.return = this.rules[node.then?.type]?.(node.then, namespace);
+					}
+				} else
+				if(node.else?.type !== 'ifStatement') {
+					if(node.else?.type === 'functionBody') {
+						this.evaluateNodes(node.else.statements, namespace);
+					} else {
+						call.return = this.rules[node.else?.type]?.(node.else, namespace);
+					}
+				}
+
+				if(!this.compositeRetained(namespace)) {
+					this.destroyComposite(namespace);
+				}
+
+				this.calls.pop();
+
+				if(!condition && node.else?.type === 'ifStatement') {
+					call.return = this.rules.ifStatement(node.else, scope);
+				}
+
+				return call.return;
+			},
 			inoutExpression: (node, scope) => {
 				let value = this.rules[node.value?.type]?.(node.value, scope);
 
@@ -4059,7 +4105,7 @@ body {
 					namespace: namespace,
 					return: undefined
 				});
-				this.evaluateRules(this.tree?.statements, namespace);
+				this.evaluateNodes(this.tree?.statements, namespace);
 				this.calls.pop();
 			},
 			namespaceDeclaration: (node, scope) => {
@@ -4071,7 +4117,7 @@ body {
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-				this.evaluateRules(node.body?.statements, composite);
+				this.evaluateNodes(node.body?.statements, composite);
 			},
 			nillableType: (n, s, t, tp) => {
 				this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
@@ -4162,7 +4208,7 @@ body {
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-				this.evaluateRules(node.body?.statements, composite);
+				this.evaluateNodes(node.body?.statements, composite);
 			},
 			returnStatement: (node, scope) => {
 				return this.rules[node.value?.type]?.(node.value, scope);
@@ -4200,7 +4246,7 @@ body {
 					observers = []
 
 				this.setMember(scope, modifiers, identifier, type, value, observers);
-				this.evaluateRules(node.body?.statements, composite);
+				this.evaluateNodes(node.body?.statements, composite);
 			},
 			type: (node, scope) => {
 				if(this.rules[node?.type] == null) {
@@ -4502,7 +4548,7 @@ body {
 		static callFunction(function_, arguments_, forwarded, scope) {
 			scope ??= this.getComposite(function_.scopeAddress);
 
-			let namespaceTitle = (function_.title ?? '#'+function_.address)+'()',
+			let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.address)+'>',
 				namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
 				call = {
 					function: function_,
@@ -4519,7 +4565,7 @@ body {
 			}
 
 			this.calls.push(call);
-			this.evaluateRules(function_.statements, namespace);
+			this.evaluateNodes(function_.statements, namespace);
 
 			if(!this.compositeRetained(namespace)) {
 				this.destroyComposite(namespace);
@@ -4533,22 +4579,25 @@ body {
 		static bindFunction(function_, scope) {}
 
 		/*
-		 * Meant to be used for statements inside of a bodies. As it is a part of a function call flow,
-		 * at least one call should be present in the call stack.
+		 * Meant to be used for statements inside of a bodies. Last statement in a body will
+		 * be treated like a returning one even if it's not an explicit return.
+		 *
+		 * As it is a part of a function call flow, at least one call should be present in the call stack.
 		 */
-		static evaluateRules(rules, scope) {
-			for(let rule of rules ?? []) {
-				let value = this.rules[rule.type]?.(rule, scope),
-					composite = this.getValueComposite(value);
+		static evaluateNodes(nodes, scope) {
+			for(let node of nodes ?? []) {
+				let value = this.rules[node.type]?.(node, scope),
+					composite = this.getValueComposite(value),
+					returning = node.type === 'returnStatement' || node === nodes.at(-1);
 
-				if(rule.type === 'returnStatement') {
+				if(returning) {
 					this.calls.at(-1).return = value;
 				}
 				if(composite != null && !this.compositeRetained(composite)) {
 					this.destroyComposite(composite);
 				}
 
-				if(rule.type === 'returnStatement') {
+				if(returning) {
 					break;
 				}
 			}
@@ -4885,7 +4934,10 @@ body {
 
 		static report(level, node, string) {
 			let position = node?.range.start ?? 0,
-				location = this.tokens[position].location;
+				location = this.tokens[position]?.location ?? {
+					line: 0,
+					column: 0
+				}
 
 			if(this.reports.find(v =>
 				v.location.line === location.line &&
@@ -5011,7 +5063,7 @@ body {
 					element.style.color = 'rgb(255 255 255 / 1)';
 				}
 				if(type.startsWith('keyword')) {
-					element.style.color = 'cornflowerblue';
+					element.style.color = 'rgb(96 151 255 / 1)';
 
 					if([
 						'nil',
@@ -5020,6 +5072,9 @@ body {
 					].includes(value)) {
 						element.style.color = 'rgb(223 127 223 / 1)';
 					}
+				}
+				if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
+					element.style.color = 'rgb(223 223 223 / 1)';
 				}
 				if(type.startsWith('number')) {
 					element.style.color = 'rgb(223 127 223 / 1)';
