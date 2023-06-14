@@ -70,12 +70,20 @@ class Interpreter {
 				identifier = node.identifier.value,
 				inheritance = node.inheritance;
 
-		//	for(let type of inheritance) {}
+			for(let type of node.inheritance) {
+				type = this.rules.type(type, scope);
+
+				if(type != null) {
+					inheritance.push(type);
+				}
+			}
 
 			let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
 				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
 				value = this.createValue('reference', composite.address),
 				observers = []
+
+			composite.inheritance = [...composite.inheritance, ...inheritance]
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
@@ -145,9 +153,15 @@ class Interpreter {
 
 			let signature = this.rules.functionSignature(node.signature, scope),
 				function_ = this.createFunction(identifier, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, node.body?.statements, scope),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], function_.address)],  // TODO: Real type from function signature
+				type = [],
 				value = this.createValue('reference', function_.address),
 				observers = []
+
+			let tp = this.createTypePart(type, undefined, ['function']);
+
+			for(let parameter of function_.parameters) {
+			//	this.createTypePart(tp, undefined, ['reference', 'self'], function_.address);
+			}
 
 			this.setMember(scope, node.modifiers, identifier, type, value, observers);
 		},
@@ -162,10 +176,10 @@ class Interpreter {
 				parameters = [],
 				awaits = node?.awaits ?? false,
 				throws = node?.throws ?? false,
-				returnType = this.rules.type(node?.return, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
+				returnType = this.rules.type(node?.returnType, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
 
 			for(let genericParameter of node?.genericParameters ?? []) {
-				if((genericParameter = this.rules[genericParameter.type]?.(genericParameter, scope)) != null) {
+				if((genericParameter = this.rules.genericParameter(genericParameter, scope)) != null) {
 					genericParameters.push(genericParameter);
 				}
 			}

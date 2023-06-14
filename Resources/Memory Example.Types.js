@@ -14,7 +14,7 @@
 // 4:                 Global< >
 // 5:                        B
 
-let type0 = [
+let memberType0 = [
 	{
 		super: undefined,
 		flags: ['inout', 'union', 'variadic'],
@@ -54,7 +54,7 @@ let type0 = [
 // 3:      B
 // 4:           C
 
-let type1 = [
+let memberType1 = [
 	{
 		super: undefined,
 		flags: ['intersection'],
@@ -85,7 +85,7 @@ let type1 = [
 //    () / Function
 // 0: () / Function
 
-let type2 = [
+let memberType2 = [
 	{
 		super: undefined,
 		flags: ['predefined'],
@@ -100,7 +100,7 @@ let type2 = [
 // 3:       ...
 // 4:                            -> _?
 
-let type3 = [
+let memberType3 = [
 	{
 		super: undefined,
 		flags: ['function', 'genericParameters', 'awaits?', 'throws?'],
@@ -134,10 +134,10 @@ let type3 = [
 // 2:       , ...
 // 3:                            -> _
 
-let type3 = [
+let memberType3 = [
 	{
 		super: undefined,
-		flags: ['function', 'awaits', 'throws'],
+		flags: ['function', 'parameters', 'awaits', 'throws'],
 		value: undefined
 	},
 	{
@@ -161,7 +161,7 @@ let type3 = [
 // 0: (()     )?
 // 1:     -> _
 
-let type4 = [
+let memberType4 = [
 	{
 		super: undefined,
 		flags: ['function', 'nillable'],
@@ -174,11 +174,11 @@ let type4 = [
 	}
 ]
 
-//    <T>() / <T: _>()
-// 0: < >() / <    >()
-// 1:  T    /  T: _
+//    <T>()
+// 0: < >()
+// 1:  T
 
-let type5 = [
+let memberType5 = [
 	{
 		super: undefined,
 		flags: ['function', 'genericParameters'],
@@ -186,16 +186,16 @@ let type5 = [
 	},
 	{
 		super: 0,
-		flags: ['predefined'],
+		flags: ['predefined', 'nillable'],
 		value: '_'
 	}
 ]
 
-//    [_?]
-// 0: [  ]
-// 1:  _?
+//    [] / [_?] / Array<_?>
+// 0: [] / [  ] / Array<  >
+// 1:    /  _?  /       _?
 
-let type6 = [
+let memberType6 = [  // Fallback
 	{
 		super: undefined,
 		flags: ['array'],
@@ -208,11 +208,7 @@ let type6 = [
 	}
 ]
 
-//    Array<_?>
-// 0: Array<  >
-// 1:       _?
-
-let type7 = [
+let memberType7 = [  // Preferable and default
 	{
 		super: undefined,
 		flags: ['reference', 'genericArguments'],
@@ -220,6 +216,29 @@ let type7 = [
 	},
 	{
 		super: 0,
+		flags: ['predefined', 'nillable'],
+		value: '_'
+	}
+]
+
+//    class A: B<_?>
+// 0: class A:
+// 1:          B<  >
+// 2:            _?
+
+let compositeType0 = [
+	{
+		super: undefined,
+		flags: ['predefined', 'inheritance'],
+		value: 'Class'
+	},
+	{
+		super: 0,
+		flags: ['reference', 'genericArguments'],
+		value: 'B'
+	},
+	{
+		super: 1,
 		flags: ['predefined', 'nillable'],
 		value: '_'
 	}

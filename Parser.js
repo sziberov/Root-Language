@@ -1020,7 +1020,7 @@ class Parser {
 				parameters: [],
 				awaits: false,
 				throws: false,
-				return: undefined
+				returnType: undefined
 			}
 
 			if(this.token.type === 'parenthesisOpen') {
@@ -1056,7 +1056,7 @@ class Parser {
 
 			if(this.token.type.startsWith('operator') && this.token.value === '->') {
 				this.position++;
-				node.return = this.rules.type();
+				node.returnType = this.rules.type();
 			}
 
 			node.range.end = this.position-1;
@@ -1084,17 +1084,17 @@ class Parser {
 					start: this.position,
 					end: this.position
 				},
-				genericParameters: [],
-				parameters: [],
+				genericParameterTypes: [],
+				parameterTypes: [],
 				awaits: false,
 				throws: false,
-				return: undefined
+				returnType: undefined
 			}
 
 			if(this.token.type.startsWith('operator') && this.token.value === '<') {
 				this.position++;
-				node.genericParameters = this.ruleHelpers.sequentialNodes(
-					['genericParameter'],
+				node.genericParameterTypes = this.ruleHelpers.sequentialNodes(
+					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
 
@@ -1114,7 +1114,7 @@ class Parser {
 			}
 
 			this.position++;
-			node.parameters = this.ruleHelpers.sequentialNodes(
+			node.parameterTypes = this.ruleHelpers.sequentialNodes(
 				['type'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -1150,7 +1150,7 @@ class Parser {
 
 			if(this.token.type.startsWith('operator') && this.token.value === '->') {
 				this.position++;
-				node.return = this.rules.type();
+				node.returnType = this.rules.type();
 			}
 
 			node.range.end = this.position-1;
@@ -1158,9 +1158,21 @@ class Parser {
 			return node;
 		},
 		genericParameter: () => {
-			let node =
-				this.rules.variadicGenericParameter() ??
-				this.rules.primaryGenericParameter();
+			let node = {
+				type: 'genericParameter',
+				range: {
+					start: this.position
+				},
+				identifier: this.rules.identifier(),
+				type_: undefined
+			}
+
+			if(node.identifier == null) {
+				return;
+			}
+
+			node.type_ = this.rules.typeClause();
+			node.range.end = this.position-1;
 
 			return node;
 		},
@@ -2114,25 +2126,6 @@ class Parser {
 
 			return node;
 		},
-		primaryGenericParameter: () => {
-			let node = {
-				type: 'genericParameter',
-				range: {
-					start: this.position
-				},
-				identifier: this.rules.identifier(),
-				type_: undefined
-			}
-
-			if(node.identifier == null) {
-				return;
-			}
-
-			node.type_ = this.rules.typeClause();
-			node.range.end = this.position-1;
-
-			return node;
-		},
 		primaryType: () => {
 			let node =
 				this.rules.arrayType() ??
@@ -2671,21 +2664,6 @@ class Parser {
 			}
 
 			node.range.end = this.position-1;
-
-			return node;
-		},
-		variadicGenericParameter: () => {
-			let node = {
-				type: 'variadicGenericParameter',
-				range: {}
-			}
-
-			if(!this.token.type.startsWith('operator') || this.token.value !== '...') {
-				return;
-			}
-
-			node.range.start =
-			node.range.end = this.position++;
 
 			return node;
 		},
