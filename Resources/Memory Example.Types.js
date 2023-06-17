@@ -1,9 +1,8 @@
 // Rules for a type parts:
 // - One TP can have only one collection flag.
-// - TPs that have collection flags should also have children.
-// - Non-first collection flags are attached as a separate child TPs.
-// - Masks that are not mutually exclusive can be combined.
-// - Masks can not be ambigously combined (e.g. variadic array type vs array of variadic type).
+// - Collection TPs can have children and should adopt adjoining collections.
+// - Flags that are not mutually exclusive can be combined.
+// - Flags can not be ambigously combined (variadic array type / array of variadic type).
 // - TPs should be minimalistic and can not be redundant.
 
 //    inout A! | _? & Global<B>...
@@ -16,34 +15,32 @@
 
 let memberType0 = [
 	{
-		super: undefined,
-		flags: ['inout', 'union', 'variadic'],
-		value: undefined
+		inout: true,
+		union: true,
+		variadic: true
 	},
 	{
 		super: 0,
-		flags: ['reference', 'default'],
-		value: 'A'  // Composite's address
+		reference: 'A',  // Composite's address
+		default: true
 	},
 	{
 		super: 0,
-		flags: ['intersection'],
-		value: undefined
+		intersection: true
 	},
 	{
 		super: 2,
-		flags: ['predefined', 'nillable'],
-		value: '_'
+		predefined: '_',
+		nillable: true
 	},
 	{
 		super: 2,
-		flags: ['reference', 'genericArguments'],
-		value: 'Global'
+		reference: 'Global',
+		genericArguments: true
 	},
 	{
 		super: 4,
-		flags: ['reference'],
-		value: 'B'
+		reference: 'B'
 	}
 ]
 
@@ -56,29 +53,23 @@ let memberType0 = [
 
 let memberType1 = [
 	{
-		super: undefined,
-		flags: ['intersection'],
-		value: undefined
+		intersection: true
 	},
 	{
 		super: 0,
-		flags: ['union'],
-		value: undefined
+		union: true
 	},
 	{
 		super: 1,
-		flags: ['reference'],
-		value: 'A'
+		reference: 'A'
 	},
 	{
 		super: 1,
-		flags: ['reference'],
-		value: 'B'
+		reference: 'B'
 	},
 	{
 		super: 0,
-		flags: ['reference'],
-		value: 'C'
+		reference: 'C'
 	}
 ]
 
@@ -87,73 +78,78 @@ let memberType1 = [
 
 let memberType2 = [
 	{
-		super: undefined,
-		flags: ['predefined'],
-		value: 'Function'
+		predefined: 'Function'
 	}
 ]
 
 //    <...>(...) awaits? throws? -> _?
-// 0: <   >      awaits? throws?
-// 1:  ...
-// 2:      (   )
-// 3:       ...
-// 4:                            -> _?
+// 0:            awaits? throws?
+// 1: <   >
+// 2:  ...
+// 3:      (   )
+// 4:       ...
+// 5:                            -> _?
 
 let memberType3 = [
 	{
-		super: undefined,
-		flags: ['function', 'genericParameters', 'awaits?', 'throws?'],
-		value: undefined
+		predefined: 'Function',
+		awaits: undefined,
+		throws: undefined
 	},
 	{
 		super: 0,
-		flags: ['variadic'],
-		value: undefined
+		genericParameters: true
+	},
+	{
+		super: 1,
+		variadic: true
 	},
 	{
 		super: 0,
-		flags: ['parameters'],
-		value: undefined
+		parameters: true
 	},
 	{
-		super: 2,
-		flags: ['variadic'],
-		value: undefined
+		super: 3,
+		variadic: true
 	},
 	{
 		super: 0,
-		flags: ['return', 'predefined', 'nillable'],
-		value: '_'
+		return: true,
+		predefined: '_',
+		nillable: true
 	}
 ]
 
 //    ([]..., ...) awaits throws -> _
-// 0: (          ) awaits throws
-// 1:  []...
-// 2:       , ...
-// 3:                            -> _
+// 0:              awaits throws
+// 1: (     ,    )
+// 2:  []...
+// 3:         ...
+// 4:                            -> _
 
 let memberType3 = [
 	{
-		super: undefined,
-		flags: ['function', 'parameters', 'awaits', 'throws'],
-		value: undefined
+		predefined: 'Function',
+		awaits: true,
+		throws: true
 	},
 	{
 		super: 0,
-		flags: ['array', 'variadic'],
-		value: undefined
+		parameters: true
+	},
+	{
+		super: 1,
+		array: true,
+		variadic: true
+	},
+	{
+		super: 1,
+		variadic: true
 	},
 	{
 		super: 0,
-		flags: ['variadic'],
-		value: undefined
-	},
-	{
-		super: 0,
-		flags: ['return', 'predefined'],
-		value: '_'
+		return: true,
+		predefined: '_'
 	}
 ]
 
@@ -163,31 +159,33 @@ let memberType3 = [
 
 let memberType4 = [
 	{
-		super: undefined,
-		flags: ['function', 'nillable'],
-		value: undefined
+		predefined: 'Function',
+		nillable: true
 	},
 	{
 		super: 0,
-		flags: ['return', 'predefined'],
-		value: '_'
+		return: true,
+		predefined: '_'
 	}
 ]
 
 //    <T>()
-// 0: < >()
-// 1:  T
+// 0:    ()
+// 1: < >
+// 2:  T
 
 let memberType5 = [
 	{
-		super: undefined,
-		flags: ['function', 'genericParameters'],
-		value: undefined
+		predefined: 'Function'
 	},
 	{
 		super: 0,
-		flags: ['predefined', 'nillable'],
-		value: '_'
+		genericParameters: true
+	},
+	{
+		super: 1,
+		predefined: '_',
+		nillable: true
 	}
 ]
 
@@ -197,27 +195,46 @@ let memberType5 = [
 
 let memberType6 = [  // Fallback
 	{
-		super: undefined,
-		flags: ['array'],
-		value: undefined
+		array: true
 	},
 	{
 		super: 0,
-		flags: ['predefined', 'nillable'],
-		value: '_'
+		predefined: '_',
+		nillable: true
 	}
 ]
 
 let memberType7 = [  // Preferable and default
 	{
-		super: undefined,
-		flags: ['reference', 'genericArguments'],
-		value: 'Array'
+		reference: 'Array',
+		genericArguments: true
 	},
 	{
 		super: 0,
-		flags: ['predefined', 'nillable'],
-		value: '_'
+		predefined: '_',
+		nillable: true
+	}
+]
+
+//    (a: A, b c: B)
+// 0: (    ,       )
+// 1:  a: A
+// 2:        b c: B
+
+let tupleType0 = [
+	{
+		tuple: true
+	},
+	{
+		super: 0,
+		identifier: 'a',
+		reference: 'A'
+	},
+	{
+		super: 0,
+		label: 'b',
+		identifier: 'c',
+		reference: 'B'
 	}
 ]
 
@@ -228,18 +245,18 @@ let memberType7 = [  // Preferable and default
 
 let compositeType0 = [
 	{
-		super: undefined,
-		flags: ['predefined', 'inheritance'],
-		value: 'Class'
+		predefined: 'Class',
+		identifier: 'A',
+		inheritedTypes: true
 	},
 	{
 		super: 0,
-		flags: ['reference', 'genericArguments'],
-		value: 'B'
+		reference: 'B',
+		genericArguments: true
 	},
 	{
 		super: 1,
-		flags: ['predefined', 'nillable'],
-		value: '_'
+		predefined: '_',
+		nillable: true
 	}
 ]
