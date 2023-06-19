@@ -102,10 +102,6 @@ class Interpreter {
 				composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
 
 			if(composite != null) {
-				if('reference' in typePart) {
-					this.report(1, node, 'Overset from value "'+typePart.reference+'" to "'+composite.address+'".');
-				}
-
 				typePart.reference = composite.address;
 			}
 
@@ -160,17 +156,25 @@ class Interpreter {
 
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
-				type = signature,  // TODO: Remove labels and identifiers
+				type = this.getSubtype(signature, signature[0]),
 				value = this.createValue('reference', function_.address),
 				observers = []
 
 			function_.type = signature;
 
+			for(let typePart of type) {
+				delete typePart.label;
+				delete typePart.identifier;
+				delete typePart.value;
+			}
+
 			this.setMember(scope, node.modifiers, identifier, type, value, observers);
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
-				function_ = this.createFunction(undefined, /*signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType,*/ node.body?.statements, scope);
+				function_ = this.createFunction(undefined, node.body?.statements, scope);
+
+			function_.type = signature;
 
 			return this.createValue('reference', function_.address);
 		},
@@ -178,11 +182,11 @@ class Interpreter {
 			let type = [],
 				typePart = this.createTypePart(type, undefined, { predefined: 'Function' });
 
-			typePart.awaits = node?.awaits ?? false;
-			typePart.throws = node?.throws ?? false;
+			typePart.awaits = node?.awaits ?? -1;
+			typePart.throws = node?.throws ?? -1;
 
 			for(let v of ['genericParameter', 'parameter']) {
-				if(node?.[v+'s']?.length > 0) {
+				if(node?.[v+'s'].length > 0) {
 					let typePart_ = this.createTypePart(type, typePart, { [v+'s']: true });
 
 					for(let node_ of node[v+'s']) {
@@ -194,6 +198,24 @@ class Interpreter {
 			this.helpers.createTypePart(type, typePart, node?.returnType, scope);
 
 			return type;
+		},
+		functionType: (node, scope, type, typePart) => {
+			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { predefined: 'Function' });
+
+			typePart.awaits = node.awaits ?? 0;
+			typePart.throws = node.throws ?? 0;
+
+			for(let v of ['genericParameter', 'parameter']) {
+				if(node[v+'Types'].length > 0) {
+					let typePart_ = this.createTypePart(type, typePart, { [v+'s']: true });
+
+					for(let node_ of node[v+'Types']) {
+						this.helpers.createTypePart(type, typePart_, node_, scope);
+					}
+				}
+			}
+
+			this.helpers.createTypePart(type, typePart, node.returnType, scope);
 		},
 		genericParameter: (node, scope, type, typePart) => {
 			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
@@ -359,10 +381,6 @@ class Interpreter {
 			return value;
 		},
 		predefinedType: (node, scope, type, typePart) => {
-			if('predefined' in typePart) {
-				this.report(1, node, 'Overset from value "'+typePart.predefined+'" to "'+node.value+'".');
-			}
-
 			typePart.predefined = node.value;
 		},
 		prefixExpression: (node, scope) => {
@@ -446,16 +464,14 @@ class Interpreter {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
 			if(composite == null || composite.type[0]?.predefined === 'Object') {
+				typePart.predefined = 'Any';
+
 				this.report(2, node, 'Composite is an object or wasn\'t found.');
+			} else {
+				typePart.reference = composite?.address;
 			}
 
-			if('reference' in typePart) {
-				this.report(1, node, 'Overset from value "'+typePart.reference+'" to "'+composite.address+'".');
-			}
-
-			typePart.reference = composite?.address;
-
-			if(composite == null || node.genericArguments.length === 0) {
+			if(node.genericArguments.length === 0) {
 				return;
 			}
 
@@ -473,7 +489,8 @@ class Interpreter {
 
 			for(let declarator of node.declarators) {
 				let identifier = declarator.identifier.value,
-					type = [this.helpers.createTypePart(undefined, undefined, declarator.type_, scope)],
+					type = [],
+					typePart = this.helpers.createTypePart(type, undefined, declarator.type_, scope),
 					value = this.rules[declarator.value?.type]?.(declarator.value, scope),
 					observers = []
 
@@ -494,24 +511,6 @@ class Interpreter {
 	}
 
 	static helpers = {
-		createTypePart: (type, typePart, node, scope, fallback = true) => {
-			typePart = this.createTypePart(type, typePart);
-
-			this.rules[node?.type]?.(node, scope, type, typePart);
-
-			if(fallback) {
-				for(let flag in typePart) {
-					if(flag !== 'super') {
-						return typePart;
-					}
-				}
-
-				typePart.predefined = '_';
-				typePart.nillable = true;
-			}
-
-			return typePart;
-		},
 		createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
 			let collectionFlags = {
 				array: true,
@@ -534,6 +533,53 @@ class Interpreter {
 			}
 
 			return Object.assign(typePart, collectionFlag);
+		},
+		createTypePart: (type, typePart, node, scope, fallback = true) => {
+			typePart = this.createTypePart(type, typePart);
+
+			this.rules[node?.type]?.(node, scope, type, typePart);
+
+			if(fallback) {
+				for(let flag in typePart) {
+					if(flag !== 'super') {
+						return typePart;
+					}
+				}
+
+				typePart.predefined = '_';
+				typePart.nillable = true;
+			}
+
+			return typePart;
+		},
+		getValueType(value) {
+			let typePart = this.createTypePart();
+
+			if(!['pointer', 'reference'].includes(value.primitiveType)) {
+				typePart.predefined = value.primitiveType;
+			} else {
+				if(value.primitiveType === 'pointer') {
+					typePart.inout = true;
+				}
+
+				typePart.reference = value.primitiveValue;
+
+				let composite = this.getValueComposite(value);
+
+				while(composite != null) {
+					if(composite.type[0]?.predefined !== 'Object') {
+						if(composite.address === value.primitiveValue) {
+							typePart.self = true;
+						} else {
+							typePart.reference = composite.address;
+						}
+					} else {
+						composite = this.getComposite(composite.scopeAddress);
+					}
+				}
+			}
+
+			return [typePart]
 		}
 	}
 
@@ -853,10 +899,6 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
-	static createType() {
-		return []
-	}
-
 	static createTypePart(type, superTypePart, flags) {
 		let typePart = { ...flags }
 
@@ -871,37 +913,31 @@ class Interpreter {
 		return typePart;
 	}
 
-	static getType(value) {
-		let typePart = this.createTypePart();
+	static getSubtype(type, typePart, offset) {
+		offset ??= type.indexOf(typePart);
 
-		if(!['node', 'pointer', 'reference'].includes(value.primitiveType)) {
-			typePart.predefined = value.primitiveType;
-		} else
-		if(value.primitiveType === 'node') {
-			typePart.node = value.primitiveValue.type;
-		} else {
-			if(value.primitiveType === 'pointer') {
-				typePart.inout = true;
-			}
+		if(offset === 0) {
+			return structuredClone(type);
+		}
 
-			typePart.reference = value.primitiveValue;
+		let subtype = [],
+			typePart_ = structuredClone(typePart);
 
-			let composite = this.getValueComposite(value);
+		typePart_.super -= offset;
 
-			while(composite != null) {
-				if(composite.type[0]?.predefined !== 'Object') {
-					if(composite.address === value.primitiveValue) {
-						typePart.self = true;
-					} else {
-						typePart.reference = composite.address;
-					}
-				} else {
-					composite = this.getComposite(composite.scopeAddress);
-				}
+		if(typePart_.super < 0) {
+			delete typePart_.super;
+		}
+
+		subtype.push(typePart_);
+
+		for(let typePart_ of type) {
+			if(typePart_.super === type.indexOf(typePart)) {
+				subtype.push(...this.getSubtype(type, typePart_, offset));
 			}
 		}
 
-		return [typePart]
+		return subtype;
 	}
 
 	static createValue(primitiveType, primitiveValue) {
@@ -1253,7 +1289,7 @@ class Interpreter {
 		this.reset(composites, preferences);
 
 		this.tokens = lexerResult.tokens;
-		this.tree = JSON.parse(JSON.stringify(parserResult.tree));
+		this.tree = structuredClone(parserResult.tree);
 
 		this.rules.module();
 
