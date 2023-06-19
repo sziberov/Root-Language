@@ -803,10 +803,10 @@ class Interpreter {
 
 		for(let i = 0; i < (arguments_ ?? []).length; i++) {
 			let argument = arguments_[i],
-				parameter = function_.parameters[i],
-				label = argument.label ?? parameter?.identifier ?? '$'+i;
+				parameterType = this.getSubtype(parameters, parameters[i]),
+				label = argument.label ?? parameterType[0]?.identifier ?? '$'+i;
 
-			this.setMember(namespace, [], label, parameter.type, argument.value, []);
+			this.setMember(namespace, [], label, parameterType, argument.value, []);
 		}
 
 		this.addScope(namespace, function_);
@@ -823,7 +823,11 @@ class Interpreter {
 	static bindFunction(function_, scope) {}
 
 	static getFunctionParameters(function_) {
-		return []
+		let parameters = this.getSubtype(function_.type, function_.type.find(v => v.parameters && v.super === 0));
+
+		parameters.shift();
+
+		return parameters;
 	}
 
 	static getScope(offset = 0) {
@@ -916,6 +920,9 @@ class Interpreter {
 	static getSubtype(type, typePart, offset) {
 		offset ??= type.indexOf(typePart);
 
+		if(offset < 0) {
+			return []
+		}
 		if(offset === 0) {
 			return structuredClone(type);
 		}
