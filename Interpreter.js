@@ -26,7 +26,7 @@ class Interpreter {
 			let function_ = this.getValueComposite(this.rules[node.callee.type]?.(node.callee, scope)),
 				arguments_ = []
 
-			if(function_ == null || function_.inheritance[0] !== 'Function') {
+			if(function_ == null || function_.type[0]?.predefined !== 'Function') {
 				this.report(2, node, 'Composite is not a function or wasn\'t found.');
 
 				return;
@@ -68,57 +68,64 @@ class Interpreter {
 		classDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
-				inheritance = node.inheritance;
+				inheritedTypes = node.inheritedTypes,
+				composite = this.createClass(identifier, scope);
 
-			for(let type of node.inheritance) {
-				type = this.rules.type(type, scope);
+			if(node.inheritedTypes.length > 0) {
+				composite.type[0].inheritedTypes = true;
 
-				if(type != null) {
-					inheritance.push(type);
+				for(let node_ of node.inheritedTypes) {
+					this.rules.type(node_, scope, composite.type, composite.type[0]);
+				}
+				for(let typePart of composite.type) {
+					if(typePart.reference != null) {
+						let composite_ = this.getComposite(typePart.reference);
+
+						if(composite_ != null) {
+							this.retainComposite(composite_, composite);
+						}
+					}
 				}
 			}
 
-			let composite = this.createClass(identifier, scope /*superclass from inheritance*/),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
+			let type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
 				value = this.createValue('reference', composite.address),
 				observers = []
 
-			composite.inheritance = [...composite.inheritance, ...inheritance]
-
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
+
+			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
 				composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
 
 			if(composite != null) {
-				if(!typePart.flags.includes('reference')) {
-					typePart.flags.push('reference');
-				} else {
-					this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
+				if('reference' in typePart) {
+					this.report(1, node, 'Overset from value "'+typePart.reference+'" to "'+composite.address+'".');
 				}
 
-				typePart.value = composite.address;
+				typePart.reference = composite.address;
 			}
 
-			typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, composite != null ? 'genericArguments' : title);
+			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
 
 			if(title === 'dictionary') {
-				this.ruleHelpers.createArgumentTypePart(type, typePart, node.key, scope);
+				this.helpers.createArgumentTypePart(type, typePart, node.key, scope);
 			}
 
-			this.ruleHelpers.createArgumentTypePart(type, typePart, node.value, scope);
+			this.helpers.createArgumentTypePart(type, typePart, node.value, scope);
 		},
 		combiningType: (node, scope, type, typePart, title) => {
 			if(node.subtypes.length === 0) {
 				return;
 			}
 
-			typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, title);
+			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [title]: true });
 
 			for(let subtype of node.subtypes) {
-				this.ruleHelpers.createArgumentTypePart(type, typePart, subtype, scope);
+				this.helpers.createArgumentTypePart(type, typePart, subtype, scope);
 			}
 		},
 		defaultType: (n, s, t, tp) => {
@@ -131,7 +138,7 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createEnumeration(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
+				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
 				value = this.createValue('reference', composite.address),
 				observers = []
 
@@ -151,64 +158,60 @@ class Interpreter {
 				return;
 			}
 
-			let signature = this.rules.functionSignature(node.signature, scope),
-				function_ = this.createFunction(identifier, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, node.body?.statements, scope),
-				type = [],
+			let function_ = this.createFunction(identifier, node.body?.statements, scope),
+				signature = this.rules.functionSignature(node.signature, scope),
+				type = signature,  // TODO: Remove labels and identifiers
 				value = this.createValue('reference', function_.address),
 				observers = []
 
-			let tp = this.createTypePart(type, undefined, ['function']);
-
-			for(let parameter of function_.parameters) {
-			//	this.createTypePart(tp, undefined, ['reference', 'self'], function_.address);
-			}
+			function_.type = signature;
 
 			this.setMember(scope, node.modifiers, identifier, type, value, observers);
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
-				function_ = this.createFunction(undefined, signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType, node.body?.statements, scope);
+				function_ = this.createFunction(undefined, /*signature.genericParameters, signature.parameters, signature.awaits, signature.throws, signature.returnType,*/ node.body?.statements, scope);
 
 			return this.createValue('reference', function_.address);
 		},
 		functionSignature: (node, scope) => {
-			let genericParameters = [],
-				parameters = [],
-				awaits = node?.awaits ?? false,
-				throws = node?.throws ?? false,
-				returnType = this.rules.type(node?.returnType, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
+			let type = [],
+				typePart = this.createTypePart(type, undefined, { predefined: 'Function' });
 
-			for(let genericParameter of node?.genericParameters ?? []) {
-				if((genericParameter = this.rules.genericParameter(genericParameter, scope)) != null) {
-					genericParameters.push(genericParameter);
+			typePart.awaits = node?.awaits ?? false;
+			typePart.throws = node?.throws ?? false;
+
+			for(let v of ['genericParameter', 'parameter']) {
+				if(node?.[v+'s']?.length > 0) {
+					let typePart_ = this.createTypePart(type, typePart, { [v+'s']: true });
+
+					for(let node_ of node[v+'s']) {
+						this.rules[v](node_, scope, type, typePart_);
+					}
 				}
 			}
-			for(let parameter of node?.parameters ?? []) {
-				if((parameter = this.rules.parameter(parameter, scope)) != null) {
-					parameters.push(parameter);
-				}
+
+			if(this.rules.type(node?.returnType, scope, type, typePart) == null) {
+				this.helpers.createDefaultTypePart(type, typePart);
 			}
 
-			return {
-				genericParameters: genericParameters,
-				parameters: parameters,
-				awaits: awaits,
-				throws: throws,
-				returnType: returnType
-			}
+			return type;
 		},
-		genericParameter: (node, scope) => {
-			return {
-				identifier: node.identifier.value,
-				type: this.rules.type(node.type_, scope) ?? [this.ruleHelpers.createDefaultTypePart()]
+		genericParameter: (node, scope, type, typePart) => {
+			let typePartCount = type.length;
+
+			if(this.rules.type(node.type_, scope, type, typePart) == null) {
+				this.helpers.createDefaultTypePart(type, typePart);
 			}
+
+			type[typePartCount].identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
 			let address = {
 				global: () => undefined,  // Global-object is no thing
 				Global: () => 0,  // Global-type
 				self: () => scope.address,  // Self-object or a type
-				Self: () => scope.inheritance[0] === 'Object' ? scope.inheritance[1] : scope.address,  // Self-type
+				Self: () => scope.type[0]?.predefined === 'Object' ? scope.type[1]?.reference : scope.address,  // Self-type
 				metaSelf: () => undefined,  // Self-object or a type descriptor
 				super: () => scope.scopeAddress,  // Super-object or a type
 				Super: () => undefined,  // Super-type
@@ -303,7 +306,7 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createNamespace(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
+				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
 				value = this.createValue('reference', composite.address),
 				observers = []
 
@@ -314,18 +317,27 @@ class Interpreter {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
 		},
 		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
-			if(!typePart.flags.some(v => titles.includes(v))) {
-				typePart.flags.push(titles[mainTitle ?? 0]);
+			if(!titles.some(v => v in typePart)) {
+				typePart[titles[mainTitle ?? 0]] = true;
 			}
 
 			this.rules[node.value?.type]?.(node.value, scope, type, typePart);
 		},
-		parameter: (node, scope) => {
-			return {
-				label: node.label?.value,
-				identifier: node.identifier.value,
-				type: this.rules.type(node.type_, scope) ?? [this.ruleHelpers.createDefaultTypePart()],
-				value: node.value != null ? this.createValue('node', node.value) : undefined
+		parameter: (node, scope, type, typePart) => {
+			let typePartCount = type.length;
+
+			if(this.rules.type(node.type_, scope, type, typePart) == null) {
+				this.helpers.createDefaultTypePart(type, typePart);
+			}
+
+			if(node.label != null) {
+				type[typePartCount].label = node.label.value;
+			}
+
+			type[typePartCount].identifier = node.identifier.value;
+
+			if(node.value != null) {
+				type[typePartCount].value = node.value;
 			}
 		},
 		parenthesizedExpression: (node, scope) => {
@@ -357,13 +369,11 @@ class Interpreter {
 			return value;
 		},
 		predefinedType: (node, scope, type, typePart) => {
-			if(!typePart.flags.includes('predefined')) {
-				typePart.flags.push('predefined');
-			} else {
-				this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+node.value+'".');
+			if('predefined' in typePart) {
+				this.report(1, node, 'Overset from value "'+typePart.predefined+'" to "'+node.value+'".');
 			}
 
-			typePart.value = node.value;
+			typePart.predefined = node.value;
 		},
 		prefixExpression: (node, scope) => {
 			let value = this.rules[node.value?.type]?.(node.value, scope);
@@ -394,12 +404,15 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createProtocol(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
+				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
 				value = this.createValue('reference', composite.address),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
+		},
+		protocolType: (node, scope, type, typePart) => {
+
 		},
 		returnStatement: (node, scope) => {
 			return this.rules[node.value?.type]?.(node.value, scope);
@@ -432,47 +445,46 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createStructure(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, ['reference', 'self'], composite.address)],
+				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
 				value = this.createValue('reference', composite.address),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
-		type: (node, scope) => {
+		type: (node, scope, type, typePart) => {
 			if(this.rules[node?.type] == null) {
 				return;
 			}
 
-			let type = [this.createTypePart()]
+			type ??= []
+			typePart = this.createTypePart(type, typePart);
 
-			this.rules[node.type](node, scope, type, type[0]);
+			this.rules[node.type](node, scope, type, typePart);
 
 			return type;
 		},
 		typeIdentifier: (node, scope, type, typePart) => {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
-			if(composite == null || composite.inheritance[0] === 'Object') {
+			if(composite == null || composite.type[0]?.predefined === 'Object') {
 				this.report(2, node, 'Composite is an object or wasn\'t found.');
 			}
 
-			if(!typePart.flags.includes('reference')) {
-				typePart.flags.push('reference');
-			} else {
-				this.report(1, node, 'Overset from value "'+typePart.value+'" to "'+composite.address+'".');
+			if('reference' in typePart) {
+				this.report(1, node, 'Overset from value "'+typePart.reference+'" to "'+composite.address+'".');
 			}
 
-			typePart.value = composite?.address;
+			typePart.reference = composite?.address;
 
 			if(composite == null || node.genericArguments.length === 0) {
 				return;
 			}
 
-			typePart = this.ruleHelpers.createOrSetCollectionTypePart(type, typePart, 'genericArguments');
+			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { genericArguments: true });
 
 			for(let genericArgument of node.genericArguments) {
-				this.ruleHelpers.createArgumentTypePart(type, typePart, genericArgument, scope);
+				this.helpers.createArgumentTypePart(type, typePart, genericArgument, scope);
 			}
 		},
 		unionType: (n, s, t, tp) => {
@@ -483,7 +495,7 @@ class Interpreter {
 
 			for(let declarator of node.declarators) {
 				let identifier = declarator.identifier.value,
-					type = this.rules.type(declarator.type_, scope),
+					type = this.rules.type(declarator.type_, scope) ?? [this.helpers.createDefaultTypePart()],
 					value = this.rules[declarator.value?.type]?.(declarator.value, scope),
 					observers = []
 
@@ -495,7 +507,7 @@ class Interpreter {
 		variadicGenericParameter: (node, scope) => {
 			return {
 				identifier: undefined,
-				type: [this.createTypePart(undefined, undefined, ['variadic'])]
+				type: [this.createTypePart(undefined, undefined, { variadic: true })]
 			}
 		},
 		variadicType: (n, s, t, tp) => {
@@ -503,35 +515,39 @@ class Interpreter {
 		}
 	}
 
-	static ruleHelpers = {
+	static helpers = {
 		createArgumentTypePart: (type, typePart, node, scope) => {
 			if(node == null) {
-				this.ruleHelpers.createDefaultTypePart(type, typePart);
+				this.helpers.createDefaultTypePart(type, typePart);
 			} else {
 				this.rules[node.type]?.(node, scope, type, this.createTypePart(type, typePart));
 			}
 		},
 		createDefaultTypePart: (type, typePart) => {
-			return this.createTypePart(type, typePart, ['predefined', 'nillable'], '_');
+			return this.createTypePart(type, typePart, { predefined: '_', nillable: true });
 		},
 		createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
-			let collectionFlags = [
-				'array',
-				'dictionary',
-				'genericArguments',
-				'genericParameters',
-				'intersection',
-				'parameters',
-				'union'
-			]
-
-			if(typePart.flags.some(v => collectionFlags.includes(v))) {
-				return this.createTypePart(type, typePart, [collectionFlag]);
-			} else {
-				typePart.flags.push(collectionFlag);
-
-				return typePart;
+			let collectionFlags = {
+				array: true,
+				dictionary: true,
+				genericArguments: true,
+				genericParameters: true,
+				intersection: true,
+				parameters: true,
+				predefined: 'Function',
+				union: true
 			}
+
+			for(let flag in typePart) {
+				if(
+					flag in collectionFlags &&
+					typePart[flag] === collectionFlags[flag]
+				) {
+					return this.createTypePart(type, typePart, collectionFlag);
+				}
+			}
+
+			return Object.assign(typePart, collectionFlag);
 		}
 	}
 
@@ -554,11 +570,16 @@ class Interpreter {
 
 	static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
 
-	static createComposite(title, inheritance, scope) {
+	static createComposite(title, type, scope) {
 		let composite = {
 			address: this.composites.length,
 			title: title,
-			inheritance: inheritance ?? [],
+			type: type,
+			statements: [],
+			imports: [],
+			operators: [],
+			members: [],
+			observers: [],
 			scopeAddress: scope?.address,
 			retainersAddresses: []
 		}
@@ -623,7 +644,7 @@ class Interpreter {
 	 *
 	 * Composite considered really retained if:
 	 * - It is used as a retainer's scope.
-	 * - It is used by a retainer's import, member or observer.
+	 * - It is used by a retainer's type, import, member or observer.
 	 */
 	static compositeRetains(retainedComposite, retainingComposite) {
 		if(this.composites[retainingComposite?.address] == null) {
@@ -631,7 +652,8 @@ class Interpreter {
 		}
 
 		return (
-			retainedComposite.address === retainingComposite.scopeAddress ||
+			retainingComposite.scopeAddress === retainedComposite.address ||
+			retainingComposite.type.some(v => v.reference === retainedComposite.address) ||
 			this.importRetains(retainedComposite, retainingComposite) ||
 			this.memberRetains(retainedComposite, retainingComposite) ||
 			this.observerRetains(retainedComposite, retainingComposite)
@@ -697,35 +719,37 @@ class Interpreter {
 	}
 
 	static createClass(title, scope) {
-		let class_ = this.createComposite(title, ['Class'], scope);
-
-		class_.members = []
-		class_.observers = []
-
-		return class_;
+		return this.createComposite(title, [{ predefined: 'Class' }], scope);
 	}
 
 	static createEnumeration(title, scope) {
-		let enumeration = this.createComposite(title, ['Enumeration'], scope);
-
-		enumeration.members = []
-
-		return enumeration;
+		return this.createComposite(title, [{ predefined: 'Enumeration' }], scope);
 	}
 
-	static createFunction(title, genericParameters, parameters, awaits, throws, returnType, statements, scope) {
-		let function_ = this.createComposite(title, ['Function'], scope);
+	static createFunction(title, statements, scope) {
+		let function_ = this.createComposite(title, [{ predefined: 'Function' }], scope);
 
-		function_.genericParameters = genericParameters ?? []
-		function_.parameters = parameters ?? []
-		function_.awaits = awaits;
-		function_.throws = throws;
-		function_.returnType = returnType;
-		function_.statements = statements ?? []
-		function_.members = []
-		function_.observers = []
+		this.setStatements(function_, statements);
 
 		return function_;
+	}
+
+	static createNamespace(title, scope) {
+		return this.createComposite(title, [{ predefined: 'Namespace' }], scope);
+	}
+
+	static createObject(scope) {
+		let title = (scope.title ?? '#'+scope.address)+'()';
+
+		return this.createComposite(title, [{ predefined: 'Object' }], scope);
+	}
+
+	static createProtocol(title, scope) {
+		return this.createComposite(title, [{ predefined: 'Protocol' }], scope);
+	}
+
+	static createStructure(title, scope) {
+		return this.createComposite(title, [{ predefined: 'Structure' }], scope);
 	}
 
 	/*
@@ -738,7 +762,12 @@ class Interpreter {
 		scope ??= this.getComposite(function_.scopeAddress);
 
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.address)+'>',
-			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope;
+			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
+			parameters = this.getFunctionParameters(function_);
+
+		if(arguments_.length > parameters.length) {
+			arguments_.length = parameters.length;
+		}
 
 		for(let i = 0; i < (arguments_ ?? []).length; i++) {
 			let argument = arguments_[i],
@@ -761,6 +790,10 @@ class Interpreter {
 
 	static bindFunction(function_, scope) {}
 
+	static getFunctionParameters(function_) {
+		return []
+	}
+
 	static getScope(offset = 0) {
 		return this.scopes[this.scopes.length-1+offset]
 	}
@@ -779,7 +812,7 @@ class Interpreter {
 	}
 
 	/*
-	 * Removes from the stack and automatically destroys a last scope.
+	 * Removes from the stack and automatically destroys its last scope.
 	 */
 	static removeScope() {
 		let namespace = this.scopes.at(-1)?.namespace;
@@ -834,54 +867,15 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
-	static createNamespace(title, scope) {
-		let namespace = this.createComposite(title, ['Namespace'], scope);
-
-		namespace.imports = []
-		namespace.operators = []
-		namespace.members = []
-		namespace.observers = []
-
-		return namespace;
+	static createType() {
+		return []
 	}
 
-	static createObject(scope) {
-		let title = (scope.title ?? '#'+scope.address)+'()',
-			object = this.createComposite(title, ['Object'], scope);
-
-		object.members = []
-
-		return object;
-	}
-
-	static createProtocol(title, scope) {
-		let protocol = this.createComposite(title, ['Protocol'], scope);
-
-		protocol.members = []
-
-		return protocol;
-	}
-
-	static createStructure(title, scope) {
-		let structure = this.createComposite(title, ['Structure'], scope);
-
-		structure.members = []
-		structure.observers = []
-
-		return structure;
-	}
-
-	static createType() {}
-
-	static createTypePart(type, superTypePart, flags, value) {
-		let typePart = {
-			super: undefined,
-			flags: flags ?? [],
-			value: value
-		}
+	static createTypePart(type, superTypePart, flags) {
+		let typePart = { ...flags }
 
 		if(type != null) {
-			if(typePart != null) {
+			if(superTypePart != null) {
 				typePart.super = type.indexOf(superTypePart);
 			}
 
@@ -895,28 +889,25 @@ class Interpreter {
 		let typePart = this.createTypePart();
 
 		if(!['node', 'pointer', 'reference'].includes(value.primitiveType)) {
-			typePart.flags.push('predefined');
-			typePart.value = value.primitiveType;
+			typePart.predefined = value.primitiveType;
 		} else
 		if(value.primitiveType === 'node') {
-			typePart.flags.push('node');
-			typePart.value = value.primitiveValue.type;
+			typePart.node = value.primitiveValue.type;
 		} else {
 			if(value.primitiveType === 'pointer') {
-				typePart.flags.push('inout');
+				typePart.inout = true;
 			}
 
-			typePart.flags.push('reference');
-			typePart.value = value.primitiveValue;
+			typePart.reference = value.primitiveValue;
 
 			let composite = this.getValueComposite(value);
 
 			while(composite != null) {
-				if(composite.inheritance[0] !== 'Object') {
+				if(composite.type[0]?.predefined !== 'Object') {
 					if(composite.address === value.primitiveValue) {
-						typePart.flags.push('self');
+						typePart.self = true;
 					} else {
-						typePart.value = composite.address;
+						typePart.reference = composite.address;
 					}
 				} else {
 					composite = this.getComposite(composite.scopeAddress);
@@ -942,6 +933,14 @@ class Interpreter {
 		return this.getComposite(value.primitiveValue);
 	}
 
+	static setStatements(composite, statements) {
+		if(composite.type[0]?.predefined !== 'Function') {
+			return;
+		}
+
+		composite.statements = statements;
+	}
+
 	static findImport(composite, identifier) {
 		while(composite != null) {
 			let import_ = this.getImport(composite, identifier);
@@ -959,6 +958,10 @@ class Interpreter {
 	}
 
 	static setImport(composite, identifier, value) {
+		if(composite.type[0]?.predefined !== 'Namespace') {
+			return;
+		}
+
 		let import_ = this.getImport(composite, identifier) ?? composite.imports[composite.imports.push({})-1]
 
 		import_.identifier = identifier;
@@ -978,13 +981,13 @@ class Interpreter {
 	}
 
 	static deleteImports(composite) {
-		for(let import_ of composite.imports ?? []) {
+		for(let import_ of composite.imports) {
 			this.deleteImport(composite, import_.identifier);
 		}
 	}
 
 	static importRetains(retainedComposite, retainingComposite) {
-		return retainingComposite.imports?.some(v => v.value === retainedComposite.address);
+		return retainingComposite.imports.some(v => v.value === retainedComposite.address);
 	}
 
 	static findOperator(composite, identifier) {
@@ -1004,6 +1007,10 @@ class Interpreter {
 	}
 
 	static setOperator(composite, modifiers, identifier, associativity, precedence) {
+		if(composite.type[0]?.predefined !== 'Namespace') {
+			return;
+		}
+
 		let operator = this.getOperator(composite, identifier) ?? composite.operators[composite.operators.push({})-1]
 
 		operator.modifiers = modifiers;
@@ -1018,9 +1025,35 @@ class Interpreter {
 		composite.operators = composite.operators.filter(v => v !== operator);
 	}
 
-	static findMember(composite, identifier) {
-		// TODO: Imports lookup
+	/*
+	 * Search order:
+	 *
+	 * 1. Current
+	 * 2. Lower.Lower...    Object chain (member is virtual)
+	 * 3. Higher.Higher...  Object chain
+	 * 4. Parent.Parent...  Inheritance chain
+	 * 5. Scope.Scope...    Scope chain (member is not internal)
+	 */
+	static findMember(composite, identifier, internal) {
+		let member = this.getMember(composite, identifier);
 
+		if(member?.modifiers.includes('virtual')) {
+			member = this.findMemberInObjectChain(composite, identifier, true) ?? member;
+		}
+
+		member ??=
+			this.findMemberInObjectChain(composite, identifier) ??
+			this.findMemberInInheritanceChain(composite, identifier) ??
+			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined;
+
+		return member;
+	}
+
+	static findMemberInObjectChain(composite, identifier, lower) {}
+
+	static findMemberInInheritanceChain(composite, identifier) {}
+
+	static findMemberInScopeChain(composite, identifier) {
 		let member = {
 			identifier: identifier
 		}
@@ -1046,11 +1079,17 @@ class Interpreter {
 	}
 
 	static getMember(composite, identifier) {
+		// TODO: Imports lookup
+
 		return composite.members.find(v => v.identifier === identifier);
 	}
 
 	static setMember(composite, modifiers, identifier, type, value, observers) {
-		let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1]
+		let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
+			ot = member.type ?? [],  // Old/new type
+			nt = type ?? [],
+			ovc = this.getValueComposite(member.value),  // Old/new value composite
+			nvc = this.getValueComposite(value);
 
 		member.modifiers = modifiers;
 		member.identifier = identifier;
@@ -1058,9 +1097,26 @@ class Interpreter {
 		member.value = value;
 		member.observers = observers;
 
-		let ovc = this.getValueComposite(member.value),  // Old/new value composite
-			nvc = this.getValueComposite(value);
+		if(ot != nt) {
+			for(let otp of ot) {
+				if(otp.reference != null && !nt.some(ntp => ntp.reference === otp.reference)) {
+					let otpc = this.getComposite(otp.reference);
 
+					if(otpc != null) {
+						this.releaseComposite(otpc, composite);
+					}
+				}
+			}
+			for(let ntp of ot) {
+				if(ntp.reference != null && !ot.some(otp => otp.reference === ntp.reference)) {
+					let ntpc = this.getComposite(ntp.reference);
+
+					if(ntpc != null) {
+						this.retainComposite(otpc, composite);
+					}
+				}
+			}
+		}
 		if(ovc != null && ovc !== nvc) {
 			this.releaseComposite(ovc, composite);
 		}
@@ -1090,7 +1146,7 @@ class Interpreter {
 	}
 
 	static deleteMembers(composite) {
-		for(let member of composite.members ?? []) {
+		for(let member of composite.members) {
 			this.deleteMember(composite, member.identifier);
 		}
 	}
@@ -1102,7 +1158,7 @@ class Interpreter {
 
 		let function_ = this.getComposite(functionMember.value);
 
-		if(function_?.inheritance[0] !== 'Function') {
+		if(function_?.type[0]?.predefined !== 'Function') {
 			return;
 		}
 
@@ -1112,16 +1168,14 @@ class Interpreter {
 	}
 
 	static deleteFunctionMembers(composite) {
-		for(let member of composite.members ?? []) {
+		for(let member of composite.members) {
 			this.deleteFunctionMember(composite, member);
 		}
 	}
 
 	static memberRetains(retainedComposite, retainingComposite) {
-		// In-type retains check will not be enabled until appearance of case where it's needed
-
-		return retainingComposite.members?.some(member =>
-		//	member.type.some(v => v.flags.include('reference') && v.value === retainedComposite.address) ||
+		return retainingComposite.members.some(member =>
+			member.type.some(v => v.reference === retainedComposite.address) ||
 			this.getValueComposite(member.value) === retainedComposite ||
 			member.observers.some(v => v.value === retainedComposite.address)
 		);
@@ -1141,7 +1195,15 @@ class Interpreter {
 
 	static getFunction(composite, identifier, arguments_) {}
 
-	// findObserver, getObserver, setObserver
+	static findObserver() {}
+
+	static getObserver() {}
+
+	static setObserver(composite) {
+		if(!['Class', 'Function', 'Namespace', 'Structure'].includes(composite.type[0]?.predefined)) {
+			return;
+		}
+	}
 
 	static deleteObserver(composite, observer) {
 		composite.observers = composite.observers.filter(v => v !== observer);
@@ -1154,13 +1216,13 @@ class Interpreter {
 	}
 
 	static deleteObservers(composite) {
-		for(let observer of composite.observers ?? []) {
+		for(let observer of composite.observers) {
 			this.deleteObserver(composite, observer);
 		}
 	}
 
 	static observerRetains(retainedComposite, retainingComposite) {
-		return retainingComposite.observers?.some(v => v.value === retainedComposite.address);
+		return retainingComposite.observers.some(v => v.value === retainedComposite.address);
 	}
 
 	static report(level, node, string) {
@@ -1219,5 +1281,3 @@ class Interpreter {
 		return result;
 	}
 }
-
-module.exports = Interpreter;

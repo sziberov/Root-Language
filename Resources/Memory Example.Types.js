@@ -114,7 +114,6 @@ let memberType3 = [
 	},
 	{
 		super: 0,
-		return: true,
 		predefined: '_',
 		nillable: true
 	}
@@ -148,7 +147,6 @@ let memberType3 = [
 	},
 	{
 		super: 0,
-		return: true,
 		predefined: '_'
 	}
 ]
@@ -164,7 +162,6 @@ let memberType4 = [
 	},
 	{
 		super: 0,
-		return: true,
 		predefined: '_'
 	}
 ]

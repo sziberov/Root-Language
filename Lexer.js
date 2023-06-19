@@ -7,7 +7,7 @@ class Lexer {
 	static rules = [
 		['#!', (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 			} else
 			if(this.position === 0) {
@@ -19,7 +19,7 @@ class Lexer {
 		}],
 		[['/*', '*/'], (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 			} else
 			if(v === '/*') {
@@ -35,7 +35,7 @@ class Lexer {
 		}],
 		['//', (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 			} else {
 				this.addToken('commentLine', v);
@@ -57,7 +57,7 @@ class Lexer {
 				return true;
 			}
 
-			this.ruleHelpers.continueString();
+			this.helpers.continueString();
 			this.token.value += ({
 				'\\\\': '\\',
 				'\\\'': '\'',
@@ -90,7 +90,7 @@ class Lexer {
 		}],
 		[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -105,7 +105,7 @@ class Lexer {
 				generic = generics.includes(v);
 
 			if(!generic) {
-				this.ruleHelpers.mergeOperators();
+				this.helpers.mergeOperators();
 			}
 
 			let closingAngle = this.atAngle && v === '>';
@@ -130,7 +130,7 @@ class Lexer {
 					type += 'Postfix';
 				}
 
-				this.ruleHelpers.specifyOperatorType();
+				this.helpers.specifyOperatorType();
 			}
 
 			this.addToken(type);
@@ -143,7 +143,7 @@ class Lexer {
 		}],
 		[['(', ')', '[', ']', '{', '}'], (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -159,7 +159,7 @@ class Lexer {
 			})[v]
 
 			if(type.endsWith('Open')) {
-				this.ruleHelpers.specifyOperatorType();
+				this.helpers.specifyOperatorType();
 			}
 			this.addToken(type);
 			this.removeState('angle', 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
@@ -194,7 +194,7 @@ class Lexer {
 			}
 
 			if(!this.atString) {
-				this.ruleHelpers.finalizeOperator();
+				this.helpers.finalizeOperator();
 				this.addToken('stringOpen');
 				this.addState('string');
 			} else {
@@ -204,7 +204,7 @@ class Lexer {
 		}],
 		[';', (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -218,7 +218,7 @@ class Lexer {
 		}],
 		[/\n/g, (v) => {
 			if(this.atComments && !['commentShebang', 'commentLine'].includes(this.token.type) || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -247,7 +247,7 @@ class Lexer {
 		}],
 		[/[^\S\n]+/g, (v) => {
 			if(this.atComments || this.atString || this.token.type === 'whitespace') {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -257,7 +257,7 @@ class Lexer {
 		}],
 		[/[0-9]+/g, (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -270,12 +270,12 @@ class Lexer {
 				return;
 			}
 
-			this.ruleHelpers.finalizeOperator();
+			this.helpers.finalizeOperator();
 			this.addToken('numberInteger', v);
 		}],
 		[/[a-z_$][a-z0-9_$]*/gi, (v) => {
 			if(this.atComments || this.atString) {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -316,7 +316,7 @@ class Lexer {
 				'_'
 			]
 
-			this.ruleHelpers.specifyOperatorType();
+			this.helpers.specifyOperatorType();
 
 			let type = 'identifier',
 				chain = this.atToken((t, v) => t.startsWith('operator') && !t.endsWith('Postfix') && v === '.', this.ignorable);
@@ -338,7 +338,7 @@ class Lexer {
 			}
 
 			if(this.atAngle && type.startsWith('keyword')) {  // No keywords are allowed in generic types
-				this.ruleHelpers.mergeOperators();
+				this.helpers.mergeOperators();
 			}
 			this.addToken(type, v);
 
@@ -348,7 +348,7 @@ class Lexer {
 		}],
 		[/./g, (v) => {
 			if(this.atComments || this.atString || this.token.type === 'unsupported') {
-				this.ruleHelpers.continueString();
+				this.helpers.continueString();
 				this.token.value += v;
 
 				return;
@@ -358,7 +358,7 @@ class Lexer {
 		}]
 	]
 
-	static ruleHelpers = {
+	static helpers = {
 		continueString: () => {
 			if(['stringOpen', 'stringExpressionClosed'].includes(this.token.type)) {
 				this.addToken('stringSegment', '');
@@ -386,8 +386,8 @@ class Lexer {
 			}[this.token.type] ?? this.token.type;
 		},
 		finalizeOperator: () => {
-			this.ruleHelpers.mergeOperators();
-			this.ruleHelpers.specifyOperatorType();
+			this.helpers.mergeOperators();
+			this.helpers.specifyOperatorType();
 		}
 	}
 
@@ -669,5 +669,3 @@ class Lexer {
 		return result;
 	}
 }
-
-module.exports = Lexer;

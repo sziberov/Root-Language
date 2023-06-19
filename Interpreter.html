@@ -72,11 +72,10 @@ body {
 	<div id="output_composites" style="display: none;"></div>
 </div>
 <div id="output_console"></div>
+<script src="./Lexer.js"></script>
+<script src="./Parser.js"></script>
+<script src="./Interpreter.js"></script>
 <script>
-	let Lexer = require('./Lexer'),
-		Parser = require('./Parser'),
-		Interpreter = require('./Interpreter');
-
 	let input = document.getElementById('input'),
 		output_lint = document.getElementById('output_lint'),
 		output_tokens = document.getElementById('output_tokens'),

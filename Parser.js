@@ -43,7 +43,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.values = this.ruleHelpers.sequentialNodes(
+			node.values = this.helpers.sequentialNodes(
 				['expressionsSequence'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -206,7 +206,7 @@ class Parser {
 
 			if(this.token.type.startsWith('operator') && this.token.value === '<') {
 				this.position++;
-				node.genericArguments = this.ruleHelpers.sequentialNodes(
+				node.genericArguments = this.helpers.sequentialNodes(
 					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
@@ -222,7 +222,7 @@ class Parser {
 
 			if(this.token.type === 'parenthesisOpen') {
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNodes(
+				node.arguments = this.helpers.skippableNodes(
 					['argument'],
 					() => this.token.type === 'parenthesisOpen',
 					() => this.token.type === 'parenthesisClosed',
@@ -264,7 +264,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.identifiers = this.ruleHelpers.sequentialNodes(
+			node.identifiers = this.helpers.sequentialNodes(
 				['identifier'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -389,7 +389,7 @@ class Parser {
 				modifiers: this.rules.modifiers(),
 				identifier: undefined,
 				genericParameters: undefined,
-				inheritance: undefined,
+				inheritedTypes: undefined,
 				body: undefined
 			}
 
@@ -417,7 +417,7 @@ class Parser {
 			}
 
 			node.genericParameters = this.rules.genericParametersClause();
-			node.inheritance = this.rules.inheritanceClause();
+			node.inheritedTypes = this.rules.inheritedTypesClause();
 			node.body = this.rules.classBody();
 
 			if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
@@ -676,7 +676,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.entries = this.ruleHelpers.sequentialNodes(
+			node.entries = this.helpers.sequentialNodes(
 				['entry'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -788,7 +788,7 @@ class Parser {
 				},
 				modifiers: this.rules.modifiers(),
 				identifier: undefined,
-				inheritance: undefined,
+				inheritedTypes: undefined,
 				body: undefined
 			}
 
@@ -815,7 +815,7 @@ class Parser {
 				this.report(2, node.range.start, node.type, 'No identifier.');
 			}
 
-			node.inheritance = this.rules.inheritanceClause();
+			node.inheritedTypes = this.rules.inheritedTypesClause();
 			node.body = this.rules.enumerationBody();
 
 			if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
@@ -859,7 +859,7 @@ class Parser {
 
 			let subsequentialTypes = ['inOperator', 'isOperator']
 
-			node.values = this.ruleHelpers.sequentialNodes(['expression', 'infixExpression'], undefined, subsequentialTypes);
+			node.values = this.helpers.sequentialNodes(['expression', 'infixExpression'], undefined, subsequentialTypes);
 
 			if(node.values.length === 0) {
 				return;
@@ -937,7 +937,7 @@ class Parser {
 				node.where = this.rules.expressionsSequence();
 			}
 
-			this.ruleHelpers.preconditionalStatementValue(node, node.where != null ? 'where' : 'in', 'value');
+			this.helpers.preconditionalStatementValue(node, node.where != null ? 'where' : 'in', 'value');
 
 			if(node.identifier == null) {
 				this.report(1, node.range.start, node.type, 'No identifier.');
@@ -1025,7 +1025,7 @@ class Parser {
 
 			if(this.token.type === 'parenthesisOpen') {
 				this.position++;
-				node.parameters = this.ruleHelpers.skippableNodes(
+				node.parameters = this.helpers.skippableNodes(
 					['parameter'],
 					() => this.token.type === 'parenthesisOpen',
 					() => this.token.type === 'parenthesisClosed',
@@ -1093,7 +1093,7 @@ class Parser {
 
 			if(this.token.type.startsWith('operator') && this.token.value === '<') {
 				this.position++;
-				node.genericParameterTypes = this.ruleHelpers.sequentialNodes(
+				node.genericParameterTypes = this.helpers.sequentialNodes(
 					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
@@ -1114,7 +1114,7 @@ class Parser {
 			}
 
 			this.position++;
-			node.parameterTypes = this.ruleHelpers.sequentialNodes(
+			node.parameterTypes = this.helpers.sequentialNodes(
 				['type'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -1185,7 +1185,7 @@ class Parser {
 			}
 
 			this.position++;
-			nodes = this.ruleHelpers.skippableNodes(
+			nodes = this.helpers.skippableNodes(
 				['genericParameter'],
 				() => this.token.type.startsWith('operator') && this.token.value === '<',
 				() => this.token.type.startsWith('operator') && this.token.value === '>',
@@ -1235,7 +1235,7 @@ class Parser {
 			node.range.start = this.position++;
 			node.condition = this.rules.expressionsSequence();
 
-			this.ruleHelpers.preconditionalStatementValue(node, 'condition', 'then');
+			this.helpers.preconditionalStatementValue(node, 'condition', 'then');
 
 			node.else = this.rules.elseClause();
 
@@ -1363,7 +1363,7 @@ class Parser {
 
 			return node;
 		},
-		inheritanceClause: () => {
+		inheritedTypesClause: () => {
 			let nodes = [],
 				start = this.position;
 
@@ -1372,13 +1372,13 @@ class Parser {
 			}
 
 			this.position++;
-			nodes = this.ruleHelpers.sequentialNodes(
+			nodes = this.helpers.sequentialNodes(
 				['typeIdentifier'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
 
 			if(nodes.length === 0) {
-				this.report(0, start, 'inheritanceClause', 'No types.');
+				this.report(0, start, 'inheritedTypesClause', 'No types.');
 			}
 
 			return nodes;
@@ -1536,7 +1536,7 @@ class Parser {
 				range: {
 					start: this.position
 				},
-				subtypes: this.ruleHelpers.sequentialNodes(
+				subtypes: this.helpers.sequentialNodes(
 					['postfixType'],
 					() => this.token.type.startsWith('operator') && this.token.value === '&'
 				)
@@ -1906,7 +1906,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.value = this.ruleHelpers.skippableNode(
+			node.value = this.helpers.skippableNode(
 				'expressionsSequence',
 				() => this.token.type === 'parenthesisOpen',
 				() => this.token.type === 'parenthesisClosed'
@@ -2149,7 +2149,7 @@ class Parser {
 				},
 				modifiers: this.rules.modifiers(),
 				identifier: undefined,
-				inheritance: undefined,
+				inheritedTypes: undefined,
 				body: undefined
 			}
 
@@ -2176,7 +2176,7 @@ class Parser {
 				this.report(2, node.range.start, node.type, 'No identifier.');
 			}
 
-			node.inheritance = this.rules.inheritanceClause();
+			node.inheritedTypes = this.rules.inheritedTypesClause();
 			node.body = this.rules.protocolBody();
 
 			if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
@@ -2205,7 +2205,21 @@ class Parser {
 			]);
 		},
 		protocolType: () => {
-			return this.rules.protocolBody();
+			let node = {
+				type: 'protocolType',
+				range: {
+					start: this.position
+				},
+				body: this.rules.protocolBody()
+			}
+
+			if(node.body == null) {
+				return;
+			}
+
+			node.range.end = this.position-1;
+
+			return node;
 		},
 		returnStatement: () => {
 			let node = {
@@ -2225,7 +2239,7 @@ class Parser {
 			return node;
 		},
 		statements: (types) => {
-			return this.ruleHelpers.skippableNodes(
+			return this.helpers.skippableNodes(
 				types,
 				() => this.token.type === 'braceOpen',
 				() => this.token.type === 'braceClosed',
@@ -2245,7 +2259,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.value = this.ruleHelpers.skippableNode(
+			node.value = this.helpers.skippableNode(
 				'expressionsSequence',
 				() => this.token.type === 'stringExpressionOpen',
 				() => this.token.type === 'stringExpressionClosed'
@@ -2278,7 +2292,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.segments = this.ruleHelpers.skippableNodes(
+			node.segments = this.helpers.skippableNodes(
 				['stringSegment', 'stringExpression'],
 				() => this.token.type === 'stringOpen',
 				() => this.token.type === 'stringClosed'
@@ -2323,7 +2337,7 @@ class Parser {
 				modifiers: this.rules.modifiers(),
 				identifier: undefined,
 				genericParameters: undefined,
-				inheritance: undefined,
+				inheritedTypes: undefined,
 				body: undefined
 			}
 
@@ -2351,7 +2365,7 @@ class Parser {
 			}
 
 			node.genericParameters = this.rules.genericParametersClause();
-			node.inheritance = this.rules.inheritanceClause();
+			node.inheritedTypes = this.rules.inheritedTypesClause();
 			node.body = this.rules.structureBody();
 
 			if(node.modifiers?.some(v => !['private', 'protected', 'public', 'static', 'final'].includes(v))) {
@@ -2442,7 +2456,7 @@ class Parser {
 
 			if(this.token.type.startsWith('operator') && this.token.value === '<') {
 				this.position++;
-				node.genericArguments = this.ruleHelpers.sequentialNodes(
+				node.genericArguments = this.helpers.sequentialNodes(
 					['type'],
 					() => this.token.type.startsWith('operator') && this.token.value === ','
 				);
@@ -2458,7 +2472,7 @@ class Parser {
 
 			if(this.token.type === 'bracketOpen') {
 				this.position++;
-				node.arguments = this.ruleHelpers.skippableNodes(
+				node.arguments = this.helpers.skippableNodes(
 					['argument'],
 					() => this.token.type === 'bracketOpen',
 					() => this.token.type === 'bracketClosed',
@@ -2597,7 +2611,7 @@ class Parser {
 			}
 
 			this.position++;
-			node.genericArguments = this.ruleHelpers.sequentialNodes(
+			node.genericArguments = this.helpers.sequentialNodes(
 				['type'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -2617,7 +2631,7 @@ class Parser {
 				range: {
 					start: this.position
 				},
-				subtypes: this.ruleHelpers.sequentialNodes(
+				subtypes: this.helpers.sequentialNodes(
 					['intersectionType'],
 					() => this.token.type.startsWith('operator') && this.token.value === '|'
 				)
@@ -2651,7 +2665,7 @@ class Parser {
 			}
 
 			this.position++;
-			node.declarators = this.ruleHelpers.sequentialNodes(
+			node.declarators = this.helpers.sequentialNodes(
 				['declarator'],
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
@@ -2700,7 +2714,7 @@ class Parser {
 			node.range.start = this.position++;
 			node.condition = this.rules.expressionsSequence();
 
-			this.ruleHelpers.preconditionalStatementValue(node, 'condition', 'value');
+			this.helpers.preconditionalStatementValue(node, 'condition', 'value');
 
 			if(node.condition == null) {
 				this.report(2, node.range.start, node.type, 'No condition.');
@@ -2715,7 +2729,7 @@ class Parser {
 		}
 	}
 
-	static ruleHelpers = {
+	static helpers = {
 		/*
 		 * Trying to set the node's value to a functionBody or an expressionsSequence.
 		 *
@@ -3035,5 +3049,3 @@ class Parser {
 		return result;
 	}
 }
-
-module.exports = Parser;
