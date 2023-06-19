@@ -75,7 +75,7 @@ class Interpreter {
 				composite.type[0].inheritedTypes = true;
 
 				for(let node_ of node.inheritedTypes) {
-					this.rules.type(node_, scope, composite.type, composite.type[0]);
+					this.helpers.createTypePart(composite.type, composite.type[0], node_, scope, false);
 				}
 				for(let typePart of composite.type) {
 					if(typePart.reference != null) {
@@ -112,10 +112,10 @@ class Interpreter {
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
 
 			if(title === 'dictionary') {
-				this.helpers.createArgumentTypePart(type, typePart, node.key, scope);
+				this.helpers.createTypePart(type, typePart, node.key, scope);
 			}
 
-			this.helpers.createArgumentTypePart(type, typePart, node.value, scope);
+			this.helpers.createTypePart(type, typePart, node.value, scope);
 		},
 		combiningType: (node, scope, type, typePart, title) => {
 			if(node.subtypes.length === 0) {
@@ -125,7 +125,7 @@ class Interpreter {
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [title]: true });
 
 			for(let subtype of node.subtypes) {
-				this.helpers.createArgumentTypePart(type, typePart, subtype, scope);
+				this.helpers.createTypePart(type, typePart, subtype, scope);
 			}
 		},
 		defaultType: (n, s, t, tp) => {
@@ -191,20 +191,14 @@ class Interpreter {
 				}
 			}
 
-			if(this.rules.type(node?.returnType, scope, type, typePart) == null) {
-				this.helpers.createDefaultTypePart(type, typePart);
-			}
+			this.helpers.createTypePart(type, typePart, node?.returnType, scope);
 
 			return type;
 		},
 		genericParameter: (node, scope, type, typePart) => {
-			let typePartCount = type.length;
+			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
 
-			if(this.rules.type(node.type_, scope, type, typePart) == null) {
-				this.helpers.createDefaultTypePart(type, typePart);
-			}
-
-			type[typePartCount].identifier = node.identifier.value;
+			typePart.identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
 			let address = {
@@ -324,20 +318,16 @@ class Interpreter {
 			this.rules[node.value?.type]?.(node.value, scope, type, typePart);
 		},
 		parameter: (node, scope, type, typePart) => {
-			let typePartCount = type.length;
-
-			if(this.rules.type(node.type_, scope, type, typePart) == null) {
-				this.helpers.createDefaultTypePart(type, typePart);
-			}
+			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
 
 			if(node.label != null) {
-				type[typePartCount].label = node.label.value;
+				typePart.label = node.label.value;
 			}
 
-			type[typePartCount].identifier = node.identifier.value;
+			typePart.identifier = node.identifier.value;
 
 			if(node.value != null) {
-				type[typePartCount].value = node.value;
+				typePart.value = node.value;
 			}
 		},
 		parenthesizedExpression: (node, scope) => {
@@ -452,18 +442,6 @@ class Interpreter {
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
-		type: (node, scope, type, typePart) => {
-			if(this.rules[node?.type] == null) {
-				return;
-			}
-
-			type ??= []
-			typePart = this.createTypePart(type, typePart);
-
-			this.rules[node.type](node, scope, type, typePart);
-
-			return type;
-		},
 		typeIdentifier: (node, scope, type, typePart) => {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
@@ -484,7 +462,7 @@ class Interpreter {
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { genericArguments: true });
 
 			for(let genericArgument of node.genericArguments) {
-				this.helpers.createArgumentTypePart(type, typePart, genericArgument, scope);
+				this.helpers.createTypePart(type, typePart, genericArgument, scope);
 			}
 		},
 		unionType: (n, s, t, tp) => {
@@ -495,7 +473,7 @@ class Interpreter {
 
 			for(let declarator of node.declarators) {
 				let identifier = declarator.identifier.value,
-					type = this.rules.type(declarator.type_, scope) ?? [this.helpers.createDefaultTypePart()],
+					type = [this.helpers.createTypePart(undefined, undefined, declarator.type_, scope)],
 					value = this.rules[declarator.value?.type]?.(declarator.value, scope),
 					observers = []
 
@@ -516,15 +494,23 @@ class Interpreter {
 	}
 
 	static helpers = {
-		createArgumentTypePart: (type, typePart, node, scope) => {
-			if(node == null) {
-				this.helpers.createDefaultTypePart(type, typePart);
-			} else {
-				this.rules[node.type]?.(node, scope, type, this.createTypePart(type, typePart));
+		createTypePart: (type, typePart, node, scope, fallback = true) => {
+			typePart = this.createTypePart(type, typePart);
+
+			this.rules[node?.type]?.(node, scope, type, typePart);
+
+			if(fallback) {
+				for(let flag in typePart) {
+					if(flag !== 'super') {
+						return typePart;
+					}
+				}
+
+				typePart.predefined = '_';
+				typePart.nillable = true;
 			}
-		},
-		createDefaultTypePart: (type, typePart) => {
-			return this.createTypePart(type, typePart, { predefined: '_', nillable: true });
+
+			return typePart;
 		},
 		createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
 			let collectionFlags = {
