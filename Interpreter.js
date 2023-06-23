@@ -23,18 +23,7 @@ class Interpreter {
 			return this.createValue('boolean', node.value === 'true');
 		},
 		callExpression: (node, scope) => {
-			// TODO:
-			// - In-dicionary function lookup
-			// - Parameter labels as part of a function type equality check
-
-			let function_ = this.getValueComposite(this.rules[node.callee.type]?.(node.callee, scope)),
-				arguments_ = []
-
-			if(function_ == null || function_.type[0]?.predefined !== 'Function') {
-				this.report(2, node, 'Composite is not a function or wasn\'t found.');
-
-				return;
-			}
+			let arguments_ = []
 
 			for(let argument of node.arguments) {
 				argument = this.rules[argument.type]?.(argument, scope);
@@ -42,6 +31,24 @@ class Interpreter {
 				if(argument != null) {
 					arguments_.push(argument);
 				}
+			}
+
+			let function_ = this.findValueFunction(this.rules[node.callee.type]?.(node.callee, scope), arguments_);
+
+			if(function_ == null) {
+				/*
+				for(let argument of arguments_) {
+					let composite = this.getValueComposite(argument.value);
+
+					if(composite != null && !this.compositeRetained(composite)) {
+						this.destroyComposite(composite);
+					}
+				}
+				*/
+
+				this.report(2, node, 'Composite is not a function or wasn\'t found.');
+
+				return;
 			}
 
 			this.report(0, node, 'ca: '+function_.title+', '+function_.address);
@@ -550,35 +557,6 @@ class Interpreter {
 			}
 
 			return typePart;
-		},
-		getValueType(value) {
-			let typePart = this.createTypePart();
-
-			if(!['pointer', 'reference'].includes(value.primitiveType)) {
-				typePart.predefined = value.primitiveType;
-			} else {
-				if(value.primitiveType === 'pointer') {
-					typePart.inout = true;
-				}
-
-				typePart.reference = value.primitiveValue;
-
-				let composite = this.getValueComposite(value);
-
-				while(composite != null) {
-					if(composite.type[0]?.predefined !== 'Object') {
-						if(composite.address === value.primitiveValue) {
-							typePart.self = true;
-						} else {
-							typePart.reference = composite.address;
-						}
-					} else {
-						composite = this.getComposite(composite.scopeAddress);
-					}
-				}
-			}
-
-			return [typePart]
 		}
 	}
 
@@ -629,18 +607,24 @@ class Interpreter {
 	static destroyComposite(composite) {
 		this.report(1, undefined, 'de: '+JSON.stringify(composite));
 
+		// TODO: Call of deinitializer
+
 		delete this.composites[composite.address]
 
-		this.deleteImports(composite);
-		this.deleteMembers(composite);
-		this.deleteObservers(composite);
+		/*
+		for(let key in composite) {
+			if(key === 'address') {
+				continue;
+			}
 
-		let scope = this.getComposite(composite.scopeAddress);
+			delete composite[key]
+		}
+		*/
 
-		if(scope != null) {
-			composite.scopeAddress = undefined;
-
-			this.releaseComposite(scope, composite);
+		for(let composite_ of this.composites) {
+			if(composite_?.retainersAddresses.includes(composite.address)) {
+				this.releaseComposite(composite_, composite);
+			}
 		}
 	}
 
@@ -793,18 +777,14 @@ class Interpreter {
 
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.address)+'>',
 			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
-			parameters = this.getFunctionParameters(function_);
-
-		if(arguments_.length > parameters.length) {
-			arguments_.length = parameters.length;
-		}
+			parameters = this.getFunctionTypeParameters(function_.type);
 
 		for(let i = 0; i < (arguments_ ?? []).length; i++) {
 			let argument = arguments_[i],
 				parameterType = this.getSubtype(parameters, parameters[i]),
-				label = argument.label ?? parameterType[0]?.identifier ?? '$'+i;
+				identifier = parameterType[0]?.identifier ?? '$'+i;
 
-			this.setMember(namespace, [], label, parameterType, argument.value, []);
+			this.setMember(namespace, [], identifier, parameterType, argument.value, []);
 		}
 
 		this.addScope(namespace, function_);
@@ -820,8 +800,8 @@ class Interpreter {
 
 	static bindFunction(function_, scope) {}
 
-	static getFunctionParameters(function_) {
-		let parameters = this.getSubtype(function_.type, function_.type.find(v => v.parameters && v.super === 0));
+	static getFunctionTypeParameters(functionType) {
+		let parameters = this.getSubtype(functionType, functionType.find(v => v.parameters && v.super === 0));
 
 		parameters.shift();
 
@@ -947,11 +927,49 @@ class Interpreter {
 		return subtype;
 	}
 
+	static typeAccepts(acceptedType, acceptingType) {
+		// TODO: Type equality check
+
+		return true;
+	}
+
 	static createValue(primitiveType, primitiveValue) {
 		return {
 			primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'node', 'pointer', 'reference', 'string'
 			primitiveValue: primitiveValue	// boolean, integer, map (object), string, AST node
 		}
+	}
+
+	static getValueType(value) {
+		let typePart = this.createTypePart();
+
+		if(!['pointer', 'reference'].includes(value.primitiveType)) {
+			typePart.predefined = value.primitiveType;
+		} else {
+			if(value.primitiveType === 'pointer') {
+				typePart.inout = true;
+			}
+
+			typePart.reference = value.primitiveValue;
+
+			let composite = this.getValueComposite(value);
+
+			while(composite != null) {
+				if(composite.type[0]?.predefined !== 'Object') {
+					if(composite.address === value.primitiveValue) {
+						typePart.self = true;
+					} else {
+						typePart.reference = composite.address;
+					}
+
+					composite = undefined;
+				} else {
+					composite = this.getComposite(composite.scopeAddress);
+				}
+			}
+		}
+
+		return [typePart]
 	}
 
 	static getValueComposite(value) {
@@ -962,7 +980,63 @@ class Interpreter {
 		return this.getComposite(value.primitiveValue);
 	}
 
-	static findValueFunction(value, arguments_) {}
+	static getValueFunction(value, arguments_) {
+		let function_ = this.getValueComposite(value);
+
+		if(function_?.type[0]?.predefined !== 'Function') {
+			return;
+		}
+
+		let parameters = this.getFunctionTypeParameters(function_.type);
+
+		if(arguments_.length !== parameters.length) {
+			return;
+		}
+
+		for(let i = 0; i < (arguments_ ?? []).length; i++) {
+			let argument = arguments_[i],
+				parameter = parameters[i]
+
+			if(parameter.label != null && argument.label !== parameter.label) {
+				return;
+			}
+			if(!this.typeAccepts(this.getValueType(argument.value), parameter)) {
+				return;
+			}
+		}
+
+		return function_;
+	}
+
+	static findValueFunction(value, arguments_) {
+		let function_;
+
+		if(value?.primitiveType === 'dictionary') {
+			for(let key in value.primitiveValue) {
+				if((function_ = this.getValueFunction(value.primitiveValue[key], arguments_)) != null) {
+					break;
+				}
+			}
+		} else {
+			function_ = this.getValueFunction(value, arguments_);
+		}
+
+		return function_;
+	}
+
+	static valueRetains(retainedComposite, retainingValue) {
+		if(retainingValue?.primitiveType === 'dictionary') {
+			for(let key in retainingValue.primitiveValue) {
+				let retainingValue_ = retainingValue.primitiveValue[key]
+
+				if(this.valueRetains(retainingValue_, retainedComposite)) {
+					return true;
+				}
+			}
+		} else {
+			return this.getValueComposite(retainingValue) === retainedComposite;
+		}
+	}
 
 	static setStatements(composite, statements) {
 		if(composite.type[0]?.predefined !== 'Function') {
@@ -1003,12 +1077,6 @@ class Interpreter {
 
 		if(value != null) {
 			this.releaseComposite(value, composite);
-		}
-	}
-
-	static deleteImports(composite) {
-		for(let identifier in composite.imports) {
-			this.deleteImport(composite, identifier);
 		}
 	}
 
@@ -1216,20 +1284,13 @@ class Interpreter {
 		}
 	}
 
-	static deleteMembers(composite) {
-		for(let identifier in composite.members) {
-			this.deleteMember(composite, identifier);
-		}
-	}
-
 	static memberRetains(retainedComposite, retainingComposite) {
 		for(let identifier in retainingComposite.members) {
 			let member = retainingComposite.members[identifier]
 
 			if(
-				// TODO: Check of reference-type values in primitive dictionaries
 				member.type.some(v => v.reference === retainedComposite.address) ||
-				this.getValueComposite(member.value) === retainedComposite ||
+				this.valueRetains(retainedComposite, member.value) ||
 				member.observers.some(v => v.value === retainedComposite.address)
 			) {
 				return true;
@@ -1254,12 +1315,6 @@ class Interpreter {
 
 		if(value != null) {
 			this.releaseComposite(value, composite);
-		}
-	}
-
-	static deleteObservers(composite) {
-		for(let observer of composite.observers) {
-			this.deleteObserver(composite, observer);
 		}
 	}
 
