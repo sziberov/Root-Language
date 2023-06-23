@@ -1018,8 +1018,8 @@ class Parser {
 				},
 				genericParameters: this.rules.genericParametersClause(),
 				parameters: [],
-				awaits: false,
-				throws: false,
+				awaits: -1,
+				throws: -1,
 				returnType: undefined
 			}
 
@@ -1046,11 +1046,11 @@ class Parser {
 			while(['keywordAwaits', 'keywordThrows'].includes(this.token.type)) {
 				if(this.token.type === 'keywordAwaits') {
 					this.position++;
-					node.awaits = true;
+					node.awaits = 1;
 				}
 				if(this.token.type === 'keywordThrows') {
 					this.position++;
-					node.throws = true;
+					node.throws = 1;
 				}
 			}
 
@@ -1086,8 +1086,8 @@ class Parser {
 				},
 				genericParameterTypes: [],
 				parameterTypes: [],
-				awaits: false,
-				throws: false,
+				awaits: -1,
+				throws: -1,
 				returnType: undefined
 			}
 
@@ -1127,23 +1127,23 @@ class Parser {
 
 			this.position++;
 
-			while(['keywordAsync', 'keywordThrows'].includes(this.token.type)) {
-				if(this.token.type === 'keywordAsync') {
+			while(['keywordAwaits', 'keywordThrows'].includes(this.token.type)) {
+				if(this.token.type === 'keywordAwaits') {
 					this.position++;
-					node.awaits = true;
+					node.awaits = 1;
 
 					if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
 						this.position++;
-						node.awaits = undefined;
+						node.awaits = 0;
 					}
 				}
 				if(this.token.type === 'keywordThrows') {
 					this.position++;
-					node.throws = true;
+					node.throws = 1;
 
 					if(this.token.type === 'operatorPostfix' && this.token.value === '?') {
 						this.position++;
-						node.throws = undefined;
+						node.throws = 0;
 					}
 				}
 			}
@@ -1378,7 +1378,7 @@ class Parser {
 			);
 
 			if(nodes.length === 0) {
-				this.report(0, start, 'inheritedTypesClause', 'No types.');
+				this.report(0, start, 'inheritedTypesClause', 'No type identifiers.');
 			}
 
 			return nodes;

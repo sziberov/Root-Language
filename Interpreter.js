@@ -608,7 +608,7 @@ class Interpreter {
 			title: title,
 			type: type,
 			statements: [],
-			imports: [],
+			imports: {},
 			operators: [],
 			members: [],
 			observers: [],
@@ -903,6 +903,8 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
+	static findTypeParentAddress() {}
+
 	static createTypePart(type, superTypePart, flags) {
 		let typePart = { ...flags }
 
@@ -983,7 +985,7 @@ class Interpreter {
 	}
 
 	static getImport(composite, identifier) {
-		return composite.imports.find(v => v.identifier === identifier);
+		return composite.imports[identifier]
 	}
 
 	static setImport(composite, identifier, value) {
@@ -991,18 +993,13 @@ class Interpreter {
 			return;
 		}
 
-		let import_ = this.getImport(composite, identifier) ?? composite.imports[composite.imports.push({})-1]
-
-		import_.identifier = identifier;
-		import_.value = value?.address ?? value;
+		composite.imports[identifier] = value;
 	}
 
 	static deleteImport(composite, identifier) {
-		let import_ = this.getImport(identifier);
+		let value = this.getComposite(this.getImport(composite, identifier));
 
-		composite.imports = composite.imports.filter(v => v !== import_);
-
-		let value = this.getComposite(import_.value);
+		delete composite.imports[identifier]
 
 		if(value != null) {
 			this.releaseComposite(value, composite);
@@ -1010,13 +1007,17 @@ class Interpreter {
 	}
 
 	static deleteImports(composite) {
-		for(let import_ of composite.imports) {
-			this.deleteImport(composite, import_.identifier);
+		for(let identifier in composite.imports) {
+			this.deleteImport(composite, identifier);
 		}
 	}
 
 	static importRetains(retainedComposite, retainingComposite) {
-		return retainingComposite.imports.some(v => v.value === retainedComposite.address);
+		for(let identifier in retainingComposite.imports) {
+			if(retainingComposite.imports[identifier] === retainedComposite.address) {
+				return true;
+			}
+		}
 	}
 
 	static findOperator(composite, identifier) {
@@ -1061,44 +1062,52 @@ class Interpreter {
 	 * 2. Lower.Lower...    Object chain (member is virtual)
 	 * 3. Higher.Higher...  Object chain
 	 * 4. Parent.Parent...  Inheritance chain
-	 * 5. Scope.Scope...    Scope chain (member is not internal)
+	 * 5. Scope.Scope...    Scope chain (search is not internal)
 	 */
-	static findMember(composite, identifier, internal) {
-		let member = this.getMember(composite, identifier);
+	static findMember(composite, identifier, arguments_, internal) {
+		let member = this.getMember(composite, identifier, arguments_);
 
-		if(member?.modifiers.includes('virtual')) {
-			member = this.findMemberInObjectChain(composite, identifier, true) ?? member;
-		}
+		return (
+			member?.modifiers.includes('virtual') ? this.findMemberInObjectChain(composite, identifier, arguments_, true) ?? member :
+			member ??
+			this.findMemberInObjectChain(composite, identifier, arguments_) ??
+			this.findMemberInInheritanceChain(composite, identifier, arguments_) ??
+			!internal ? this.findMemberInScopeChain(composite, identifier, arguments_) : undefined
+		);
+	}
 
-		member ??=
-			this.findMemberInObjectChain(composite, identifier) ??
-			this.findMemberInInheritanceChain(composite, identifier) ??
-			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined;
+	static findMemberInObjectChain(composite, identifier, arguments_, lower) {
+		let member;
+
+		while(
+			(composite = this.getComposite(!lower ? composite.higherAddress : composite.lowerAddress)) != null &&
+			(member = this.getMember(composite, identifier, arguments_)) == null
+		) {}
 
 		return member;
 	}
 
-	static findMemberInObjectChain(composite, identifier, lower) {}
+	static findMemberInInheritanceChain(composite, identifier, arguments_) {
+		let member;
 
-	static findMemberInInheritanceChain(composite, identifier) {}
+		while(
+			(composite = this.getComposite(this.findTypeParentAddress(composite.type))) != null &&
+			(member = this.getMember(composite, identifier, arguments_)) == null
+		) {}
 
-	static findMemberInScopeChain(composite, identifier) {
-		let member = {
-			identifier: identifier
-		}
+		return member;
+	}
 
-		while(composite != null) {
-			let member_ = this.getMember(composite, identifier);
+	static findMemberInScopeChain(composite, identifier, arguments_) {
+		// TODO: Imports lookup
 
-			if(member_ != null) {
-				member.modifiers ??= member_.modifiers;
-				member.type ??= member_.type;
-				member.value ??= member_.value;
-				member.observers ??= member_.observers;
+		let member;
 
-				if(!Object.values(member).includes(undefined)) {
-					break;
-				}
+		while(composite != null) {  // Current composite can be namespace with imports so it can't be skipped
+			member = this.getMember(composite, identifier, arguments_);
+
+			if(member != null) {
+				break;
 			}
 
 			composite = this.getComposite(composite.scopeAddress);
@@ -1107,8 +1116,42 @@ class Interpreter {
 		return member;
 	}
 
-	static getMember(composite, identifier) {
-		// TODO: Imports lookup
+	/*
+	 * Retrieves member from composite by identifier and arguments.
+	 *
+	 * Returns joined member value and its declaration in case of Object composite type.
+	 */
+	static getMember(composite, identifier, arguments_) {
+
+		/*
+		let member;
+
+		for(let i = 0; i < 2; i++) {
+			let member_ = composite?.members.find(v => v.identifier === identifier);
+
+			if(i === 0) {
+				if(member_ != null) {
+					member = {
+						identifier: identifier,
+						value: member_.value
+					}
+				}
+
+				if(composite.type[0]?.predefined !== 'Object') {
+					break;
+				} else {
+					composite = this.getComposite(this.findTypeParentAddress(composite.type));
+				}
+			} else {
+				member.modifiers = member_.modifiers;
+				member.identifier ?? identifier;
+				member.type = member_.type;
+				member.observers = member_.observers;
+			}
+		}
+
+		return member;
+		*/
 
 		return composite.members.find(v => v.identifier === identifier);
 	}
