@@ -23,6 +23,10 @@ class Interpreter {
 			return this.createValue('boolean', node.value === 'true');
 		},
 		callExpression: (node, scope) => {
+			// TODO:
+			// - In-dicionary function lookup
+			// - Parameter labels as part of a function type equality check
+
 			let function_ = this.getValueComposite(this.rules[node.callee.type]?.(node.callee, scope)),
 				arguments_ = []
 
@@ -156,17 +160,12 @@ class Interpreter {
 
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
-				type = this.getSubtype(signature, signature[0]),
+				type = [],
+				typePart = this.createTypePart(type, undefined, { predefined: 'Function' }),
 				value = this.createValue('reference', function_.address),
 				observers = []
 
 			function_.type = signature;
-
-			for(let typePart of type) {
-				delete typePart.label;
-				delete typePart.identifier;
-				delete typePart.value;
-			}
 
 			this.setMember(scope, node.modifiers, identifier, type, value, observers);
 		},
@@ -609,8 +608,8 @@ class Interpreter {
 			type: type,
 			statements: [],
 			imports: {},
-			operators: [],
-			members: [],
+			operators: {},
+			members: {},
 			observers: [],
 			scopeAddress: scope?.address,
 			retainersAddresses: []
@@ -633,7 +632,6 @@ class Interpreter {
 		delete this.composites[composite.address]
 
 		this.deleteImports(composite);
-		this.deleteFunctionMembers(composite);
 		this.deleteMembers(composite);
 		this.deleteObservers(composite);
 
@@ -964,6 +962,8 @@ class Interpreter {
 		return this.getComposite(value.primitiveValue);
 	}
 
+	static findValueFunction(value, arguments_) {}
+
 	static setStatements(composite, statements) {
 		if(composite.type[0]?.predefined !== 'Function') {
 			return;
@@ -1033,7 +1033,7 @@ class Interpreter {
 	}
 
 	static getOperator(composite, identifier) {
-		return composite.operators.find(v => v.identifier === identifier);
+		return composite.operators[identifier]
 	}
 
 	static setOperator(composite, modifiers, identifier, associativity, precedence) {
@@ -1041,18 +1041,15 @@ class Interpreter {
 			return;
 		}
 
-		let operator = this.getOperator(composite, identifier) ?? composite.operators[composite.operators.push({})-1]
+		let operator = this.getOperator(composite, identifier) ?? (composite.operators[identifier] = {});
 
 		operator.modifiers = modifiers;
-		operator.identifier = identifier;
 		operator.associativity = associativity;
 		operator.precedence = precedence;
 	}
 
 	static deleteOperator(composite, identifier) {
-		let operator = this.getOperator(identifier);
-
-		composite.operators = composite.operators.filter(v => v !== operator);
+		delete composite.operators[identifier]
 	}
 
 	/*
@@ -1064,47 +1061,48 @@ class Interpreter {
 	 * 4. Parent.Parent...  Inheritance chain
 	 * 5. Scope.Scope...    Scope chain (search is not internal)
 	 */
-	static findMember(composite, identifier, arguments_, internal) {
-		let member = this.getMember(composite, identifier, arguments_);
+	static findMember(composite, identifier, internal) {
+		let member = this.getMember(composite, identifier);
 
-		return (
-			member?.modifiers.includes('virtual') ? this.findMemberInObjectChain(composite, identifier, arguments_, true) ?? member :
+		member =
+			member?.modifiers.includes('virtual') ? this.findMemberInObjectChain(composite, identifier, true) ?? member :
 			member ??
-			this.findMemberInObjectChain(composite, identifier, arguments_) ??
-			this.findMemberInInheritanceChain(composite, identifier, arguments_) ??
-			!internal ? this.findMemberInScopeChain(composite, identifier, arguments_) : undefined
-		);
+			this.findMemberInObjectChain(composite, identifier) ??
+			this.findMemberInInheritanceChain(composite, identifier) ??
+			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined;
+
+		return member;
 	}
 
-	static findMemberInObjectChain(composite, identifier, arguments_, lower) {
+	static findMemberInObjectChain(composite, identifier, lower) {
 		let member;
 
 		while(
 			(composite = this.getComposite(!lower ? composite.higherAddress : composite.lowerAddress)) != null &&
-			(member = this.getMember(composite, identifier, arguments_)) == null
+			(member = this.getMember(composite, identifier)) == null
 		) {}
 
 		return member;
 	}
 
-	static findMemberInInheritanceChain(composite, identifier, arguments_) {
+	static findMemberInInheritanceChain(composite, identifier) {
 		let member;
 
 		while(
 			(composite = this.getComposite(this.findTypeParentAddress(composite.type))) != null &&
-			(member = this.getMember(composite, identifier, arguments_)) == null
+			(member = this.getMember(composite, identifier)) == null
 		) {}
 
 		return member;
 	}
 
-	static findMemberInScopeChain(composite, identifier, arguments_) {
+	static findMemberInScopeChain(composite, identifier) {
 		// TODO: Imports lookup
 
 		let member;
 
 		while(composite != null) {  // Current composite can be namespace with imports so it can't be skipped
-			member = this.getMember(composite, identifier, arguments_);
+			member = this.getMember(composite, identifier);
 
 			if(member != null) {
 				break;
@@ -1117,11 +1115,9 @@ class Interpreter {
 	}
 
 	/*
-	 * Retrieves member from composite by identifier and arguments.
-	 *
-	 * Returns joined member value and its declaration in case of Object composite type.
+	 * TODO: Returns joined member value and its declaration in case of Object composite type.
 	 */
-	static getMember(composite, identifier, arguments_) {
+	static getMember(composite, identifier) {
 
 		/*
 		let member;
@@ -1153,18 +1149,19 @@ class Interpreter {
 		return member;
 		*/
 
-		return composite.members.find(v => v.identifier === identifier);
+		return composite.members[identifier]
 	}
 
 	static setMember(composite, modifiers, identifier, type, value, observers) {
-		let member = this.getMember(composite, identifier) ?? composite.members[composite.members.push({})-1],
+		// TODO: Retain check of reference-type values in primitive dictionaries
+
+		let member = this.getMember(composite, identifier) ?? (composite.members[identifier] = {}),
 			ot = member.type ?? [],  // Old/new type
 			nt = type ?? [],
 			ovc = this.getValueComposite(member.value),  // Old/new value composite
 			nvc = this.getValueComposite(value);
 
 		member.modifiers = modifiers;
-		member.identifier = identifier;
 		member.type = type;
 		member.value = value;
 		member.observers = observers;
@@ -1198,13 +1195,15 @@ class Interpreter {
 	}
 
 	static deleteMember(composite, identifier) {
+		// TODO: Retain check of reference-type values in primitive dictionaries
+
 		let member = this.getMember(composite, identifier);
 
 		if(member == null) {
 			return;
 		}
 
-		composite.members = composite.members.filter(v => v !== member);
+		delete composite.members[identifier]
 
 		if(member.value == null) {
 			return;
@@ -1218,54 +1217,25 @@ class Interpreter {
 	}
 
 	static deleteMembers(composite) {
-		for(let member of composite.members) {
-			this.deleteMember(composite, member.identifier);
-		}
-	}
-
-	static deleteFunctionMember(composite, functionMember) {
-		if(typeof functionMember.value !== 'number') {
-			return;
-		}
-
-		let function_ = this.getComposite(functionMember.value);
-
-		if(function_?.type[0]?.predefined !== 'Function') {
-			return;
-		}
-
-		composite.members = composite.members.filter(v => v !== functionMember);
-
-		this.releaseComposite(function_, composite);
-	}
-
-	static deleteFunctionMembers(composite) {
-		for(let member of composite.members) {
-			this.deleteFunctionMember(composite, member);
+		for(let identifier in composite.members) {
+			this.deleteMember(composite, identifier);
 		}
 	}
 
 	static memberRetains(retainedComposite, retainingComposite) {
-		return retainingComposite.members.some(member =>
-			member.type.some(v => v.reference === retainedComposite.address) ||
-			this.getValueComposite(member.value) === retainedComposite ||
-			member.observers.some(v => v.value === retainedComposite.address)
-		);
-	}
+		for(let identifier in retainingComposite.members) {
+			let member = retainingComposite.members[identifier]
 
-	static findFunction(composite, identifier, arguments_) {
-		while(composite != null) {
-			let function_ = this.getFunction(composite, identifier, arguments_);
-
-			if(function_ != null) {
-				return function_;
+			if(
+				// TODO: Check of reference-type values in primitive dictionaries
+				member.type.some(v => v.reference === retainedComposite.address) ||
+				this.getValueComposite(member.value) === retainedComposite ||
+				member.observers.some(v => v.value === retainedComposite.address)
+			) {
+				return true;
 			}
-
-			composite = this.getComposite(composite.scopeAddress);
 		}
 	}
-
-	static getFunction(composite, identifier, arguments_) {}
 
 	static findObserver() {}
 
