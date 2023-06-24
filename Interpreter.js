@@ -36,16 +36,6 @@ class Interpreter {
 			let function_ = this.findValueFunction(this.rules[node.callee.type]?.(node.callee, scope), arguments_);
 
 			if(function_ == null) {
-				/*
-				for(let argument of arguments_) {
-					let composite = this.getValueComposite(argument.value);
-
-					if(composite != null && !this.compositeRetained(composite)) {
-						this.destroyComposite(composite);
-					}
-				}
-				*/
-
 				this.report(2, node, 'Composite is not a function or wasn\'t found.');
 
 				return;
@@ -611,16 +601,6 @@ class Interpreter {
 
 		delete this.composites[composite.address]
 
-		/*
-		for(let key in composite) {
-			if(key === 'address') {
-				continue;
-			}
-
-			delete composite[key]
-		}
-		*/
-
 		for(let composite_ of this.composites) {
 			if(composite_?.retainersAddresses.includes(composite.address)) {
 				this.releaseComposite(composite_, composite);
@@ -678,8 +658,8 @@ class Interpreter {
 	 * Returns a significant state of retainment.
 	 *
 	 * Composite considered significantly retained if:
-	 * - It is reachable from the global scope.
-	 * - It is reachable from a previous scope or a current non-global return value.
+	 * - It is reachable from the global namespace.
+	 * - It is reachable from a current scope namespace or return value.
 	 */
 	static compositeRetained(composite) {
 		return (
@@ -718,16 +698,11 @@ class Interpreter {
 	}
 
 	static compositeFunctionallyReachable(composite) {
-		let previousNamespace = this.getScope(-1)?.namespace;
-
-		if(previousNamespace == null) {  // In global
-			return false;
-		}
-
-		let returnValue = this.getValueComposite(this.controlTransfer?.value);
+		let namespace = this.getScope().namespace,
+			returnValue = this.getValueComposite(this.controlTransfer?.value);
 
 		return (
-			this.compositeReachable(composite, previousNamespace) || returnValue != null &&
+			this.compositeReachable(composite, namespace) || returnValue != null &&
 			this.compositeReachable(composite, returnValue)
 		);
 	}
@@ -831,11 +806,11 @@ class Interpreter {
 	static removeScope() {
 		let namespace = this.scopes.at(-1)?.namespace;
 
+		this.scopes.pop();
+
 		if(namespace != null && !this.compositeRetained(namespace)) {
 			this.destroyComposite(namespace);
 		}
-
-		this.scopes.pop();
 	}
 
 	/*
@@ -845,23 +820,30 @@ class Interpreter {
 	 * Manual control transfer is supported but should be also implemented by rules.
 	 */
 	static evaluateNodes(nodes, scope) {
-		let controlTransferTypes = [
-			'breakStatement',
-			'continueStatement',
-			'returnStatement'
-		]
+		let globalScope = this.getScope(-1) == null,
+			controlTransferTypes = [
+				'breakStatement',
+				'continueStatement',
+				'returnStatement'
+			]
 
 		for(let node of nodes ?? []) {
-			let value = this.rules[node.type]?.(node, scope),
+			let start = this.composites.length,
+				value = this.rules[node.type]?.(node, scope),
+				end = this.composites.length,
 				returned = this.controlTransfer?.value === value,
-				returning = controlTransferTypes.includes(node.type) || node === nodes.at(-1),
-				composite = this.getValueComposite(value);
+				returning = controlTransferTypes.includes(node.type) || node === nodes.at(-1);
 
 			if(!returned && returning) {
-				this.setControlTransfer(value, node.type);
+				this.setControlTransfer(!globalScope ? value : undefined, node.type);
 			}
-			if(composite != null && !this.compositeRetained(composite)) {
-				this.destroyComposite(composite);
+
+			for(start; start < end; start++) {
+				let composite = this.composites[start]
+
+				if(composite != null && !this.compositeRetained(composite)) {
+					this.destroyComposite(composite);
+				}
 			}
 
 			if(controlTransferTypes.includes(this.controlTransfer?.type)) {
