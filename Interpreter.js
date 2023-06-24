@@ -657,23 +657,27 @@ class Interpreter {
 	/*
 	 * Returns a significant state of retainment.
 	 *
-	 * Composite considered significantly retained if:
-	 * - It is reachable from the global namespace.
-	 * - It is reachable from a current scope namespace or return value.
+	 * Composite considered significantly retained if it is reachable from
+	 * the global namespace, a current scope namespace or a return value.
 	 */
 	static compositeRetained(composite) {
 		return (
-			this.compositeGloballyReachable(composite) ||
-			this.compositeFunctionallyReachable(composite)
+			this.compositeReachable(composite, this.getComposite(0)) ||
+			this.compositeReachable(composite, this.getScope().namespace) ||
+			this.compositeReachable(composite, this.getValueComposite(this.controlTransfer?.value))
 		);
 	}
 
 	/*
-	 * Returns true if the retainedComposite is reachable from the retainingComposite, recursively checking its retainers addresses.
+	 * Returns true if the retainedComposite is reachable from the retainingComposite,
+	 * recursively checking its retainers addresses.
 	 *
 	 * retainChain is used to distinguish a retain cycles and meant to be set internally only.
 	 */
 	static compositeReachable(retainedComposite, retainingComposite, retainChain = []) {
+		if(retainingComposite == null) {
+			return;
+		}
 		if(retainedComposite.address === retainingComposite.address) {
 			return true;
 		}
@@ -691,20 +695,6 @@ class Interpreter {
 				return true;
 			}
 		}
-	}
-
-	static compositeGloballyReachable(composite) {
-		return this.compositeReachable(composite, this.getComposite(0));
-	}
-
-	static compositeFunctionallyReachable(composite) {
-		let namespace = this.getScope().namespace,
-			returnValue = this.getValueComposite(this.controlTransfer?.value);
-
-		return (
-			this.compositeReachable(composite, namespace) || returnValue != null &&
-			this.compositeReachable(composite, returnValue)
-		);
 	}
 
 	static createClass(title, scope) {
