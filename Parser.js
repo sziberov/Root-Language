@@ -534,17 +534,16 @@ class Parser {
 			return node;
 		},
 		controlTransferStatement: () => {
-			let node =
+			return (
 				this.rules.breakStatement() ??
 				this.rules.continueStatement() ??
 				this.rules.fallthroughStatement() ??
 				this.rules.returnStatement() ??
-				this.rules.throwStatement();
-
-			return node;
+				this.rules.throwStatement()
+			);
 		},
 		declaration: () => {
-			let node =
+			return (
 				this.rules.chainDeclaration() ??
 				this.rules.classDeclaration() ??
 				this.rules.deinitializerDeclaration() ??
@@ -557,9 +556,8 @@ class Parser {
 				this.rules.protocolDeclaration() ??
 				this.rules.structureDeclaration() ??
 				this.rules.subscriptDeclaration() ??
-				this.rules.variableDeclaration();
-
-			return node;
+				this.rules.variableDeclaration()
+			);
 		},
 		declarator: () => {
 			let node = {
@@ -839,14 +837,13 @@ class Parser {
 			]);
 		},
 		expression: () => {
-			let node =
+			return (
 				this.rules.asyncExpression() ??
 				this.rules.awaitExpression() ??
 				this.rules.deleteExpression() ??
 				this.rules.tryExpression() ??
-				this.rules.prefixExpression();
-
-			return node;
+				this.rules.prefixExpression()
+			);
 		},
 		expressionsSequence: () => {
 			let node = {
@@ -1336,13 +1333,12 @@ class Parser {
 			return node;
 		},
 		infixExpression: () => {
-			let node =
+			return (
 				this.rules.conditionalOperator() ??
 				this.rules.inOperator() ??
 				this.rules.isOperator() ??
-				this.rules.infixOperator();
-
-			return node;
+				this.rules.infixOperator()
+			);
 		},
 		infixOperator: () => {
 			let node = {
@@ -1588,16 +1584,15 @@ class Parser {
 			return node;
 		},
 		literalExpression: () => {
-			let node =
+			return (
 				this.rules.arrayLiteral() ??
 				this.rules.booleanLiteral() ??
 				this.rules.dictionaryLiteral() ??
 				this.rules.floatLiteral() ??
 				this.rules.integerLiteral() ??
 				this.rules.nilLiteral() ??
-				this.rules.stringLiteral();
-
-			return node;
+				this.rules.stringLiteral()
+			);
 		},
 		modifiers: () => {
 			let values = [],
@@ -2110,7 +2105,7 @@ class Parser {
 			return node;
 		},
 		primaryExpression: () => {
-			let node =
+			return (
 				this.rules.classExpression() ??
 				this.rules.closureExpression() ??
 				this.rules.enumerationExpression() ??
@@ -2122,21 +2117,19 @@ class Parser {
 				this.rules.namespaceExpression() ??
 				this.rules.parenthesizedExpression() ??
 				this.rules.protocolExpression() ??
-				this.rules.structureExpression();
-
-			return node;
+				this.rules.structureExpression()
+			);
 		},
 		primaryType: () => {
-			let node =
+			return (
 				this.rules.arrayType() ??
 				this.rules.dictionaryType() ??
 				this.rules.functionType() ??
 				this.rules.parenthesizedType() ??
 				this.rules.predefinedType() ??
 				this.rules.protocolType() ??
-				this.rules.typeIdentifier();
-
-			return node;
+				this.rules.typeIdentifier()
+			);
 		},
 		protocolBody: () => {
 			return this.rules.body('protocol');
@@ -2554,12 +2547,11 @@ class Parser {
 			return node;
 		},
 		type: () => {
-			let node =
+			return (
 				this.rules.variadicType() ??
 				this.rules.inoutType() ??
-				this.rules.unionType();
-
-			return node;
+				this.rules.unionType()
+			);
 		},
 		typeClause: () => {
 			let node,

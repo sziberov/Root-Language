@@ -59,12 +59,12 @@ class Interpreter {
 			let identifier = node.member;
 
 			if(identifier.type === 'stringExpression') {
-				identifier = {
-					value: this.rules.stringExpression?.(node.member, scope)
-				}
+				identifier = this.rules.stringExpression?.(node.member, scope);
+			} else {
+				identifier = identifier.value;
 			}
 
-			return this.rules.identifier(identifier, composite);
+			return this.helpers.findMemberValue(composite, identifier, true);
 		},
 		classDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
@@ -96,7 +96,9 @@ class Interpreter {
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 
-			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
+			// TODO:
+			// - Protocol conformance checking (if not conforms, remove from list and report)
+			// - Overloaded functions pre-parse (create empty dict members)
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -219,32 +221,7 @@ class Interpreter {
 			typePart.identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
-			let address = {
-				global: () => undefined,  // Global-object is no thing
-				Global: () => 0,  // Global-type
-				self: () => scope.address,  // Self-object or a type
-				Self: () => scope.type[0]?.predefined === 'Object' ? scope.type[1]?.reference : scope.address,  // Self-type
-				metaSelf: () => undefined,  // Self-object or a type descriptor
-				super: () => scope.scopeAddress,  // Super-object or a type
-				Super: () => undefined,  // Super-type
-				sub: () => undefined,  // Sub-object(s?)
-				Sub: () => undefined,  // Sub-type(s?)
-				arguments: () => undefined  // Function arguments array
-			}[node.value]?.();
-
-			if(address != null) {
-				return this.createValue('reference', address);
-			}
-
-			let member = this.findMember(scope, node.value);
-
-			if(member == null) {
-				return;
-			}
-
-			// TODO: Access-related checks
-
-			return member.value;
+			return this.helpers.findMemberValue(scope, node.value);
 		},
 		ifStatement: (node, scope) => {
 			if(node.condition == null) {
@@ -547,6 +524,28 @@ class Interpreter {
 			}
 
 			return typePart;
+		},
+		findMemberValue: (composite, identifier, internal) => {
+			let address = {
+				global: () => undefined,  // Global-object is no thing
+				Global: () => 0,  // Global-type
+				self: () => composite.address,  // Self-object or a type
+				Self: () => composite.type[0]?.predefined === 'Object' ? composite.type[1]?.reference : composite.address,  // Self-type
+				metaSelf: () => undefined,  // Self-object or a type (descriptor)
+				super: () => composite.scopeAddress,  // Super-object or a type
+				Super: () => undefined,  // Super-type
+				sub: () => undefined,  // Sub-object
+				Sub: () => undefined,  // Sub-type
+				arguments: () => undefined  // Function arguments array
+			}[identifier]?.();
+
+			if(address != null) {
+				return this.createValue('reference', address);
+			}
+
+			// TODO: Access-related checks
+
+			return this.findMember(composite, identifier, internal)?.value;
 		}
 	}
 
@@ -597,7 +596,9 @@ class Interpreter {
 	static destroyComposite(composite) {
 		this.report(1, undefined, 'de: '+JSON.stringify(composite));
 
-		// TODO: Call of deinitializer
+		// TODO:
+		// - Notify all retainers about destroying
+		// - Call deinitializer
 
 		delete this.composites[composite.address]
 
@@ -672,7 +673,7 @@ class Interpreter {
 	 * Returns true if the retainedComposite is reachable from the retainingComposite,
 	 * recursively checking its retainers addresses.
 	 *
-	 * retainChain is used to distinguish a retain cycles and meant to be set internally only.
+	 * retainChain is used to exclude a retain cycles and meant to be set internally only.
 	 */
 	static compositeReachable(retainedComposite, retainingComposite, retainChain = []) {
 		if(retainingComposite == null) {
@@ -962,6 +963,8 @@ class Interpreter {
 		let parameters = this.getFunctionTypeParameters(function_.type);
 
 		if(arguments_.length !== parameters.length) {
+			// TODO: Variadic parameters support
+
 			return;
 		}
 
