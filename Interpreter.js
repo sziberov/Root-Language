@@ -41,7 +41,7 @@ class Interpreter {
 				return;
 			}
 
-			this.report(0, node, 'ca: '+function_.title+', '+function_.address);
+			this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.self);
 			let value = this.callFunction(function_, arguments_);
 			this.report(0, node, 'ke: '+JSON.stringify(value));
 
@@ -83,8 +83,8 @@ class Interpreter {
 				}
 			}
 
-			let type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
-				value = this.createValue('reference', composite.address),
+			let type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -99,7 +99,7 @@ class Interpreter {
 				composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
 
 			if(composite != null) {
-				typePart.reference = composite.address;
+				typePart.reference = composite.addresses.self;
 			}
 
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
@@ -131,8 +131,8 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createEnumeration(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
-				value = this.createValue('reference', composite.address),
+				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -155,7 +155,7 @@ class Interpreter {
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
 				type = [],
-				value = this.createValue('reference', function_.address),
+				value = this.createValue('reference', function_.addresses.self),
 				observers = [],
 				member = this.getMember(scope, identifier);
 
@@ -184,7 +184,7 @@ class Interpreter {
 
 			function_.type = signature;
 
-			return this.createValue('reference', function_.address);
+			return this.createValue('reference', function_.addresses.self);
 		},
 		functionSignature: (node, scope) => {
 			let type = [],
@@ -238,7 +238,7 @@ class Interpreter {
 				return;
 			}
 
-			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.address)+', If>', scope),
+			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.addresses.self)+', If>', scope),
 				condition;
 
 			this.addScope(namespace);
@@ -305,8 +305,8 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createNamespace(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
-				value = this.createValue('reference', composite.address),
+				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -395,8 +395,8 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createProtocol(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
-				value = this.createValue('reference', composite.address),
+				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -436,8 +436,8 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createStructure(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.address, self: true })],
-				value = this.createValue('reference', composite.address),
+				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
@@ -451,7 +451,7 @@ class Interpreter {
 
 				this.report(2, node, 'Composite is an object or wasn\'t found.');
 			} else {
-				typePart.reference = composite?.address;
+				typePart.reference = composite?.addresses.self;
 			}
 
 			if(node.genericArguments.length === 0) {
@@ -537,16 +537,16 @@ class Interpreter {
 		},
 		findMemberValue: (composite, identifier, internal) => {
 			let address = {
-				global: () => undefined,  // Global-object is no thing
-				Global: () => 0,  // Global-type
-				self: () => composite.address,  // Self-object or a type
-				Self: () => composite.type[0]?.predefined === 'Object' ? composite.type[1]?.reference : composite.address,  // Self-type
-				metaSelf: () => undefined,  // Self-object or a type (descriptor)
-				super: () => composite.scopeAddress,  // Super-object or a type
-				Super: () => undefined,  // Super-type
-				sub: () => undefined,  // Sub-object
-				Sub: () => undefined,  // Sub-type
-				arguments: () => undefined  // Function arguments array
+				global: () => undefined,				 // Global-object is no thing
+				Global: () => 0,						 // Global-type
+				metaSelf: () => undefined,				 // Self-object or a type (descriptor)
+				self: () => composite.addresses.self,	 // Self-object or a type
+				Self: () => composite.addresses.Self,	 // Self-type
+				super: () => composite.addresses.super,  // Super-object or a type
+				Super: () => composite.addresses.Super,  // Super-type
+				sub: () => composite.addresses.sub,		 // Sub-object
+				Sub: () => composite.addresses.Sub,		 // Sub-type
+				arguments: () => undefined				 // Function arguments array (needed?)
 			}[identifier]?.();
 
 			if(address != null) {
@@ -573,14 +573,13 @@ class Interpreter {
 		}
 		*/
 
-		return JSON.stringify(this.composites);
+		return JSON.stringify(this.composites/*, (k, v) => v === undefined ? null : v*/);
 	}
 
 	static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
 
 	static createComposite(title, type, scope) {
 		let composite = {
-			address: this.composites.length,
 			title: title,
 			type: type,
 			statements: [],
@@ -588,17 +587,34 @@ class Interpreter {
 			operators: {},
 			members: {},
 			observers: [],
-			scopeAddress: scope?.address,
-			retainersAddresses: []
+			addresses: {
+				self: undefined,
+				Self: undefined,
+				super: undefined,
+				Super: undefined,
+				sub: undefined,
+				Sub: undefined,
+				scope: undefined,
+				retainers: []
+			}
 		}
 
 		this.composites.push(composite);
 
-		if(scope != null) {
-			this.retainComposite(scope, composite);
+		composite.addresses.self =
+		composite.addresses.Self = this.composites.length-1;
+
+		if(type != null && type[0].predefined !== 'Object') {  // TODO: Setter functions for addresses
+			composite.addresses.super =
+			composite.addresses.Super = type[1]?.reference;
+
+			this.retainComposite(this.getComposite(composite.addresses.Super), composite);
 		}
 
-		this.report(1, undefined, 'cr: '+composite.title+', '+composite.address);
+		composite.addresses.scope = scope?.addresses.self;
+
+		this.retainComposite(scope, composite);
+		this.report(1, undefined, 'cr: '+composite.title+', '+composite.addresses.self);
 
 		return composite;
 	}
@@ -610,10 +626,10 @@ class Interpreter {
 		// - Notify all retainers about destroying
 		// - Call deinitializer
 
-		delete this.composites[composite.address]
+		delete this.composites[composite.addresses.self]
 
 		for(let composite_ of this.composites) {
-			if(composite_?.retainersAddresses.includes(composite.address)) {
+			if(composite_?.addresses.retainers.includes(composite.addresses.self)) {
 				this.releaseComposite(composite_, composite);
 			}
 		}
@@ -634,8 +650,8 @@ class Interpreter {
 			return;
 		}
 
-		if(!retainedComposite.retainersAddresses.includes(retainingComposite.address)) {
-			retainedComposite.retainersAddresses.push(retainingComposite.address);
+		if(!retainedComposite.addresses.retainers.includes(retainingComposite.addresses.self)) {
+			retainedComposite.addresses.retainers.push(retainingComposite.addresses.self);
 		}
 	}
 
@@ -644,7 +660,7 @@ class Interpreter {
 			return;
 		}
 
-		retainedComposite.retainersAddresses = retainedComposite.retainersAddresses.filter(v => v !== retainingComposite.address);
+		retainedComposite.addresses.retainers = retainedComposite.addresses.retainers.filter(v => v !== retainingComposite.addresses.self);
 
 		this.destroyReleasedComposite(retainedComposite);
 	}
@@ -669,13 +685,16 @@ class Interpreter {
 	 * - It is used by a retainer's type, import, member or observer.
 	 */
 	static compositeRetains(retainedComposite, retainingComposite) {
-		if(this.composites[retainingComposite?.address] == null) {
+		if(
+			retainedComposite?.addresses.self === retainingComposite?.addresses.self ||
+			this.composites[retainingComposite?.addresses.self] == null
+		) {
 			return;
 		}
 
 		return (
-			retainingComposite.scopeAddress === retainedComposite.address ||
-			retainingComposite.type.some(v => v.reference === retainedComposite.address) ||
+			retainingComposite.addresses.scope === retainedComposite.addresses.self ||
+			retainingComposite.type.some(v => v.reference === retainedComposite.addresses.self) ||
 			this.importRetains(retainedComposite, retainingComposite) ||
 			this.memberRetains(retainedComposite, retainingComposite) ||
 			this.observerRetains(retainedComposite, retainingComposite)
@@ -706,11 +725,11 @@ class Interpreter {
 		if(retainedComposite == null || retainingComposite == null) {
 			return;
 		}
-		if(retainedComposite.address === retainingComposite.address) {
+		if(retainedComposite.addresses.self === retainingComposite.addresses.self) {
 			return true;
 		}
 
-		for(let retainerAddress of retainedComposite.retainersAddresses) {
+		for(let retainerAddress of retainedComposite.addresses.retainers) {
 			if(retainChain.includes(retainerAddress)) {
 				continue;
 			}
@@ -744,7 +763,7 @@ class Interpreter {
 	}
 
 	static createObject(scope) {
-		let title = (scope.title ?? '#'+scope.address)+'()';
+		let title = (scope.title ?? '#'+scope.addresses.self)+'()';
 
 		return this.createComposite(title, [{ predefined: 'Object' }], scope);
 	}
@@ -764,9 +783,9 @@ class Interpreter {
 	 * If no scope is specified, default function's scope is used.
 	 */
 	static callFunction(function_, arguments_, forwarded, scope) {
-		scope ??= this.getComposite(function_.scopeAddress);
+		scope ??= this.getComposite(function_.addresses.scope);
 
-		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.address)+'>',
+		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.self)+'>',
 			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
 			parameters = this.getFunctionTypeParameters(function_.type);
 
@@ -872,7 +891,9 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
-	static findTypeParentAddress() {}
+	static getTypeParentAddress(type) {
+		return type.find(v => v.super === 0)?.reference;
+	}
 
 	static createTypePart(type, superTypePart, flags) {
 		let typePart = { ...flags }
@@ -951,15 +972,15 @@ class Interpreter {
 
 			while(composite != null) {
 				if(composite.type[0]?.predefined !== 'Object') {
-					if(composite.address === value.primitiveValue) {
+					if(composite.addresses.self === value.primitiveValue) {
 						typePart.self = true;
 					} else {
-						typePart.reference = composite.address;
+						typePart.reference = composite.addresses.self;
 					}
 
 					composite = undefined;
 				} else {
-					composite = this.getComposite(composite.scopeAddress);
+					composite = this.getComposite(composite.addresses.scope);
 				}
 			}
 		}
@@ -1061,7 +1082,7 @@ class Interpreter {
 				return import_;
 			}
 
-			composite = this.getComposite(composite.scopeAddress);
+			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
@@ -1087,7 +1108,7 @@ class Interpreter {
 
 	static importRetains(retainedComposite, retainingComposite) {
 		for(let identifier in retainingComposite.imports) {
-			if(retainingComposite.imports[identifier] === retainedComposite.address) {
+			if(retainingComposite.imports[identifier] === retainedComposite.addresses.self) {
 				return true;
 			}
 		}
@@ -1101,7 +1122,7 @@ class Interpreter {
 				return operator;
 			}
 
-			composite = this.getComposite(composite.scopeAddress);
+			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
@@ -1128,32 +1149,69 @@ class Interpreter {
 	/*
 	 * Search order:
 	 *
-	 * 1. Current
-	 * 2. Lower.Lower...    Object chain (member is virtual)
-	 * 3. Higher.Higher...  Object chain
-	 * 4. Parent.Parent...  Inheritance chain
-	 * 5. Scope.Scope...    Scope chain (search is not internal)
+	 * 1. Current.(Lowest).Higher.Higher...  Object chain (parentheses - member is virtual)
+	 * 2. Current.Parent.Parent...           Inheritance chain
+	 * 3. Current.Scope.Scope...             Scope chain (search is not internal)
 	 */
 	static findMember(composite, identifier, internal) {
-		let member = this.getMember(composite, identifier);
-
-		member =
-			member?.modifiers.includes('virtual') ? this.findMemberInObjectChain(composite, identifier, true) ?? member :
-			member ??
+		return (
 			this.findMemberInObjectChain(composite, identifier) ??
 			this.findMemberInInheritanceChain(composite, identifier) ??
-			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined;
+			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined
+		);
+	}
+
+	static findMemberInObject(object, identifier) {
+		if(object.type[0]?.predefined !== 'Object') {
+			return;
+		}
+
+		let member = this.getMember(object, identifier);
+
+		if(member != null) {
+			let member_ = this.findMemberInInheritanceChain(object, identifier);
+
+			if(member_ == null) {
+				return;
+			}
+
+			member = {
+				modifiers: member_.modifiers,
+				identifier: identifier,
+				type: member_.type,
+				value: member.value,
+				observers: member_.observers
+			}
+		}
 
 		return member;
 	}
 
-	static findMemberInObjectChain(composite, identifier, lower) {
-		let member;
+	static findMemberInObjectChain(object, identifier) {
+		let member,
+			virtual;
 
-		while(
-			(composite = this.getComposite(!lower ? composite.higherAddress : composite.lowerAddress)) != null &&
-			(member = this.getMember(composite, identifier)) == null
-		) {}
+		while(object != null) {  // Higher
+			member = this.findMemberInObject(object, identifier);
+
+			if(member != null) {
+				if(!virtual && member.modifiers.includes('virtual')) {
+					virtual = true;
+
+					let object_;
+
+					while((object_ = this.getComposite(object.addresses.sub)) != null) {  // Lowest
+						object = object_;
+					}
+
+					continue;
+				}
+
+				break;
+			}
+
+			object = this.getComposite(object.addresses.super);
+		}
 
 		return member;
 	}
@@ -1161,67 +1219,38 @@ class Interpreter {
 	static findMemberInInheritanceChain(composite, identifier) {
 		let member;
 
-		while(
-			(composite = this.getComposite(this.findTypeParentAddress(composite.type))) != null &&
-			(member = this.getMember(composite, identifier)) == null
-		) {}
-
-		return member;
-	}
-
-	static findMemberInScopeChain(composite, identifier) {
-		// TODO: Imports lookup
-
-		let member;
-
-		while(composite != null) {  // Current composite can be namespace with imports so it can't be skipped
+		while(composite != null) {
 			member = this.getMember(composite, identifier);
 
 			if(member != null) {
 				break;
 			}
 
-			composite = this.getComposite(composite.scopeAddress);
+			composite = this.getComposite(composite.addresses.Super);
 		}
 
 		return member;
 	}
 
-	/*
-	 * TODO: Returns joined member value and its declaration in case of Object composite type.
-	 */
-	static getMember(composite, identifier) {
-
-		/*
+	static findMemberInScopeChain(composite, identifier) {
 		let member;
 
-		for(let i = 0; i < 2; i++) {
-			let member_ = composite?.members.find(v => v.identifier === identifier);
+		while(composite != null) {
+			member = this.getMember(composite, identifier);
 
-			if(i === 0) {
-				if(member_ != null) {
-					member = {
-						identifier: identifier,
-						value: member_.value
-					}
-				}
-
-				if(composite.type[0]?.predefined !== 'Object') {
-					break;
-				} else {
-					composite = this.getComposite(this.findTypeParentAddress(composite.type));
-				}
-			} else {
-				member.modifiers = member_.modifiers;
-				member.identifier ?? identifier;
-				member.type = member_.type;
-				member.observers = member_.observers;
+			if(member != null) {
+				break;
 			}
+
+			// TODO: In-imports lookup
+
+			composite = this.getComposite(composite.addresses.scope);
 		}
 
 		return member;
-		*/
+	}
 
+	static getMember(composite, identifier) {
 		return composite.members[identifier]
 	}
 
@@ -1267,9 +1296,9 @@ class Interpreter {
 			let member = retainingComposite.members[identifier]
 
 			if(
-				member.type.some(v => v.reference === retainedComposite.address) ||
+				member.type.some(v => v.reference === retainedComposite.addresses.self) ||
 				this.valueRetains(retainedComposite, member.value) ||
-				member.observers.some(v => v.value === retainedComposite.address)
+				member.observers.some(v => v.value === retainedComposite.addresses.self)
 			) {
 				return true;
 			}
@@ -1293,7 +1322,7 @@ class Interpreter {
 	}
 
 	static observerRetains(retainedComposite, retainingComposite) {
-		return retainingComposite.observers.some(v => v.value === retainedComposite.address);
+		return retainingComposite.observers.some(v => v.value === retainedComposite.addresses.self);
 	}
 
 	static report(level, node, string) {
