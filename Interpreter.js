@@ -79,13 +79,7 @@ class Interpreter {
 					this.helpers.createTypePart(composite.type, composite.type[0], node_, scope, false);
 				}
 				for(let typePart of composite.type) {
-					if(typePart.reference != null) {
-						let composite_ = this.getComposite(typePart.reference);
-
-						if(composite_ != null) {
-							this.retainComposite(composite_, composite);
-						}
-					}
+					this.retainComposite(this.getComposite(typePart.reference), composite);
 				}
 			}
 
@@ -151,7 +145,8 @@ class Interpreter {
 			return this.createValue('float', node.value*1);
 		},
 		functionDeclaration: (node, scope) => {
-			let identifier = node.identifier?.value;
+			let modifiers = node.modifiers,
+				identifier = node.identifier?.value;
 
 			if(identifier == null) {
 				return;
@@ -160,13 +155,28 @@ class Interpreter {
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
 				type = [],
-				typePart = this.createTypePart(type, undefined, { predefined: 'Function' }),
 				value = this.createValue('reference', function_.address),
-				observers = []
+				observers = [],
+				member = this.getMember(scope, identifier);
 
 			function_.type = signature;
 
-			this.setMember(scope, node.modifiers, identifier, type, value, observers);
+			if(member == null) {
+				this.createTypePart(type, undefined, { predefined: 'Function' });
+			} else {
+				modifiers = member.modifiers;
+
+				if(member.type[0]?.predefined !== 'dict') {
+					this.createTypePart(type, undefined, { predefined: 'dict' });
+
+					value = this.createValue('dictionary', [member.value, value]);
+				} else {
+					type = member.type;
+					value = this.createValue('dictionary', [...member.value.primitiveValue, value]);
+				}
+			}
+
+			this.setMember(scope, modifiers, identifier, type, value, observers);
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
@@ -609,28 +619,45 @@ class Interpreter {
 		}
 	}
 
+	static destroyReleasedComposite(composite) {
+		if(composite != null && !this.compositeRetained(composite)) {
+			this.destroyComposite(composite);
+		}
+	}
+
 	static getComposite(address) {
 		return this.composites[address]
 	}
 
 	static retainComposite(retainedComposite, retainingComposite) {
-		if(
-			this.compositeRetains(retainedComposite, retainingComposite) &&
-			!retainedComposite.retainersAddresses.includes(retainingComposite.address)
-		) {
+		if(retainedComposite == null) {
+			return;
+		}
+
+		if(!retainedComposite.retainersAddresses.includes(retainingComposite.address)) {
 			retainedComposite.retainersAddresses.push(retainingComposite.address);
 		}
 	}
 
 	static releaseComposite(retainedComposite, retainingComposite) {
-		if(this.compositeRetains(retainedComposite, retainingComposite)) {
+		if(retainedComposite == null) {
 			return;
 		}
 
 		retainedComposite.retainersAddresses = retainedComposite.retainersAddresses.filter(v => v !== retainingComposite.address);
 
-		if(!this.compositeRetained(retainedComposite)) {
-			this.destroyComposite(retainedComposite);
+		this.destroyReleasedComposite(retainedComposite);
+	}
+
+	static retainOrReleaseComposite(retainedComposite, retainingComposite) {
+		if(retainedComposite == null) {
+			return;
+		}
+
+		if(this.compositeRetains(retainedComposite, retainingComposite)) {
+			this.retainComposite(retainedComposite, retainingComposite);
+		} else {
+			this.releaseComposite(retainedComposite, retainingComposite);
 		}
 	}
 
@@ -643,7 +670,7 @@ class Interpreter {
 	 */
 	static compositeRetains(retainedComposite, retainingComposite) {
 		if(this.composites[retainingComposite?.address] == null) {
-			return false;
+			return;
 		}
 
 		return (
@@ -676,7 +703,7 @@ class Interpreter {
 	 * retainChain is used to exclude a retain cycles and meant to be set internally only.
 	 */
 	static compositeReachable(retainedComposite, retainingComposite, retainChain = []) {
-		if(retainingComposite == null) {
+		if(retainedComposite == null || retainingComposite == null) {
 			return;
 		}
 		if(retainedComposite.address === retainingComposite.address) {
@@ -690,9 +717,7 @@ class Interpreter {
 
 			retainChain.push(retainerAddress);
 
-			let retainingComposite_ = this.getComposite(retainerAddress);
-
-			if(retainingComposite_ != null && this.compositeReachable(retainingComposite_, retainingComposite, retainChain)) {
+			if(this.compositeReachable(this.getComposite(retainerAddress), retainingComposite, retainChain)) {
 				return true;
 			}
 		}
@@ -798,10 +823,7 @@ class Interpreter {
 		let namespace = this.scopes.at(-1)?.namespace;
 
 		this.scopes.pop();
-
-		if(namespace != null && !this.compositeRetained(namespace)) {
-			this.destroyComposite(namespace);
-		}
+		this.destroyReleasedComposite(namespace);
 	}
 
 	/*
@@ -822,7 +844,7 @@ class Interpreter {
 			let start = this.composites.length,
 				value = this.rules[node.type]?.(node, scope),
 				end = this.composites.length,
-				returned = this.controlTransfer?.value === value,
+				returned = this.controlTransfer != null && this.controlTransfer.value === value,
 				returning = controlTransferTypes.includes(node.type) || node === nodes.at(-1);
 
 			if(!returned && returning) {
@@ -830,11 +852,7 @@ class Interpreter {
 			}
 
 			for(start; start < end; start++) {
-				let composite = this.composites[start]
-
-				if(composite != null && !this.compositeRetained(composite)) {
-					this.destroyComposite(composite);
-				}
+				this.destroyReleasedComposite(this.getComposite(start));
 			}
 
 			if(controlTransferTypes.includes(this.controlTransfer?.type)) {
@@ -914,6 +932,10 @@ class Interpreter {
 	}
 
 	static getValueType(value) {
+		if(value == null) {
+			return []
+		}
+
 		let typePart = this.createTypePart();
 
 		if(!['pointer', 'reference'].includes(value.primitiveType)) {
@@ -999,12 +1021,22 @@ class Interpreter {
 		return function_;
 	}
 
+	static retainOrReleaseValueComposites(retainingValue, retainingComposite) {
+		if(retainingValue?.primitiveType === 'dictionary') {
+			for(let key in retainingValue.primitiveValue) {
+				this.retainOrReleaseValueComposites(retainingValue.primitiveValue[key], retainingComposite);
+			}
+		} else {
+			this.retainOrReleaseComposite(this.getValueComposite(retainingValue), retainingComposite);
+		}
+	}
+
 	static valueRetains(retainedComposite, retainingValue) {
 		if(retainingValue?.primitiveType === 'dictionary') {
 			for(let key in retainingValue.primitiveValue) {
 				let retainingValue_ = retainingValue.primitiveValue[key]
 
-				if(this.valueRetains(retainingValue_, retainedComposite)) {
+				if(this.valueRetains(retainedComposite, retainingValue_)) {
 					return true;
 				}
 			}
@@ -1050,9 +1082,7 @@ class Interpreter {
 
 		delete composite.imports[identifier]
 
-		if(value != null) {
-			this.releaseComposite(value, composite);
-		}
+		this.retainOrReleaseComposite(value, composite);
 	}
 
 	static importRetains(retainedComposite, retainingComposite) {
@@ -1196,13 +1226,11 @@ class Interpreter {
 	}
 
 	static setMember(composite, modifiers, identifier, type, value, observers) {
-		// TODO: Retain check of reference-type values in primitive dictionaries
-
 		let member = this.getMember(composite, identifier) ?? (composite.members[identifier] = {}),
 			ot = member.type ?? [],  // Old/new type
 			nt = type ?? [],
-			ovc = this.getValueComposite(member.value),  // Old/new value composite
-			nvc = this.getValueComposite(value);
+			ov = member.value,  // Old/new value
+			nv = value;
 
 		member.modifiers = modifiers;
 		member.type = type;
@@ -1210,36 +1238,19 @@ class Interpreter {
 		member.observers = observers;
 
 		if(ot != nt) {
-			for(let otp of ot) {
-				if(otp.reference != null && !nt.some(ntp => ntp.reference === otp.reference)) {
-					let otpc = this.getComposite(otp.reference);
+			let addresses = new Set([...ot, ...nt].map(v => v.reference));
 
-					if(otpc != null) {
-						this.releaseComposite(otpc, composite);
-					}
-				}
-			}
-			for(let ntp of ot) {
-				if(ntp.reference != null && !ot.some(otp => otp.reference === ntp.reference)) {
-					let ntpc = this.getComposite(ntp.reference);
-
-					if(ntpc != null) {
-						this.retainComposite(otpc, composite);
-					}
-				}
+			for(let address of addresses) {
+				this.retainOrReleaseComposite(this.getComposite(address), composite);
 			}
 		}
-		if(ovc != null && ovc !== nvc) {
-			this.releaseComposite(ovc, composite);
-		}
-		if(nvc != null) {
-			this.retainComposite(nvc, composite);
+		if(ov !== nv) {
+			this.retainOrReleaseValueComposites(ov, composite);
+			this.retainOrReleaseValueComposites(nv, composite);
 		}
 	}
 
 	static deleteMember(composite, identifier) {
-		// TODO: Retain check of reference-type values in primitive dictionaries
-
 		let member = this.getMember(composite, identifier);
 
 		if(member == null) {
@@ -1248,15 +1259,7 @@ class Interpreter {
 
 		delete composite.members[identifier]
 
-		if(member.value == null) {
-			return;
-		}
-
-		let value = this.getValueComposite(member.value);
-
-		if(value != null) {
-			this.releaseComposite(value, composite);
-		}
+		this.retainOrReleaseValueComposites(member.value, composite);
 	}
 
 	static memberRetains(retainedComposite, retainingComposite) {
@@ -1286,11 +1289,7 @@ class Interpreter {
 	static deleteObserver(composite, observer) {
 		composite.observers = composite.observers.filter(v => v !== observer);
 
-		let value = this.getComposite(observer.value);
-
-		if(value != null) {
-			this.releaseComposite(value, composite);
-		}
+		this.retainOrReleaseComposite(this.getComposite(observer.value), composite);
 	}
 
 	static observerRetains(retainedComposite, retainingComposite) {

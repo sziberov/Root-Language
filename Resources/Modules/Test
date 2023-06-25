@@ -1,3 +1,54 @@
+class Animal {
+	func say() {
+		'...'
+	}
+}
+
+class Canine: Animal {}
+
+class Fox: Canine {
+	func say() {
+		'Yiff'
+	}
+}
+
+class Wolf: Canine {
+	func say() {
+		'Auf'
+	}
+}
+
+class Dog: Canine {
+	func say() {
+		'Bark'
+	}
+}
+
+class Feline: Animal {}
+
+class Cat: Feline {
+	func say() {
+		'Meow'
+	}
+}
+
+func family(a: Animal) {
+	'Is \(a.Self.metaSelf.title)'
+}
+
+func family(a: Fox) {
+	'Is vulpes'
+}
+
+func family(a: Dog | Wolf) {
+	'Is canine'
+}
+
+family(Fox())
+family(Dog())
+family(Wolf())
+family(Cat())
+
 func testFlowTransfer() {
     if true {
         if true {
