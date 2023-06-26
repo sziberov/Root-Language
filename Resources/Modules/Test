@@ -1,3 +1,25 @@
+struct A {
+    struct B {}
+
+    var E
+}
+
+func a() {
+    class C {
+        var b = A.B
+    }
+
+    A.B = 1
+    //A.E = C.b
+
+    struct A {}
+}
+
+return a()
+
+var primitiveArray = [1, 2, 3, 4],
+	primitiveDictionary = [1: 2, 3: 4]
+
 class Animal {
 	func say() {
 		'...'

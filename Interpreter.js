@@ -8,14 +8,36 @@ class Interpreter {
 	static reports;
 
 	static rules = {
-		arrayType: (n, s, t, tp) => {
-			this.rules.collectionType(n, s, t, tp, 'array');
-		},
 		argument: (node, scope) => {
 			return {
 				label: node.label?.value,
 				value: this.rules[node.value.type]?.(node.value, scope)
 			}
+		},
+		arrayLiteral: (node, scope) => {
+			let result,
+				values = []
+
+			for(let value of node.values) {
+				value = this.rules[value.type]?.(value, scope);
+
+				if(value != null) {
+					values.push(value);
+				}
+			}
+
+			let composite = this.getValueComposite(this.findMember(scope, 'Array')?.value);
+
+			if(composite != null) {
+				// TODO: Instantinate Array()
+			} else {
+				result = this.createValue('dictionary', values);
+			}
+
+			return result;
+		},
+		arrayType: (n, s, t, tp) => {
+			this.rules.collectionType(n, s, t, tp, 'array');
 		},
 		booleanLiteral: (node) => {
 			// TODO: Instantinate Boolean()
@@ -68,8 +90,13 @@ class Interpreter {
 		},
 		classDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
-				identifier = node.identifier.value,
-				inheritedTypes = node.inheritedTypes,
+				identifier = node.identifier?.value;
+
+			if(identifier == null) {
+				return;
+			}
+
+			let inheritedTypes = node.inheritedTypes,
 				composite = this.createClass(identifier, scope);
 
 			if(node.inheritedTypes.length > 0) {
@@ -83,16 +110,14 @@ class Interpreter {
 				}
 			}
 
-			let type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+			let type = [this.createTypePart(undefined, undefined, { predefined: 'Class', self: true })],
 				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 
-			// TODO:
-			// - Protocol conformance checking (if not conforms, remove from list and report)
-			// - Overloaded functions pre-parse (create empty dict members)
+			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -124,21 +149,84 @@ class Interpreter {
 		defaultType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
 		},
+		dictionaryLiteral: (node, scope) => {
+			let result,
+				entries = new Map();
+
+			for(let entry of node.entries) {
+				entry = this.rules.entry(entry, scope);
+
+				if(entry != null) {
+					entries.set(entry.key, entry.value);
+				}
+			}
+
+			let composite = this.getValueComposite(this.findMember(scope, 'Dictionary')?.value);
+
+			if(composite != null) {
+				// TODO: Instantinate Dictionary()
+			} else {
+				result = this.createValue('dictionary', entries);
+			}
+
+			return result;
+		},
 		dictionaryType: (n, s, t, tp) => {
 			this.rules.collectionType(n, s, t, tp, 'dictionary');
+		},
+		entry: (node, scope) => {
+			return {
+				key: this.rules[node.key.type]?.(node.key, scope),
+				value: this.rules[node.value?.type]?.(node.value, scope)
+			}
 		},
 		enumerationDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createEnumeration(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Enumeration', self: true })],
 				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
 			this.setMember(scope, modifiers, identifier, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
-		expressionsSequence: (node, scope) => {},
+		expressionsSequence: (node, scope) => {
+			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
+				let lhs = node.values[0],
+					lhsComposite,
+					lhsMember;
+
+				if(lhs.type === 'chainExpression') {
+					lhsComposite = this.getValueComposite(this.rules[lhs.composite.type]?.(lhs.composite, scope));
+					lhsMember = lhs.member.type === 'identifier' ? lhs.member.value : this.rules.stringLiteral(lhs.member, scope, true).primitiveValue;
+
+					if(lhsComposite == null || lhsMember == null) {
+						return;
+					}
+
+					lhs = this.findMember(lhsComposite, lhsMember, true);
+				}
+				if(lhs.type === 'identifier') {
+					lhsComposite = scope;
+					lhsMember = lhs.value;
+
+					lhs = this.findMember(lhsComposite, lhsMember);
+				}
+
+				// TODO: Create member with default type if not exists
+
+				if(lhs == null) {
+					return;
+				}
+
+				let rhs = this.rules[node.values[2].type]?.(node.values[2], scope);
+
+				this.setMember(lhsComposite, lhs.modifiers, lhsMember, lhs.type, rhs, lhs.observers);
+
+				return rhs;
+			}
+		},
 		floatLiteral: (node) => {
 			// TODO: Instantinate Float()
 
@@ -305,7 +393,7 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createNamespace(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Namespace', self: true })],
 				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
@@ -315,7 +403,8 @@ class Interpreter {
 		nillableType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
 		},
-		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
+		nilLiteral: () => {},
+ 		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
 			if(!titles.some(v => v in typePart)) {
 				typePart[titles[mainTitle ?? 0]] = true;
 			}
@@ -395,7 +484,7 @@ class Interpreter {
 			let modifiers = node.modifiers,
 				identifier = node.identifier.value,
 				composite = this.createProtocol(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Protocol', self: true })],
 				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
@@ -408,7 +497,7 @@ class Interpreter {
 		returnStatement: (node, scope) => {
 			return this.rules[node.value?.type]?.(node.value, scope);
 		},
-		stringLiteral: (node, scope) => {
+		stringLiteral: (node, scope, primitive) => {
 			let string = '';
 
 			for(let segment of node.segments) {
@@ -434,9 +523,14 @@ class Interpreter {
 		},
 		structureDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
-				identifier = node.identifier.value,
-				composite = this.createStructure(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { reference: composite.addresses.self, self: true })],
+				identifier = node.identifier?.value;
+
+			if(identifier == null) {
+				return;
+			}
+
+			let composite = this.createStructure(identifier, scope),
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Structure', self: true })],
 				value = this.createValue('reference', composite.addresses.self),
 				observers = []
 
@@ -573,7 +667,19 @@ class Interpreter {
 		}
 		*/
 
-		return JSON.stringify(this.composites/*, (k, v) => v === undefined ? null : v*/);
+		return JSON.stringify(this.composites, (k, v) => {
+			if(v instanceof Map) {
+				return {
+					__TYPE__: 'Map',
+					__VALUE__: Array.from(v.entries())
+				};
+			} else
+			if(v == null) {
+				return null;
+			} else {
+				return v;
+			}
+		});
 	}
 
 	static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
@@ -614,13 +720,13 @@ class Interpreter {
 		composite.addresses.scope = scope?.addresses.self;
 
 		this.retainComposite(scope, composite);
-		this.report(1, undefined, 'cr: '+composite.title+', '+composite.addresses.self);
+		this.report(0, undefined, 'cr: '+composite.title+', '+composite.addresses.self);
 
 		return composite;
 	}
 
 	static destroyComposite(composite) {
-		this.report(1, undefined, 'de: '+JSON.stringify(composite));
+		this.report(0, undefined, 'de: '+JSON.stringify(composite));
 
 		// TODO:
 		// - Notify all retainers about destroying
@@ -680,9 +786,8 @@ class Interpreter {
 	/*
 	 * Returns a real state of retainment.
 	 *
-	 * Composite considered really retained if:
-	 * - It is used as a retainer's scope.
-	 * - It is used by a retainer's type, import, member or observer.
+	 * Composite considered really retained if it is used by an at least one of
+	 * retainer's addresses (excluding "self" and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainedComposite, retainingComposite) {
 		if(
@@ -693,7 +798,14 @@ class Interpreter {
 		}
 
 		return (
-			retainingComposite.addresses.scope === retainedComposite.addresses.self ||
+			[
+				retainingComposite.addresses.Self,
+				retainingComposite.addresses.super,
+				retainingComposite.addresses.Super,
+				retainingComposite.addresses.sub,
+				retainingComposite.addresses.Sub,
+				retainingComposite.addresses.scope
+			].includes(retainedComposite.addresses.self) ||
 			retainingComposite.type.some(v => v.reference === retainedComposite.addresses.self) ||
 			this.importRetains(retainedComposite, retainingComposite) ||
 			this.memberRetains(retainedComposite, retainingComposite) ||

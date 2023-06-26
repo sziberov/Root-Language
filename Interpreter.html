@@ -90,9 +90,7 @@ body {
 		let lexerResult = Lexer.tokenize(input.value),
 			parserResult = Parser.parse(lexerResult),
 			interpreterResult = Interpreter.interpret(lexerResult, parserResult),
-			tokens = lexerResult.rawTokens,
-			reports = [...parserResult.reports, ...interpreterResult.reports]
-					  /*.sort((a, b) => a.location.line-b.location.line || a.location.column-b.location.column)*/;
+			tokens = lexerResult.rawTokens;
 
 		let lintHTML = '';
 
@@ -124,22 +122,22 @@ body {
 				element.innerText = value;
 
 				if(type.startsWith('comment')) {
-					element.style.color = 'rgb(95 179 63 / 1)';
+					element.style.color = 'rgb(95 179 63)';
 				}
 				if(type.startsWith('string') && !type.startsWith('stringExpression')) {
-					element.style.color = 'rgb(191 127 95 / 1)';
+					element.style.color = 'rgb(191 127 95)';
 				}
 				if(type.startsWith('operator')) {
-					element.style.color = 'rgb(255 191 0 / 1)';
+					element.style.color = 'rgb(255 191 0)';
 
 					if(type.endsWith('Prefix')) {
-						element.style.color = 'rgb(255 63 0 / 1)';
+						element.style.color = 'rgb(255 63 0)';
 					}
 					if(type.endsWith('Infix')) {
-						element.style.color = 'rgb(255 95 0 / 1)';
+						element.style.color = 'rgb(255 95 0)';
 					}
 					if(type.endsWith('Postfix')) {
-						element.style.color = 'rgb(255 127 0 / 1)';
+						element.style.color = 'rgb(255 127 0)';
 					}
 				}
 				if(
@@ -148,24 +146,24 @@ body {
 					type.startsWith('bracket') ||
 					type === 'delimiter'
 				) {
-					element.style.color = 'rgb(255 255 255 / 1)';
+					element.style.color = 'rgb(255 255 255)';
 				}
 				if(type.startsWith('keyword')) {
-					element.style.color = 'rgb(96 151 255 / 1)';
+					element.style.color = 'rgb(96 151 255)';
 
 					if([
 						'nil',
 						'true',
 						'false'
 					].includes(value)) {
-						element.style.color = 'rgb(223 127 223 / 1)';
+						element.style.color = 'rgb(223 127 223)';
 					}
 				}
 				if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
-					element.style.color = 'rgb(223 223 223 / 1)';
+					element.style.color = 'rgb(223 223 223)';
 				}
 				if(type.startsWith('number')) {
-					element.style.color = 'rgb(223 127 223 / 1)';
+					element.style.color = 'rgb(223 127 223)';
 				}
 				if(type === 'unsupported') {
 					element.style.color = 'transparent';
@@ -180,19 +178,30 @@ body {
 
 		let consoleHTML = '';
 
-		for(let report of reports) {
-			let level = report.level.toString()
-									.replace('0', 'Info')
-									.replace('1', 'Warning')
-									.replace('2', 'Error'),
-				line = report.location.line+1,
-				column = report.location.column+1,
-				string = report.string,
-				message = line+':'+column+': '+level+': '+string;
+		function logReports(reports, transparent) {
+			for(let report of reports) {
+				let level = report.level.toString()
+										.replace('0', 'Info')
+										.replace('1', 'Warning')
+										.replace('2', 'Error'),
+					line = report.location.line+1,
+					column = report.location.column+1,
+					string = report.string,
+					message = line+':'+column+': '+level+': '+string.replace(/&/g, '&amp;')
+															        .replace(/</g, '&lt;')
+															        .replace(/>/g, '&gt;')
+															        .replace(/"/g, '&quot;')
+															        .replace(/'/g, '&#039;'),
+					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0';
 
-			consoleHTML += message+'\n';
-			console.log(message);
+				consoleHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+');">'+message+'</span><br>';
+				console.log(message);
+			}
 		}
+
+		logReports(parserResult.reports, true);
+		logReports(interpreterResult.reports);
+
 		console.log(lexerResult.tokens);
 		console.log(parserResult.tree);
 		console.log(interpreterResult.composites);
@@ -200,8 +209,20 @@ body {
 		output_lint.innerHTML = lintHTML;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
-		output_composites.innerText = JSON.stringify(interpreterResult.composites, null, 4);
-		output_console.innerText = consoleHTML;
+		output_composites.innerText = JSON.stringify(interpreterResult.composites, (k, v) => {
+			if(v instanceof Map) {
+				return {
+					__TYPE__: 'Map',
+					__VALUE__: Array.from(v.entries())
+				};
+			} else
+			if(v == null) {
+				return null;
+			} else {
+				return v;
+			}
+		}, 4);
+		output_console.innerHTML = consoleHTML;
 	}
 
 	input.oninput = parse;
