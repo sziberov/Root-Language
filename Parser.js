@@ -1403,6 +1403,7 @@ class Parser {
 					start: this.position
 				},
 				modifiers: this.rules.modifiers(),
+				nillable: false,
 				signature: undefined,
 				body: undefined
 			}
@@ -1414,6 +1415,12 @@ class Parser {
 			}
 
 			this.position++;
+
+			if(this.token.type.startsWith('operator') && this.token.value === '?') {
+				this.position++;
+				node.nillable = true;
+			}
+
 			node.signature = this.rules.functionSignature();
 			node.body = this.rules.functionBody();
 
