@@ -774,7 +774,6 @@ class Interpreter {
 		}
 
 		this.composites.push(composite);
-		this.setSelfAddress(composite, composite);
 		this.setScopeAddress(composite, scope);
 		this.report(0, undefined, 'cr: '+composite.title+', '+composite.addresses.ID);
 
@@ -788,9 +787,7 @@ class Interpreter {
 
 		composite.alive = false;
 
-		// TODO: Notify all retainers about destroying
-
-	//	if(this.typeIsComposite(composite, 'Object')) {
+		if(this.typeIsComposite(composite, 'Object')) {
 			let value = this.findMember(composite, 'deinit', true)?.value;
 
 			if(value != null) {
@@ -802,7 +799,7 @@ class Interpreter {
 					this.report(1, undefined, 'Found "deinit" is not a function or is an incorrect deinitializer.');
 				}
 			}
-	//	}
+		}
 
 		for(let composite_ of this.composites) {
 			if(composite_?.addresses.retainers.includes(composite.addresses.ID)) {
@@ -813,6 +810,8 @@ class Interpreter {
 		delete this.composites[composite.addresses.ID]
 
 		if(composite.addresses.retainers.length > 0) {
+		// TODO: Notify all retainers about destroying
+
 			this.report(1, undefined, 'Composite #'+composite.addresses.ID+' was destroyed with a non-empty retainer list.');
 		}
 
@@ -927,40 +926,86 @@ class Interpreter {
 	}
 
 	static createClass(title, scope) {
-		return this.createComposite(title, [{ predefined: 'Class' }], scope);
+		let class_ = this.createComposite(title, [{ predefined: 'Class' }], scope);
+
+		this.setSelfAddress(class_, class_);
+
+		return class_;
 	}
 
 	static createEnumeration(title, scope) {
-		return this.createComposite(title, [{ predefined: 'Enumeration' }], scope);
+		let enumeration = this.createComposite(title, [{ predefined: 'Enumeration' }], scope);
+
+		this.setSelfAddress(enumeration, enumeration);
+
+		return enumeration;
 	}
 
 	static createFunction(title, statements, scope) {
 		let function_ = this.createComposite(title, [{ predefined: 'Function' }], scope);
 
+		/*
+		while(scope != null) {
+			for(let scope_ of this.scopes) {
+				if(scope_.namespace === scope) {
+					scope = this.getComposite(scope_.namespace.addresses.Self);
+
+					break;
+				}
+			}
+
+			if(this.typeIsComposite(scope.type, 'Function')) {
+				scope = this.getComposite(scope.addresses.Self);
+
+				continue;
+			} else {
+				break;
+			}
+		}
+
+		if(scope != null) {
+			this.setSelfAddress(function_, scope);
+		}
+		*/
+
+		this.setInheritedSelfAddress(function_, scope);
 		this.setStatements(function_, statements);
 
 		return function_;
 	}
 
 	static createNamespace(title, scope) {
-		return this.createComposite(title, [{ predefined: 'Namespace' }], scope);
+		let namespace = this.createComposite(title, [{ predefined: 'Namespace' }], scope);
+
+		this.setSelfAddress(namespace, namespace);
+
+		return namespace;
 	}
 
 	static createObject(superObject, subObject) {
 		let title = (scope.title ?? '#'+scope.addresses.self)+'()',
 			object = this.createComposite(title, [{ predefined: 'Object' }]);
 
+		this.setSelfAddress(object, object);
 		this.setSuperSubAddresses(object, superObject, subObject);
 
 		return object;
 	}
 
 	static createProtocol(title, scope) {
-		return this.createComposite(title, [{ predefined: 'Protocol' }], scope);
+		let protocol = this.createComposite(title, [{ predefined: 'Protocol' }], scope);
+
+		this.setSelfAddress(protocol, protocol);
+
+		return protocol;
 	}
 
 	static createStructure(title, scope) {
-		return this.createComposite(title, [{ predefined: 'Structure' }], scope);
+		let structure = this.createComposite(title, [{ predefined: 'Structure' }], scope);
+
+		this.setSelfAddress(structure, structure);
+
+		return structure;
 	}
 
 	/*
@@ -979,7 +1024,7 @@ class Interpreter {
 			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
 			parameters = this.getTypeFunctionParameters(function_.type);
 
-		this.setSelfAddress(namespace, scope);
+		this.setInheritedSelfAddress(namespace, scope);
 
 		for(let i = 0; i < arguments_.length; i++) {
 			let argument = arguments_[i],
@@ -1105,6 +1150,11 @@ class Interpreter {
 		} else {
 			composite.addresses.Self = this.getTypeInheritedAddress(composite_.type);
 		}
+	}
+
+	static setInheritedSelfAddress(composite, composite_) {
+		composite.addresses.self = composite_?.addresses.self;
+		composite.addresses.Self = composite_?.addresses.Self;
 	}
 
 	static setSuperSubAddresses(object, superObject, subObject) {
