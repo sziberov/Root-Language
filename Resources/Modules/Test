@@ -1,3 +1,17 @@
+var b
+
+class A {
+	func deinit() {
+		b = Self
+
+		print(b)
+	}
+}
+
+A = nil
+
+return b
+
 struct A {
     struct B {}
 

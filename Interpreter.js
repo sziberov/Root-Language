@@ -223,28 +223,31 @@ class Interpreter {
 			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
 				let lhs = node.values[0],
 					lhsComposite,
-					lhsMember;
+					lhsMemberIdentifier,
+					internal;
 
 				if(lhs.type === 'identifier') {
 					lhsComposite = scope;
-					lhsMember = lhs.value;
+					lhsMemberIdentifier = lhs.value;
+					internal = false;
 
-					lhs = this.findMember(lhsComposite, lhsMember);
+					lhs = this.findMember(lhsComposite, lhsMemberIdentifier);
 				} else
 				if(lhs.type === 'chainExpression') {
 					lhsComposite = this.getValueComposite(this.rules[lhs.composite.type]?.(lhs.composite, scope));
-					lhsMember = lhs.member.type === 'identifier' ? lhs.member.value : this.rules.stringLiteral(lhs.member, scope, true).primitiveValue;
+					lhsMemberIdentifier = lhs.member.type === 'identifier' ? lhs.member.value : this.rules.stringLiteral(lhs.member, scope, true).primitiveValue;
+					internal = true;
 
-					if(lhsComposite == null || lhsMember == null) {
+					if(lhsComposite == null || lhsMemberIdentifier == null) {
 						return;
 					}
 
-					lhs = this.findMember(lhsComposite, lhsMember, true);
+					lhs = this.findMember(lhsComposite, lhsMemberIdentifier, true);
 				}
 
 				// TODO: Create member with default type if not exists
 
-				if(lhs == null || lhsComposite == null || lhsMember == null) {
+				if(lhs == null || lhsComposite == null || lhsMemberIdentifier == null) {
 					this.report(1, node, 'Cannot assign to anything but a valid identifier or chain expression.');
 
 					return;
@@ -252,7 +255,7 @@ class Interpreter {
 
 				let rhs = this.rules[node.values[2].type]?.(node.values[2], scope);
 
-				this.setMember(lhsComposite, lhsMember, lhs.modifiers, lhs.type, rhs, lhs.observers);
+				this.setMember(lhsComposite, lhsMemberIdentifier, lhs.modifiers, lhs.type, rhs, lhs.observers, internal);
 
 				return rhs;
 			}
@@ -1444,19 +1447,7 @@ class Interpreter {
 		let member = this.getMember(object, identifier);
 
 		if(member != null) {
-			let member_ = this.findMemberInInheritanceChain(object, identifier);
-
-			if(member_ == null) {
-				return;
-			}
-
-			member = {
-				modifiers: member_.modifiers,
-				identifier: identifier,
-				type: member_.type,
-				value: member.value,
-				observers: member_.observers
-			}
+			member = this.getMemberProxy(member, object, this.findMemberInInheritanceChain(object, identifier));
 		}
 
 		return member;
@@ -1492,46 +1483,80 @@ class Interpreter {
 	}
 
 	static findMemberInInheritanceChain(composite, identifier) {
-		let member;
-
 		while(composite != null) {
-			member = this.getMember(composite, identifier);
+			let member = this.getMember(composite, identifier);
 
 			if(member != null) {
-				break;
+				return this.getMemberProxy(member, composite);
 			}
 
 			composite = this.getComposite(composite.addresses.Super);
 		}
-
-		return member;
 	}
 
 	static findMemberInScopeChain(composite, identifier) {
-		let member;
-
 		while(composite != null) {
-			member = this.getMember(composite, identifier);
+			let member = this.getMember(composite, identifier);
 
 			if(member != null) {
-				break;
+				return this.getMemberProxy(member, composite);
 			}
 
 			// TODO: In-imports lookup
 
 			composite = this.getComposite(composite.addresses.scope);
 		}
-
-		return member;
 	}
 
 	static getMember(composite, identifier) {
 		return composite.members[identifier]
 	}
 
-	static setMember(composite, identifier, /*internal,*/ modifiers, type, value, observers) {
-		let member = this.findMember(composite, identifier/*, internal*/) ?? (composite.members[identifier] = {}),
-			ot = member.type ?? [],  // Old/new type
+	static getMemberProxy(member, owningComposite, underlayingDeclaration) {
+		return new Proxy(member, {
+			get(target, key, receiver) {
+				if(key === 'owner') {
+					return owningComposite;
+				}
+
+				if(underlayingDeclaration == null || key === 'value') {
+					return member[key]
+				} else {
+					return underlayingDeclaration[key]
+				}
+			},
+			set(target, key, value) {
+				if(underlayingDeclaration == null || key === 'value') {
+					member[key] = value;
+				} else {
+					underlayingDeclaration[key] = value;
+				}
+
+				return true;
+			}
+		});
+	}
+
+	/*
+	 * Not specifying "internal" means use of direct declaration without search.
+	 */
+	static setMember(composite, identifier, modifiers, type, value, observers, internal) {
+		let member = internal == null ? this.getMember(composite, identifier) : this.findMember(composite, identifier, internal);
+
+		if(member == null) {
+			/*
+			if(internal == null) {
+				return;
+			}
+			*/
+
+			member = composite.members[identifier] = {}
+		} else
+		if(internal != null) {
+			composite = member.owner;
+		}
+
+		let ot = member.type ?? [],  // Old/new type
 			nt = type ?? [],
 			ov = member.value,  // Old/new value
 			nv = value;
@@ -1549,8 +1574,6 @@ class Interpreter {
 			}
 		}
 		if(ov !== nv) {
-			// TODO: Retain by original member owner
-
 			this.retainOrReleaseValueComposites(composite, ov);
 			this.retainOrReleaseValueComposites(composite, nv);
 		}
