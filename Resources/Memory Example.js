@@ -1,90 +1,88 @@
 let memory = [
 	{
 		address: 0,
-		inheritance: ['Namespace'],
-		imports: [
-			/*
-			{
-				identifier: 'Foundation',
-				value: 0
-			}
-			*/
-		],
-		operators: [
-			{
-				modifiers: ['postfix'],
-				identifier: '++',
-				associativity: null,
-				precedence: null
-			},
-			{
-				modifiers: ['postfix'],
-				identifier: '--',
-				associativity: null,
-				precedence: null
-			},
-			{
-				modifiers: ['prefix'],
-				identifier: '++',
-				associativity: null,
-				precedence: null
-			},
-			{
-				modifiers: ['prefix'],
-				identifier: '--',
-				associativity: null,
-				precedence: null
-			},
-			{
-				modifiers: [/* 'private', */ 'infix'],
-				identifier: '+',
-				associativity: 'left',
-				precedence: 64
-			}
-		],
-		members: [
-			{
-				modifiers: ['public', 'static'],
-				identifier: 'TestClass',
-				typed: true,
-				inheritance: [1],
-				nillable: true,
-				value: 1,
-				observers: []
-			},
-			{
-				modifiers: ['public', 'static', 'final'],
-				identifier: 'testPi',
-				typed: true,
-				inheritance: ['float'],
-				nillable: true,
-				value: '3.14',
-				observers: []
-			},
-			{
-				modifiers: ['public', 'static'],
-				identifier: 'testClassInstance',
-				typed: true,
-				inheritance: [2],
-				nillable: true,
-				value: 3,
-				observers: []
-			},
-			{
-				modifiers: ['public'],
-				identifier: 'computedInstanceProperty',
-				typed: false,
-				inheritance: [],
-				nillable: true,
-				value: null,
-				observers: [
-					{
-						identifier: 'willGet',  // 'get', 'didGet', 'willSet', 'set', 'didSet', 'willDelete', 'delete', 'didDelete'
-						value: null  // Function address
-					}
-				]
-			}
-		],
+		type: [{ predefined: 'Namespace' }],
+		imports: {
+			'Foundation': 0
+		},
+		operators: {
+			'++': [
+				{
+					modifiers: ['postfix'],
+					associativity: null,
+					precedence: null
+				},
+				{
+					modifiers: ['prefix'],
+					associativity: null,
+					precedence: null
+				}
+			],
+			'--': [
+				{
+					modifiers: ['postfix'],
+					associativity: null,
+					precedence: null
+				},
+				{
+					modifiers: ['prefix'],
+					associativity: null,
+					precedence: null
+				}
+			],
+			'+': [
+				{
+					modifiers: [/* 'private', */ 'infix'],
+					associativity: 'left',
+					precedence: 64
+				}
+			]
+		},
+		members: {
+			'TestClass': [
+				{
+					modifiers: ['public', 'static'],
+					type: [{ predefined: 'Class', self: true }],
+					value: { primitiveType: 'reference', primitiveValue: 1 },
+					observers: []
+				}
+			],
+			'testPi': [
+				{
+					modifiers: ['public', 'static', 'final'],
+					typed: true,
+					inheritance: ['float'],
+					nillable: true,
+					value: '3.14',
+					observers: []
+				}
+			],
+			'testClassInstance': [
+				{
+					modifiers: ['public', 'static'],
+					typed: true,
+					inheritance: [2],
+					nillable: true,
+					value: 3,
+					observers: []
+				}
+			],
+			'computedInstanceProperty': [
+				{
+					modifiers: ['public'],
+					typed: false,
+					inheritance: [],
+					nillable: true,
+					value: null,
+					observers: [
+						{
+							identifier: 'willGet',  // 'get', 'didGet', 'willSet', 'set', 'didSet', 'willDelete', 'delete', 'didDelete'
+							value: null  // Function address
+						}
+					]
+				}
+			]
+		},
 		observers: [
 			{
 				type: 'chain',
@@ -104,7 +102,7 @@ let memory = [
 	},
 	{
 		address: 1,
-		inheritance: ['Class'],
+		type: [{ predefined: 'Class' }],
 		genericParameters: [],
 		members: [
 			{

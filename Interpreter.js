@@ -71,7 +71,7 @@ class Interpreter {
 						return;
 					}
 
-					value = this.findMember(composite, 'init', true)?.value;
+					value = this.getMember(composite, 'init')?.value;
 				}
 
 				if(value == null) {
@@ -91,7 +91,28 @@ class Interpreter {
 				}
 
 				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
-				value = this.callFunction(function_, arguments_);
+				//if(i === 0) {
+					value = this.callFunction(function_, arguments_);
+				//}
+				/*
+				if(i === 1) {
+					let objects = [],
+						superObject = scope,
+						subObject;
+
+					while(superObject != null) {
+						let object = this.createObject(scope);
+
+						this.callFunction(function_, arguments_, false, object);
+
+						objects.push(object);
+
+
+					}
+
+					value = objects.at(-1);
+				}
+				*/
 				this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
@@ -944,30 +965,6 @@ class Interpreter {
 	static createFunction(title, statements, scope) {
 		let function_ = this.createComposite(title, [{ predefined: 'Function' }], scope);
 
-		/*
-		while(scope != null) {
-			for(let scope_ of this.scopes) {
-				if(scope_.namespace === scope) {
-					scope = this.getComposite(scope_.namespace.addresses.Self);
-
-					break;
-				}
-			}
-
-			if(this.typeIsComposite(scope.type, 'Function')) {
-				scope = this.getComposite(scope.addresses.Self);
-
-				continue;
-			} else {
-				break;
-			}
-		}
-
-		if(scope != null) {
-			this.setSelfAddress(function_, scope);
-		}
-		*/
-
 		this.setInheritedSelfAddress(function_, scope);
 		this.setStatements(function_, statements);
 
@@ -983,7 +980,7 @@ class Interpreter {
 	}
 
 	static createObject(superObject, subObject) {
-		let title = (scope.title ?? '#'+scope.addresses.self)+'()',
+		let title = (superObject.title ?? '#'+superObject.addresses.ID)+'()',
 			object = this.createComposite(title, [{ predefined: 'Object' }]);
 
 		this.setSelfAddress(object, object);
@@ -1162,9 +1159,12 @@ class Interpreter {
 			object.addresses.super = superObject.addresses.ID;
 			object.addresses.Super = this.getTypeInheritedAddress(superObject.type);
 		}
-		if(this.typeIsComposite(subObject.type, 'Object')) {
-			object.addresses.sub = subObject.addresses.ID;
-			object.addresses.Sub = this.getTypeInheritedAddress(subObject.type);
+
+		if(subObject != null) {
+			if(this.typeIsComposite(subObject.type, 'Object')) {
+				object.addresses.sub = subObject.addresses.ID;
+				object.addresses.Sub = this.getTypeInheritedAddress(subObject.type);
+			}
 		}
 	}
 
@@ -1442,36 +1442,50 @@ class Interpreter {
 		}
 	}
 
-	static findOperator(composite, identifier) {
+	static getOperator(composite, identifier) {
+		return composite.operators[identifier]
+	}
+
+	static addOperator(namespace, identifier) {
+		if(!this.typeIsComposite(namespace.type, 'Namespace')) {
+			return;
+		}
+
+		if(this.getOperator(namespace, identifier) == null) {
+			namespace.operators[identifier] = {}
+		}
+	}
+
+	static removeOperator(composite, identifier) {
+		delete composite.operators[identifier]
+	}
+
+	static findOperatorOverload(composite, identifier, matching) {
 		while(composite != null) {
 			let operator = this.getOperator(composite, identifier);
 
 			if(operator != null) {
-				return operator;
+				for(let overload of operator) {
+					if(matching(overload)) {
+						return operator;
+					}
+				}
 			}
 
 			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
-	static getOperator(composite, identifier) {
-		return composite.operators[identifier]
-	}
+	static setOperatorOverload(composite, identifier, matching, modifiers, associativity, precedence) {
+		let operator = this.findOperatorOverload(namespace, identifier, matching);
 
-	static setOperator(namespace, modifiers, identifier, associativity, precedence) {
-		if(!this.typeIsComposite(namespace.type, 'Namespace')) {
+		if(operator == null) {
 			return;
 		}
-
-		let operator = this.getOperator(namespace, identifier) ?? (namespace.operators[identifier] = {});
 
 		operator.modifiers = modifiers;
 		operator.associativity = associativity;
 		operator.precedence = precedence;
-	}
-
-	static deleteOperator(composite, identifier) {
-		delete composite.operators[identifier]
 	}
 
 	/*
