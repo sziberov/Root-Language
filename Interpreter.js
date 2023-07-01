@@ -487,6 +487,34 @@ class Interpreter {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
 		},
 		nilLiteral: () => {},
+		operatorDeclaration: (node, scope) => {
+			let operator = node.operator?.value,
+				precedence,
+				associativity;
+
+			if(operator == null) {
+				return;
+			}
+
+			for(let entry of node.body?.statements ?? []) {
+				if(entry.type === 'entry') {
+					if(entry.key.type === 'identifier') {
+						if(entry.key.value === 'precedence' && entry.value.type === 'integerLiteral') {
+							precedence = entry.value.value;
+						}
+						if(entry.key.value === 'associativity' && entry.value.type === 'identifier' && ['left', 'right', 'none'].includes(entry.value.value)) {
+							associativity = entry.value.value;
+						}
+					}
+				}
+			}
+
+			if(precedence == null || associativity == null) {
+				return;
+			}
+
+			this.setOperatorOverload(scope, node.operator.value, node.modifiers, precedence, associativity);
+		},
  		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
 			if(!titles.some(v => v in typePart)) {
 				typePart[titles[mainTitle ?? 0]] = true;
@@ -1451,9 +1479,7 @@ class Interpreter {
 			return;
 		}
 
-		if(this.getOperator(namespace, identifier) == null) {
-			namespace.operators[identifier] = {}
-		}
+		return this.getOperator(namespace, identifier) ?? (namespace.operators[identifier] = []);
 	}
 
 	static removeOperator(composite, identifier) {
@@ -1462,30 +1488,46 @@ class Interpreter {
 
 	static findOperatorOverload(composite, identifier, matching) {
 		while(composite != null) {
-			let operator = this.getOperator(composite, identifier);
+			let overload = this.getOperatorOverload(composite, identifier, matching);
 
-			if(operator != null) {
-				for(let overload of operator) {
-					if(matching(overload)) {
-						return operator;
-					}
-				}
+			if(overload != null) {
+				return overload;
 			}
 
 			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
-	static setOperatorOverload(composite, identifier, matching, modifiers, associativity, precedence) {
-		let operator = this.findOperatorOverload(namespace, identifier, matching);
+	static getOperatorOverload(composite, identifier, matching) {
+		let operator = this.getOperator(composite, identifier);
+
+		if(operator != null) {
+			for(let overload of operator) {
+				if(matching(overload)) {
+					return overload;
+				}
+			}
+		}
+	}
+
+	static setOperatorOverload(namespace, identifier, modifiers, associativity, precedence) {
+		let type = modifiers.find(v => ['prefix', 'postfix', 'infix'].includes(v));
+
+		if(type == null) {
+			return;
+		}
+
+		let operator = this.addOperator(namespace, identifier);
 
 		if(operator == null) {
 			return;
 		}
 
-		operator.modifiers = modifiers;
-		operator.associativity = associativity;
-		operator.precedence = precedence;
+		let overload = this.getOperatorOverload(namespace, identifier, (v) => v.modifiers.includes(type)) ?? (operator[operator.push({})-1]);
+
+		overload.modifiers = modifiers;
+		overload.associativity = associativity;
+		overload.precedence = precedence;
 	}
 
 	/*
