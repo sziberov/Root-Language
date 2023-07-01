@@ -845,17 +845,13 @@ class Interpreter {
 		composite.alive = false;
 
 		if(this.typeIsComposite(composite, 'Object')) {
-			let value = this.findMemberOverload(composite, 'deinit', undefined, true)?.value;
+			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
 
-			if(value != null) {
-				let function_ = this.findValueFunction(value, []);
-
-				if(function_ != null) {
-					this.callFunction(function_);
-				} else {
-					this.report(1, undefined, 'Found "deinit" is not a function or is an incorrect deinitializer.');
-				}
-			}
+			if(function_ != null) {
+				this.callFunction(function_);
+			}/* else {
+				this.report(1, undefined, 'Found "deinit" is not a function or is an incorrect deinitializer.');
+			}*/
 		}
 
 		for(let composite_ of this.composites) {
@@ -1561,31 +1557,55 @@ class Interpreter {
 
 		if(member != null) {
 			for(let overload of member) {
-				if(matching == null || matching(overload)) {
+				if(matching == null) {
 					return overload;
+				}
+
+				let matchingValue = matching(overload);
+
+				if(matchingValue != null) {
+					return this.getMemberOverloadProxy(overload, { matchingValue: matchingValue });
 				}
 			}
 		}
 	}
 
-	static getMemberOverloadProxy(overload, owningComposite, underlayingDeclaration) {
+	static getMemberOverloadProxy(overload, additions) {
+		if(overload.additions != null) {
+			for(let k in additions) {
+				overload.additions[k] = additions[k]
+			}
+
+			return overload;
+		}
+
 		return new Proxy(overload, {
 			get(target, key, receiver) {
-				if(key === 'owner') {
-					return owningComposite;
+				if(key === 'additions') {
+					return additions;
 				}
-
-				if(underlayingDeclaration == null || key === 'value') {
-					return overload[key]
+				if(key in additions) {
+					return additions[key]
+				}
+				if(additions.super != null && key !== 'value') {
+					return additions.super[key]
 				} else {
-					return underlayingDeclaration[key]
+					return overload[key]
 				}
 			},
 			set(target, key, value) {
-				if(underlayingDeclaration == null || key === 'value') {
-					overload[key] = value;
+				if(key === 'additions') {
+					return true;
+				}
+				if(key in additions) {
+					additions[key] = value;
+
+					return true;
+				}
+				if(additions.super != null && key !== 'value') {
+					additions.super[key] = value;
 				} else {
-					underlayingDeclaration[key] = value;
+					overload[key] = value;
 				}
 
 				return true;
@@ -1616,7 +1636,7 @@ class Interpreter {
 		let overload = this.getMemberOverload(object, identifier, matching);
 
 		if(overload != null) {
-			overload = this.getMemberOverloadProxy(overload, object, this.findMemberOverloadInInheritanceChain(object, identifier, matching));
+			overload = this.getMemberOverloadProxy(overload, { owner: object, super: this.findMemberOverloadInInheritanceChain(object, identifier, matching) });
 		}
 
 		return overload;
@@ -1656,7 +1676,7 @@ class Interpreter {
 			let overload = this.getMemberOverload(composite, identifier, matching);
 
 			if(overload != null) {
-				return this.getMemberOverloadProxy(overload, composite);
+				return this.getMemberOverloadProxy(overload, { owner: composite });
 			}
 
 			composite = this.getComposite(composite.addresses.Super);
@@ -1668,7 +1688,7 @@ class Interpreter {
 			let overload = this.getMemberOverload(composite, identifier, matching);
 
 			if(overload != null) {
-				return this.getMemberOverloadProxy(overload, composite);
+				return this.getMemberOverloadProxy(overload, { owner: composite });
 			}
 
 			// TODO: In-imports lookup
