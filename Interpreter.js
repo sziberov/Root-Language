@@ -243,32 +243,17 @@ class Interpreter {
 		expressionsSequence: (node, scope) => {
 			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
 				let lhs = node.values[0],
-					lhsComposite,
-					lhsMemberIdentifier,
-					internal;
+					lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs, scope);
 
-				if(lhs.type === 'identifier') {
-					lhsComposite = scope;
-					lhsMemberIdentifier = lhs.value;
-					internal = false;
-
-					lhs = this.findMemberOverload(lhsComposite, lhsMemberIdentifier);
-				} else
-				if(lhs.type === 'chainExpression') {
-					lhsComposite = this.getValueComposite(this.rules[lhs.composite.type]?.(lhs.composite, scope));
-					lhsMemberIdentifier = lhs.member.type === 'identifier' ? lhs.member.value : this.rules.stringLiteral(lhs.member, scope, true).primitiveValue;
-					internal = true;
-
-					if(lhsComposite == null || lhsMemberIdentifier == null) {
-						return;
-					}
-
-					lhs = this.findMemberOverload(lhsComposite, lhsMemberIdentifier, undefined, true);
+				if(lhsMOSP.composite != null && lhsMOSP.identifier != null) {
+					lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
+				} else {
+					lhs = undefined;
 				}
 
 				// TODO: Create member with default type if not exists
 
-				if(lhs == null || lhsComposite == null || lhsMemberIdentifier == null) {
+				if(lhs == null) {
 					this.report(1, node, 'Cannot assign to anything but a valid identifier or chain expression.');
 
 					return;
@@ -276,7 +261,7 @@ class Interpreter {
 
 				let rhs = this.rules[node.values[2].type]?.(node.values[2], scope);
 
-				this.setMemberOverload(lhsComposite, lhsMemberIdentifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, internal);
+				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
 
 				return rhs;
 			}
@@ -297,12 +282,14 @@ class Interpreter {
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
 				type = [],
+				part = this.createTypePart(type, undefined, { predefined: 'Function' }),
 				value = this.createValue('reference', function_.addresses.ID),
 				observers = [],
 				member = this.getMember(scope, identifier);
 
 			function_.type = signature;
 
+			/*
 			if(member == null) {
 				this.createTypePart(type, undefined, { predefined: 'Function' });
 			} else {
@@ -317,8 +304,9 @@ class Interpreter {
 					value = this.createValue('dictionary', [...member.value.primitiveValue, value]);
 				}
 			}
+			*/
 
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
@@ -761,6 +749,22 @@ class Interpreter {
 			// TODO: Access-related checks
 
 			return this.findMemberOverload(composite, identifier, matching, internal)?.value;
+		},
+		getMemberOverloadSearchParameters: (node, scope) => {
+			let result = {}
+
+			if(node.type === 'identifier') {
+				result.composite = scope;
+				result.identifier = node.value;
+				result.internal = false;
+			} else
+			if(node.type === 'chainExpression') {
+				result.composite = this.getValueComposite(this.rules[node.composite.type]?.(node.composite, scope));
+				result.identifier = node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, scope, true).primitiveValue;
+				result.internal = true;
+			}
+
+			return result;
 		}
 	}
 
