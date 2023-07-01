@@ -26,7 +26,7 @@ class Interpreter {
 				}
 			}
 
-			let composite = this.getValueComposite(this.findMember(scope, 'Array')?.value);
+			let composite = this.getValueComposite(this.findMemberOverload(scope, 'Array')?.value);
 
 			if(composite != null) {
 				// TODO: Instantinate Array()
@@ -135,7 +135,7 @@ class Interpreter {
 				identifier = identifier.value;
 			}
 
-			return this.helpers.findMemberValue(composite, identifier, true);
+			return this.helpers.findMemberOverloadValue(composite, identifier, undefined, true);
 		},
 		classDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
@@ -163,14 +163,14 @@ class Interpreter {
 				value = this.createValue('reference', composite.addresses.ID),
 				observers = []
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 
 			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
-				composite = this.getValueComposite(this.findMember(scope, capitalizedTitle)?.value);
+				composite = this.getValueComposite(this.findMemberOverload(scope, capitalizedTitle)?.value);
 
 			if(composite != null) {
 				typePart.reference = composite.addresses.ID;
@@ -210,7 +210,7 @@ class Interpreter {
 				}
 			}
 
-			let composite = this.getValueComposite(this.findMember(scope, 'Dictionary')?.value);
+			let composite = this.getValueComposite(this.findMemberOverload(scope, 'Dictionary')?.value);
 
 			if(composite != null) {
 				// TODO: Instantinate Dictionary()
@@ -237,7 +237,7 @@ class Interpreter {
 				value = this.createValue('reference', composite.addresses.ID),
 				observers = []
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
 		expressionsSequence: (node, scope) => {
@@ -252,7 +252,7 @@ class Interpreter {
 					lhsMemberIdentifier = lhs.value;
 					internal = false;
 
-					lhs = this.findMember(lhsComposite, lhsMemberIdentifier);
+					lhs = this.findMemberOverload(lhsComposite, lhsMemberIdentifier);
 				} else
 				if(lhs.type === 'chainExpression') {
 					lhsComposite = this.getValueComposite(this.rules[lhs.composite.type]?.(lhs.composite, scope));
@@ -263,7 +263,7 @@ class Interpreter {
 						return;
 					}
 
-					lhs = this.findMember(lhsComposite, lhsMemberIdentifier, true);
+					lhs = this.findMemberOverload(lhsComposite, lhsMemberIdentifier, undefined, true);
 				}
 
 				// TODO: Create member with default type if not exists
@@ -276,7 +276,7 @@ class Interpreter {
 
 				let rhs = this.rules[node.values[2].type]?.(node.values[2], scope);
 
-				this.setMember(lhsComposite, lhsMemberIdentifier, lhs.modifiers, lhs.type, rhs, lhs.observers, internal);
+				this.setMemberOverload(lhsComposite, lhsMemberIdentifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, internal);
 
 				return rhs;
 			}
@@ -318,7 +318,7 @@ class Interpreter {
 				}
 			}
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
@@ -373,7 +373,7 @@ class Interpreter {
 			typePart.identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
-			return this.helpers.findMemberValue(scope, node.value);
+			return this.helpers.findMemberOverloadValue(scope, node.value);
 		},
 		ifStatement: (node, scope) => {
 			if(node.condition == null) {
@@ -465,7 +465,7 @@ class Interpreter {
 	            }
             ]
 
-            this.setMember(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
+            this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
 
 			this.addScope(namespace);
 			this.evaluateNodes(this.tree?.statements, namespace);
@@ -480,7 +480,7 @@ class Interpreter {
 				value = this.createValue('reference', composite.addresses.ID),
 				observers = []
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
 		nillableType: (n, s, t, tp) => {
@@ -599,7 +599,7 @@ class Interpreter {
 				value = this.createValue('reference', composite.addresses.ID),
 				observers = []
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
 		protocolType: (node, scope, type, typePart) => {
@@ -645,7 +645,7 @@ class Interpreter {
 				value = this.createValue('reference', composite.addresses.ID),
 				observers = []
 
-			this.setMember(scope, identifier, modifiers, type, value, observers);
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
 		},
 		typeIdentifier: (node, scope, type, typePart) => {
@@ -684,7 +684,7 @@ class Interpreter {
 
 				// Type-related checks
 
-				this.setMember(scope, identifier, modifiers, type, value, observers);
+				this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			}
 		},
 		variadicGenericParameter: (node, scope) => {
@@ -740,7 +740,7 @@ class Interpreter {
 
 			return typePart;
 		},
-		findMemberValue: (composite, identifier, internal) => {
+		findMemberOverloadValue: (composite, identifier, matching, internal) => {
 			let address = {
 				global: () => undefined,				 // Global-object is no thing
 				Global: () => 0,						 // Global-type
@@ -760,7 +760,7 @@ class Interpreter {
 
 			// TODO: Access-related checks
 
-			return this.findMember(composite, identifier, internal)?.value;
+			return this.findMemberOverload(composite, identifier, matching, internal)?.value;
 		}
 	}
 
@@ -794,6 +794,10 @@ class Interpreter {
 	}
 
 	static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
+
+	static getComposite(address) {
+		return this.composites[address]
+	}
 
 	static createComposite(title, type, scope) {
 		if(!this.typeIsComposite(type)) {
@@ -837,7 +841,7 @@ class Interpreter {
 		composite.alive = false;
 
 		if(this.typeIsComposite(composite, 'Object')) {
-			let value = this.findMember(composite, 'deinit', true)?.value;
+			let value = this.findMemberOverload(composite, 'deinit', undefined, true)?.value;
 
 			if(value != null) {
 				let function_ = this.findValueFunction(value, []);
@@ -871,10 +875,6 @@ class Interpreter {
 		if(composite != null && !this.compositeRetained(composite)) {
 			this.destroyComposite(composite);
 		}
-	}
-
-	static getComposite(address) {
-		return this.composites[address]
 	}
 
 	static retainComposite(retainingComposite, retainedComposite) {
@@ -1033,43 +1033,6 @@ class Interpreter {
 		return structure;
 	}
 
-	/*
-	 * Forwarding allows a function's statements to be evaluated in its scope directly.
-	 *
-	 * If no scope is specified, default function's scope is used.
-	 */
-	static callFunction(function_, arguments_ = [], forwarded, scope) {
-		if(typeof function_.statements === 'function') {
-			return function_.statements(arguments_);
-		}
-
-		scope ??= this.getComposite(function_.addresses.scope);
-
-		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.ID)+'>',
-			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
-			parameters = this.getTypeFunctionParameters(function_.type);
-
-		this.setInheritedSelfAddress(namespace, scope);
-
-		for(let i = 0; i < arguments_.length; i++) {
-			let argument = arguments_[i],
-				parameterType = this.getSubtype(parameters, parameters[i]),
-				identifier = parameterType[0]?.identifier ?? '$'+i;
-
-			this.setMember(namespace, identifier, [], parameterType, argument.value, []);
-		}
-
-		this.addScope(namespace, function_);
-		this.evaluateNodes(function_.statements, namespace);
-		this.removeScope();
-
-		let returnValue = this.controlTransfer?.value;
-
-		this.resetControlTransfer();
-
-		return returnValue;
-	}
-
 	static getScope(offset = 0) {
 		return this.scopes[this.scopes.length-1+offset]
 	}
@@ -1095,6 +1058,17 @@ class Interpreter {
 
 		this.scopes.pop();
 		this.destroyReleasedComposite(namespace);
+	}
+
+	static setControlTransfer(value, type) {
+		this.controlTransfer = {
+			value: value,
+			type: type
+		}
+	}
+
+	static resetControlTransfer() {
+		this.controlTransfer = undefined;
 	}
 
 	/*
@@ -1132,15 +1106,41 @@ class Interpreter {
 		}
 	}
 
-	static setControlTransfer(value, type) {
-		this.controlTransfer = {
-			value: value,
-			type: type
+	/*
+	 * Forwarding allows a function's statements to be evaluated in its scope directly.
+	 *
+	 * If no scope is specified, default function's scope is used.
+	 */
+	static callFunction(function_, arguments_ = [], forwarded, scope) {
+		if(typeof function_.statements === 'function') {
+			return function_.statements(arguments_);
 		}
-	}
 
-	static resetControlTransfer() {
-		this.controlTransfer = undefined;
+		scope ??= this.getComposite(function_.addresses.scope);
+
+		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.ID)+'>',
+			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
+			parameters = this.getTypeFunctionParameters(function_.type);
+
+		this.setInheritedSelfAddress(namespace, scope);
+
+		for(let i = 0; i < arguments_.length; i++) {
+			let argument = arguments_[i],
+				parameterType = this.getSubtype(parameters, parameters[i]),
+				identifier = parameterType[0]?.identifier ?? '$'+i;
+
+			this.setMemberOverload(namespace, identifier, [], parameterType, argument.value, []);
+		}
+
+		this.addScope(namespace, function_);
+		this.evaluateNodes(function_.statements, namespace);
+		this.removeScope();
+
+		let returnValue = this.controlTransfer?.value;
+
+		this.resetControlTransfer();
+
+		return returnValue;
 	}
 
 	static setCompositeType(composite, type) {
@@ -1430,6 +1430,10 @@ class Interpreter {
 		function_.statements = statements;
 	}
 
+	static getImport(composite, identifier) {
+		return composite.imports[identifier]
+	}
+
 	static findImport(composite, identifier) {
 		while(composite != null) {
 			let import_ = this.getImport(composite, identifier);
@@ -1440,10 +1444,6 @@ class Interpreter {
 
 			composite = this.getComposite(composite.addresses.scope);
 		}
-	}
-
-	static getImport(composite, identifier) {
-		return composite.imports[identifier]
 	}
 
 	static setImport(namespace, identifier, value) {
@@ -1486,6 +1486,18 @@ class Interpreter {
 		delete composite.operators[identifier]
 	}
 
+	static getOperatorOverload(composite, identifier, matching) {
+		let operator = this.getOperator(composite, identifier);
+
+		if(operator != null) {
+			for(let overload of operator) {
+				if(matching == null || matching(overload)) {
+					return overload;
+				}
+			}
+		}
+	}
+
 	static findOperatorOverload(composite, identifier, matching) {
 		while(composite != null) {
 			let overload = this.getOperatorOverload(composite, identifier, matching);
@@ -1495,18 +1507,6 @@ class Interpreter {
 			}
 
 			composite = this.getComposite(composite.addresses.scope);
-		}
-	}
-
-	static getOperatorOverload(composite, identifier, matching) {
-		let operator = this.getOperator(composite, identifier);
-
-		if(operator != null) {
-			for(let overload of operator) {
-				if(matching(overload)) {
-					return overload;
-				}
-			}
 		}
 	}
 
@@ -1530,6 +1530,65 @@ class Interpreter {
 		overload.precedence = precedence;
 	}
 
+	static getMember(composite, identifier) {
+		return composite.members[identifier]
+	}
+
+	static addMember(composite, identifier) {
+		return this.getMember(composite, identifier) ?? (composite.members[identifier] = []);
+	}
+
+	static removeMember(composite, identifier) {
+		let member = this.getMember(composite, identifier);
+
+		if(member == null) {
+			return;
+		}
+
+		delete composite.members[identifier]
+
+		for(let overload of member) {
+			this.retainOrReleaseValueComposites(composite, overload.value);
+		}
+	}
+
+	static getMemberOverload(composite, identifier, matching) {
+		let member = this.getMember(composite, identifier);
+
+		if(member != null) {
+			for(let overload of member) {
+				if(matching == null || matching(overload)) {
+					return overload;
+				}
+			}
+		}
+	}
+
+	static getMemberOverloadProxy(overload, owningComposite, underlayingDeclaration) {
+		return new Proxy(overload, {
+			get(target, key, receiver) {
+				if(key === 'owner') {
+					return owningComposite;
+				}
+
+				if(underlayingDeclaration == null || key === 'value') {
+					return overload[key]
+				} else {
+					return underlayingDeclaration[key]
+				}
+			},
+			set(target, key, value) {
+				if(underlayingDeclaration == null || key === 'value') {
+					overload[key] = value;
+				} else {
+					underlayingDeclaration[key] = value;
+				}
+
+				return true;
+			}
+		});
+	}
+
 	/*
 	 * Search order:
 	 *
@@ -1537,37 +1596,37 @@ class Interpreter {
 	 * 2. Current.Parent.Parent...           Inheritance chain
 	 * 3. Current.Scope.Scope...             Scope chain (search is not internal)
 	 */
-	static findMember(composite, identifier, internal) {
+	static findMemberOverload(composite, identifier, matching, internal) {
 		return (
-			this.findMemberInObjectChain(composite, identifier) ??
-			this.findMemberInInheritanceChain(composite, identifier) ??
-			!internal ? this.findMemberInScopeChain(composite, identifier) : undefined
+			this.findMemberOverloadInObjectChain(composite, identifier, matching) ??
+			this.findMemberOverloadInInheritanceChain(composite, identifier, matching) ??
+			!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching) : undefined
 		);
 	}
 
-	static findMemberInObject(object, identifier) {
+	static findMemberOverloadInObject(object, identifier, matching) {
 		if(!this.typeIsComposite(object.type, 'Object')) {
 			return;
 		}
 
-		let member = this.getMember(object, identifier);
+		let overload = this.getMemberOverload(object, identifier, matching);
 
-		if(member != null) {
-			member = this.getMemberProxy(member, object, this.findMemberInInheritanceChain(object, identifier));
+		if(overload != null) {
+			overload = this.getMemberOverloadProxy(overload, object, this.findMemberOverloadInInheritanceChain(object, identifier, matching));
 		}
 
-		return member;
+		return overload;
 	}
 
-	static findMemberInObjectChain(object, identifier) {
-		let member,
+	static findMemberOverloadInObjectChain(object, identifier, matching) {
+		let overload,
 			virtual;
 
 		while(object != null) {  // Higher
-			member = this.findMemberInObject(object, identifier);
+			overload = this.findMemberOverloadInObject(object, identifier, matching);
 
-			if(member != null) {
-				if(!virtual && member.modifiers.includes('virtual')) {
+			if(overload != null) {
+				if(!virtual && overload.modifiers.includes('virtual')) {
 					virtual = true;
 
 					let object_;
@@ -1585,27 +1644,27 @@ class Interpreter {
 			object = this.getComposite(object.addresses.super);
 		}
 
-		return member;
+		return overload;
 	}
 
-	static findMemberInInheritanceChain(composite, identifier) {
+	static findMemberOverloadInInheritanceChain(composite, identifier, matching) {
 		while(composite != null) {
-			let member = this.getMember(composite, identifier);
+			let overload = this.getMemberOverload(composite, identifier, matching);
 
-			if(member != null) {
-				return this.getMemberProxy(member, composite);
+			if(overload != null) {
+				return this.getMemberOverloadProxy(overload, composite);
 			}
 
 			composite = this.getComposite(composite.addresses.Super);
 		}
 	}
 
-	static findMemberInScopeChain(composite, identifier) {
+	static findMemberOverloadInScopeChain(composite, identifier, matching) {
 		while(composite != null) {
-			let member = this.getMember(composite, identifier);
+			let overload = this.getMemberOverload(composite, identifier, matching);
 
-			if(member != null) {
-				return this.getMemberProxy(member, composite);
+			if(overload != null) {
+				return this.getMemberOverloadProxy(overload, composite);
 			}
 
 			// TODO: In-imports lookup
@@ -1614,63 +1673,36 @@ class Interpreter {
 		}
 	}
 
-	static getMember(composite, identifier) {
-		return composite.members[identifier]
-	}
-
-	static getMemberProxy(member, owningComposite, underlayingDeclaration) {
-		return new Proxy(member, {
-			get(target, key, receiver) {
-				if(key === 'owner') {
-					return owningComposite;
-				}
-
-				if(underlayingDeclaration == null || key === 'value') {
-					return member[key]
-				} else {
-					return underlayingDeclaration[key]
-				}
-			},
-			set(target, key, value) {
-				if(underlayingDeclaration == null || key === 'value') {
-					member[key] = value;
-				} else {
-					underlayingDeclaration[key] = value;
-				}
-
-				return true;
-			}
-		});
-	}
-
 	/*
 	 * Not specifying "internal" means use of direct declaration without search.
 	 */
-	static setMember(composite, identifier, modifiers, type, value, observers, internal) {
-		let member = internal == null ? this.getMember(composite, identifier) : this.findMember(composite, identifier, internal);
+	static setMemberOverload(composite, identifier, modifiers, type, value, observers, matching, internal) {
+		let overload = internal == null ? this.getMemberOverload(composite, identifier, matching) : this.findMemberOverload(composite, identifier, matching, internal);
 
-		if(member == null) {
+		if(overload == null) {
 			/*
 			if(internal == null) {
 				return;
 			}
 			*/
 
-			member = composite.members[identifier] = {}
+			let member = this.addMember(composite, identifier);
+
+			overload = member[member.push({})-1]
 		} else
 		if(internal != null) {
-			composite = member.owner;
+			composite = overload.owner;
 		}
 
-		let ot = member.type ?? [],  // Old/new type
+		let ot = overload.type ?? [],  // Old/new type
 			nt = type ?? [],
-			ov = member.value,  // Old/new value
+			ov = overload.value,  // Old/new value
 			nv = value;
 
-		member.modifiers = modifiers;
-		member.type = type;
-		member.value = value;
-		member.observers = observers;
+		overload.modifiers = modifiers;
+		overload.type = type;
+		overload.value = value;
+		overload.observers = observers;
 
 		if(ot !== nt) {
 			let addresses = new Set([...ot, ...nt].map(v => v.reference));
@@ -1685,35 +1717,23 @@ class Interpreter {
 		}
 	}
 
-	static deleteMember(composite, identifier) {
-		let member = this.getMember(composite, identifier);
-
-		if(member == null) {
-			return;
-		}
-
-		delete composite.members[identifier]
-
-		this.retainOrReleaseValueComposites(composite, member.value);
-	}
-
 	static membersRetain(retainingComposite, retainedComposite) {
 		for(let identifier in retainingComposite.members) {
-			let member = retainingComposite.members[identifier]
-
-			if(
-				this.typeRetains(member.type, retainedComposite) ||
-				this.valueRetains(member.value, retainedComposite) ||
-				member.observers.some(v => v.value === retainedComposite.addresses.ID)
-			) {
-				return true;
+			for(let overload of retainingComposite.members[identifier] ?? []) {
+				if(
+					this.typeRetains(overload.type, retainedComposite) ||
+					this.valueRetains(overload.value, retainedComposite) ||
+					overload.observers.some(v => v.value === retainedComposite.addresses.ID)
+				) {
+					return true;
+				}
 			}
 		}
 	}
 
-	static findObserver() {}
-
 	static getObserver() {}
+
+	static findObserver() {}
 
 	static setObserver(composite) {
 		if(!['Class', 'Function', 'Namespace', 'Structure'].includes(composite.type[0]?.predefined)) {
