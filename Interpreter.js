@@ -56,10 +56,12 @@ class Interpreter {
 			}
 
 			let callee = node.callee,
-				callee_,
 				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee, scope);
 
-			if(calleeMOSP != null && (calleeMOSP.composite == null || calleeMOSP.identifier == null)) {
+			if(calleeMOSP == null) {
+				callee = this.rules[callee?.type]?.(callee, scope);
+			} else
+			if(calleeMOSP.composite == null || calleeMOSP.identifier == null) {
 				this.report(1, node, 'Cannot call anything but a valid identifier or chain expression if no other expression is used.');
 
 				return;
@@ -67,16 +69,11 @@ class Interpreter {
 
 			for(let i = 0; i < 2; i++) {
 				if(i === 1) {  // Fallback to search of an initializer
-					if(calleeMOSP != null) {
-						calleeMOSP.composite = this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue;
-					} else {
-						calleeMOSP = {
-							composite: this.getValueComposite(callee_)
-						}
+					calleeMOSP = {
+						composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
+						identifier: 'init',
+						internal: true
 					}
-
-					calleeMOSP.identifier = 'init';
-					calleeMOSP.internal = true;
 
 					if(
 						calleeMOSP.composite == null ||
@@ -89,14 +86,9 @@ class Interpreter {
 					}
 				}
 
-				if(calleeMOSP != null) {
-					callee = this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue;
-				} else {
-					callee_ = this.rules[callee?.type]?.(callee, scope);
-					callee = this.findValueFunction(callee_, arguments_);
-				}
+				let function_ = calleeMOSP == null ? this.findValueFunction(callee, arguments_) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue;
 
-				if(callee == null) {
+				if(function_ == null) {
 					if(i === 1) {
 						this.report(2, node, 'Composite doesn\'t have initializer with specified signature.');
 					}
@@ -106,9 +98,9 @@ class Interpreter {
 
 				let value;
 
-				this.report(0, node, 'ca: '+callee.title+', '+callee.addresses.ID);
+				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
 				//if(i === 0) {
-					value = this.callFunction(callee, arguments_);
+					value = this.callFunction(function_, arguments_);
 				//}
 				/*
 				if(i === 1) {
@@ -393,12 +385,12 @@ class Interpreter {
 			condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
 			if(condition || node.else?.type !== 'ifStatement') {
-				let branch = condition ? 'then' : 'else';
+				let branch = node[condition ? 'then' : 'else']
 
-				if(node[branch]?.type === 'functionBody') {
-					this.evaluateNodes(node[branch].statements, namespace);
+				if(branch?.type === 'functionBody') {
+					this.evaluateNodes(branch.statements, namespace);
 				} else {
-					this.setControlTransfer(this.rules[node[branch]?.type]?.(node[branch], namespace));
+					this.setControlTransfer(this.rules[branch?.type]?.(branch, namespace));
 				}
 			}
 
@@ -486,6 +478,21 @@ class Interpreter {
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.evaluateNodes(node.body?.statements, composite);
+		},
+		nillableExpression: (node, scope) => {
+			let value;
+
+			try {
+				value = this.rules[node?.type]?.(node, scope);
+			} catch(error) {
+				/*
+				if(error !== 0) {
+					throw error;
+				}
+				*/
+			}
+
+			return value;
 		},
 		nillableType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
@@ -1098,7 +1105,9 @@ class Interpreter {
 			controlTransferTypes = [
 				'breakStatement',
 				'continueStatement',
-				'returnStatement'
+				'fallthroughStatement',
+				'returnStatement',
+				'throwStatement'
 			]
 
 		for(let node of nodes ?? []) {
