@@ -1,6 +1,18 @@
 var b
 
 class A {
+	func init(c) {
+		b = c; print(1)
+	}
+}
+
+A(1)
+
+return b
+
+var b
+
+class A {
 	func deinit() {
 		b = Self
 

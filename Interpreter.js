@@ -55,44 +55,60 @@ class Interpreter {
 				}
 			}
 
-			let value = this.rules[node.callee.type]?.(node.callee, scope);
+			let callee = node.callee,
+				callee_,
+				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee, scope);
+
+			if(calleeMOSP != null && (calleeMOSP.composite == null || calleeMOSP.identifier == null)) {
+				this.report(1, node, 'Cannot call anything but a valid identifier or chain expression if no other expression is used.');
+
+				return;
+			}
 
 			for(let i = 0; i < 2; i++) {
 				if(i === 1) {  // Fallback to search of an initializer
-					let composite = this.getValueComposite(value);
+					if(calleeMOSP != null) {
+						calleeMOSP.composite = this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue;
+					} else {
+						calleeMOSP = {
+							composite: this.getValueComposite(callee_)
+						}
+					}
+
+					calleeMOSP.identifier = 'init';
+					calleeMOSP.internal = true;
 
 					if(
-						composite == null ||
-						!this.typeIsComposite(composite.type, 'Class') ||
-						!this.typeIsComposite(composite.type, 'Structure')
+						calleeMOSP.composite == null ||
+						!this.typeIsComposite(calleeMOSP.composite.type, 'Class') &&
+						!this.typeIsComposite(calleeMOSP.composite.type, 'Structure')
 					) {
-						this.report(2, node, 'Composite is not callable or wasn\'t found.');
+						this.report(2, node, 'Function with specified signature wasn\'t found.');
 
 						return;
 					}
-
-					value = this.getMember(composite, 'init')?.value;
 				}
 
-				if(value == null) {
-					this.report(2, node, i === 0 ? 'Callee wasn\'t found.' : 'Composite doesn\'t have an initializer.');
-
-					continue;
+				if(calleeMOSP != null) {
+					callee = this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue;
+				} else {
+					callee_ = this.rules[callee?.type]?.(callee, scope);
+					callee = this.findValueFunction(callee_, arguments_);
 				}
 
-				let function_ = this.findValueFunction(value, arguments_);
-
-				if(function_ == null) {
+				if(callee == null) {
 					if(i === 1) {
-						this.report(2, node, 'Found "init" is not a function or is an initializer of a different type.');
+						this.report(2, node, 'Composite doesn\'t have initializer with specified signature.');
 					}
 
 					continue;
 				}
 
-				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
+				let value;
+
+				this.report(0, node, 'ca: '+callee.title+', '+callee.addresses.ID);
 				//if(i === 0) {
-					value = this.callFunction(function_, arguments_);
+					value = this.callFunction(callee, arguments_);
 				//}
 				/*
 				if(i === 1) {
@@ -103,7 +119,7 @@ class Interpreter {
 					while(superObject != null) {
 						let object = this.createObject(scope);
 
-						this.callFunction(function_, arguments_, false, object);
+						this.callFunction(callee, arguments_, false, object);
 
 						objects.push(object);
 
@@ -245,7 +261,7 @@ class Interpreter {
 				let lhs = node.values[0],
 					lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs, scope);
 
-				if(lhsMOSP.composite != null && lhsMOSP.identifier != null) {
+				if(lhsMOSP != null && lhsMOSP.composite != null && lhsMOSP.identifier != null) {
 					lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
 				} else {
 					lhs = undefined;
@@ -751,20 +767,20 @@ class Interpreter {
 			return this.findMemberOverload(composite, identifier, matching, internal)?.value;
 		},
 		getMemberOverloadSearchParameters: (node, scope) => {
-			let result = {}
-
 			if(node.type === 'identifier') {
-				result.composite = scope;
-				result.identifier = node.value;
-				result.internal = false;
+				return {
+					composite: scope,
+					identifier: node.value,
+					internal: false
+				}
 			} else
 			if(node.type === 'chainExpression') {
-				result.composite = this.getValueComposite(this.rules[node.composite.type]?.(node.composite, scope));
-				result.identifier = node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, scope, true).primitiveValue;
-				result.internal = true;
+				return {
+					composite: this.getValueComposite(this.rules[node.composite.type]?.(node.composite, scope)),
+					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, scope, true).primitiveValue,
+					internal: true
+				}
 			}
-
-			return result;
 		}
 	}
 
