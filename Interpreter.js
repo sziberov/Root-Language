@@ -170,7 +170,7 @@ class Interpreter {
 				observers = []
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.evaluateNodes(node.body?.statements, composite);
+			this.executeStatements(node.body?.statements, composite);
 
 			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
 		},
@@ -244,7 +244,7 @@ class Interpreter {
 				observers = []
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.evaluateNodes(node.body?.statements, composite);
+			this.executeStatements(node.body?.statements, composite);
 		},
 		expressionsSequence: (node, scope) => {
 			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
@@ -368,7 +368,7 @@ class Interpreter {
 				let branch = node[condition ? 'then' : 'else']
 
 				if(branch?.type === 'functionBody') {
-					this.evaluateNodes(branch.statements, namespace);
+					this.executeStatements(branch.statements, namespace);
 				} else {
 					this.setControlTransfer(this.rules[branch?.type]?.(branch, namespace));
 				}
@@ -444,7 +444,7 @@ class Interpreter {
             this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
 
 			this.addScope(namespace);
-			this.evaluateNodes(this.tree?.statements, namespace);
+			this.executeStatements(this.tree?.statements, namespace);
 			this.removeScope();
 			this.resetControlTransfer();
 		},
@@ -457,7 +457,7 @@ class Interpreter {
 				observers = []
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.evaluateNodes(node.body?.statements, composite);
+			this.executeStatements(node.body?.statements, composite);
 		},
 		nillableExpression: (node, scope) => {
 			let value;
@@ -591,7 +591,7 @@ class Interpreter {
 				observers = []
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.evaluateNodes(node.body?.statements, composite);
+			this.executeStatements(node.body?.statements, composite);
 		},
 		protocolType: (node, scope, type, typePart) => {
 
@@ -637,7 +637,7 @@ class Interpreter {
 				observers = []
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.evaluateNodes(node.body?.statements, composite);
+			this.executeStatements(node.body?.statements, composite);
 		},
 		typeIdentifier: (node, scope, type, typePart) => {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
@@ -847,11 +847,11 @@ class Interpreter {
 
 		composite.alive = false;
 
-		if(this.typeIsComposite(composite, 'Object')) {
+		if(this.typeIsComposite(composite.type, 'Object')) {
 			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
 
 			if(function_ != null) {
-				this.callFunction(function_, [], false, composite);
+				this.callFunction(function_, [], composite);
 			}
 		}
 
@@ -1084,12 +1084,10 @@ class Interpreter {
 	}
 
 	/*
-	 * Should be used for statements inside of a bodies.
-	 *
 	 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
 	 * Manual control transfer and additional control transfer types is supported but should be also implemented by rules.
 	 */
-	static evaluateNodes(nodes, scope, additionalCTT = []) {
+	static executeStatements(nodes, scope, additionalCTT = []) {
 		let globalScope = this.getScope(-1) == null,
 			CTT = [  // Control transfer types
 			//	'breakStatement',
@@ -1125,22 +1123,22 @@ class Interpreter {
 	}
 
 	/*
-	 * Forwarding allows a function's statements to be evaluated in its scope directly.
+	 * Levels such as super, self or sub, can be inherited from another composite.
 	 *
-	 * If no scope is specified, default function's scope is used.
+	 * Specifying a scope means intent to execute function's statements directly into that one fellow composite.
+	 *
+	 * If no levels or scope is specified, original function ones is used.
 	 */
-	static callFunction(function_, arguments_ = [], forwarded, scope) {
+	static callFunction(function_, arguments_ = [], levels, scope) {
 		if(typeof function_.statements === 'function') {
 			return function_.statements(arguments_);
 		}
 
-		scope ??= this.getComposite(function_.addresses.scope);
-
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.ID)+'>',
-			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
+			namespace = scope ?? this.createNamespace(namespaceTitle, this.getComposite(function_.addresses.scope)),
 			parameters = this.getTypeFunctionParameters(function_.type);
 
-		this.setInheritedLevelAddresses(namespace, scope);
+		this.setInheritedLevelAddresses(namespace, levels ?? function_);
 
 		for(let i = 0; i < arguments_.length; i++) {
 			let argument = arguments_[i],
@@ -1151,7 +1149,7 @@ class Interpreter {
 		}
 
 		this.addScope(namespace, function_);
-		this.evaluateNodes(function_.statements, namespace);
+		this.executeStatements(function_.statements, namespace);
 		this.removeScope();
 
 		let returnValue = this.controlTransfer?.value;
@@ -1647,7 +1645,7 @@ class Interpreter {
 		return (
 			this.findMemberOverloadInObjectChain(composite, identifier, matching) ??
 			this.findMemberOverloadInInheritanceChain(composite, identifier, matching) ??
-			!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching) : undefined
+			(!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching) : undefined)
 		);
 	}
 
@@ -1695,6 +1693,10 @@ class Interpreter {
 	}
 
 	static findMemberOverloadInInheritanceChain(composite, identifier, matching) {
+		if(this.typeIsComposite(composite.type, 'Object')) {
+			composite = this.getComposite(composite.addresses.Self);
+		}
+
 		while(composite != null) {
 			let overload = this.getMemberOverload(composite, identifier, matching);
 

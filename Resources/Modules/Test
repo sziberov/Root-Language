@@ -4,6 +4,25 @@ class A {
 	func init(c) {
 		b = c; print(1)
 	}
+
+	func deinit() {
+		b = Self
+
+		print(b)
+	}
+}
+
+A(1)
+A = nil
+
+return b
+
+var b
+
+class A {
+	func init(c) {
+		b = c; print(1)
+	}
 }
 
 A(1)
@@ -47,14 +66,20 @@ var primitiveArray = [1, 2, 3, 4],
 	primitiveDictionary = [1: 2, 3: 4]
 
 class Animal {
+    func init() {}
+
 	func say() {
 		'...'
 	}
 }
 
-class Canine: Animal {}
+class Canine: Animal {
+    func init() {}
+}
 
 class Fox: Canine {
+    func init() {}
+
 	func say() {
 		'Yiff'
 	}
@@ -79,6 +104,8 @@ class Cat: Feline {
 		'Meow'
 	}
 }
+
+var fox = Fox()
 
 func family(a: Animal) {
 	'Is \(a.Self.metaSelf.title)'
