@@ -120,15 +120,15 @@ var flowTransferTest = testFlowTransfer()
 
 
 func do_(a) {
-  a()
+  a(4)
 }
 
 struct Person {
   var age = 0
 
   func change() {
-    do_(func () {
-      self.age++
+    do_(func (age) {
+      self.age = ++age
     })
   }
 }

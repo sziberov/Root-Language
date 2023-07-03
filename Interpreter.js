@@ -101,9 +101,8 @@ class Interpreter {
 				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
 				//if(i === 0) {
 					value = this.callFunction(function_, arguments_);
-				//}
-				/*
-				if(i === 1) {
+					/*
+				} else {
 					let objects = [],
 						superObject = scope,
 						subObject;
@@ -111,11 +110,11 @@ class Interpreter {
 					while(superObject != null) {
 						let object = this.createObject(scope);
 
-						this.callFunction(callee, arguments_, false, object);
+					//	this.callFunction(callee, arguments_, false, object);
 
 						objects.push(object);
 
-
+						superObject = object;
 					}
 
 					value = objects.at(-1);
@@ -289,30 +288,12 @@ class Interpreter {
 
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
-				type = [],
-				part = this.createTypePart(type, undefined, { predefined: 'Function' }),
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value = this.createValue('reference', function_.addresses.ID),
 				observers = [],
 				member = this.getMember(scope, identifier);
 
 			function_.type = signature;
-
-			/*
-			if(member == null) {
-				this.createTypePart(type, undefined, { predefined: 'Function' });
-			} else {
-				modifiers = member.modifiers;
-
-				if(member.type[0]?.predefined !== 'dict') {
-					this.createTypePart(type, undefined, { predefined: 'dict' });
-
-					value = this.createValue('dictionary', [member.value, value]);
-				} else {
-					type = member.type;
-					value = this.createValue('dictionary', [...member.value.primitiveValue, value]);
-				}
-			}
-			*/
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
 		},
@@ -755,13 +736,13 @@ class Interpreter {
 			let address = {
 				global: () => undefined,				 // Global-object is no thing
 				Global: () => 0,						 // Global-type
-				metaSelf: () => undefined,				 // Self-object or a type (descriptor)
-				self: () => composite.addresses.self,	 // Self-object or a type
-				Self: () => composite.addresses.Self,	 // Self-type
 				super: () => composite.addresses.super,  // Super-object or a type
 				Super: () => composite.addresses.Super,  // Super-type
+				self: () => composite.addresses.self,	 // Self-object or a type
+				Self: () => composite.addresses.Self,	 // Self-type
 				sub: () => composite.addresses.sub,		 // Sub-object
 				Sub: () => composite.addresses.Sub,		 // Sub-type
+				metaSelf: () => undefined,				 // Self-object or a type (descriptor)
 				arguments: () => undefined				 // Function arguments array (needed?)
 			}[identifier]?.();
 
@@ -835,10 +816,10 @@ class Interpreter {
 			title: title,
 			addresses: {
 				ID: this.composites.length,
-				self: undefined,
-				Self: undefined,
 				super: undefined,
 				Super: undefined,
+				self: undefined,
+				Self: undefined,
 				sub: undefined,
 				Sub: undefined,
 				scope: undefined,
@@ -871,10 +852,8 @@ class Interpreter {
 			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
 
 			if(function_ != null) {
-				this.callFunction(function_);
-			}/* else {
-				this.report(1, undefined, 'Found "deinit" is not a function or is an incorrect deinitializer.');
-			}*/
+				this.callFunction(function_, [], false, composite);
+			}
 		}
 
 		for(let composite_ of this.composites) {
@@ -901,7 +880,7 @@ class Interpreter {
 	}
 
 	static retainComposite(retainingComposite, retainedComposite) {
-		if(retainedComposite == null) {
+		if(retainedComposite == null || retainedComposite === retainingComposite) {
 			return;
 		}
 
@@ -911,17 +890,25 @@ class Interpreter {
 	}
 
 	static releaseComposite(retainingComposite, retainedComposite) {
-		if(retainedComposite == null) {
+		if(retainedComposite == null || retainedComposite === retainingComposite) {
 			return;
 		}
 
-		retainedComposite.addresses.retainers = retainedComposite.addresses.retainers.filter(v => v !== retainingComposite.addresses.ID);
+		if(retainedComposite.addresses.retainers.includes(retainingComposite.addresses.ID)) {
+			retainedComposite.addresses.retainers = retainedComposite.addresses.retainers.filter(v => v !== retainingComposite.addresses.ID);
 
-		this.destroyReleasedComposite(retainedComposite);
+			this.destroyReleasedComposite(retainedComposite);
+		}
 	}
 
+	/*
+	 * Automatically retains or releases composite.
+	 *
+	 * Use of this function is highly recommended when real retainment state is unknown
+	 * at the moment, otherwise basic functions can be used in favour of performance.
+	 */
 	static retainOrReleaseComposite(retainingComposite, retainedComposite) {
-		if(retainedComposite == null) {
+		if(retainedComposite == null || retainedComposite === retainingComposite) {
 			return;
 		}
 
@@ -936,14 +923,10 @@ class Interpreter {
 	 * Returns a real state of retainment.
 	 *
 	 * Composite considered really retained if it is used by an at least one of
-	 * retainer's addresses (excluding "self" and retainers list), type, import, member or observer.
+	 * retainer's addresses (excluding "ID" and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainingComposite, retainedComposite) {
-		if(
-			this.composites[retainingComposite?.addresses.ID] == null ||
-			retainedComposite?.addresses.ID === retainingComposite?.addresses.ID ||
-			!retainingComposite?.alive
-		) {
+		if(!retainingComposite?.alive) {
 			return;
 		}
 
@@ -1016,7 +999,7 @@ class Interpreter {
 	static createFunction(title, statements, scope) {
 		let function_ = this.createComposite(title, [{ predefined: 'Function' }], scope);
 
-		this.setInheritedSelfAddress(function_, scope);
+		this.setInheritedLevelAddresses(function_, scope);
 		this.setStatements(function_, statements);
 
 		return function_;
@@ -1030,12 +1013,13 @@ class Interpreter {
 		return namespace;
 	}
 
-	static createObject(superObject, subObject) {
+	static createObject(superObject, selfComposite, subObject) {
 		let title = (superObject.title ?? '#'+superObject.addresses.ID)+'()',
-			object = this.createComposite(title, [{ predefined: 'Object' }]);
+			object = this.createComposite(title, [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: selfComposite.addresses.ID }]);
 
-		this.setSelfAddress(object, object);
-		this.setSuperSubAddresses(object, superObject, subObject);
+		this.setSuperAddress(object, superObject);
+		this.setSelfAddress(object, selfComposite);
+		this.setSubAddress(object, subObject);
 
 		return object;
 	}
@@ -1098,16 +1082,17 @@ class Interpreter {
 	 * Should be used for statements inside of a bodies.
 	 *
 	 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
-	 * Manual control transfer is supported but should be also implemented by rules.
+	 * Manual control transfer and additional control transfer types is supported but should be also implemented by rules.
 	 */
-	static evaluateNodes(nodes, scope) {
+	static evaluateNodes(nodes, scope, additionalCTP = []) {
 		let globalScope = this.getScope(-1) == null,
 			controlTransferTypes = [
-				'breakStatement',
-				'continueStatement',
-				'fallthroughStatement',
+			//	'breakStatement',
+			//	'continueStatement',
+			//	'fallthroughStatement',
 				'returnStatement',
-				'throwStatement'
+				'throwStatement',
+				...additionalCTP
 			]
 
 		for(let node of nodes ?? []) {
@@ -1147,7 +1132,7 @@ class Interpreter {
 			namespace = !forwarded ? this.createNamespace(namespaceTitle, scope) : scope,
 			parameters = this.getTypeFunctionParameters(function_.type);
 
-		this.setInheritedSelfAddress(namespace, scope);
+		this.setInheritedLevelAddresses(namespace, scope);
 
 		for(let i = 0; i < arguments_.length; i++) {
 			let argument = arguments_[i],
@@ -1177,58 +1162,59 @@ class Interpreter {
 	}
 
 	static setAddress(composite, key, value) {
-		if(!['Self', 'super', 'Super', 'sub', 'Sub', 'scope'].includes(key)) {
+		if(['ID', 'retainers'].includes(key)) {
 			return;
 		}
 
 		let ov, nv;  // Old/new value
 
 		ov = composite.addresses[key]
-		nv = composite.addresses[key] = value?.addresses.ID;
+		nv = composite.addresses[key] = value;
 
 		if(ov !== nv) {
 			this.retainOrReleaseComposite(composite, this.getComposite(ov));
-			this.retainOrReleaseComposite(composite, value);
+			this.retainComposite(composite, this.getComposite(nv));
 		}
 	}
 
-	static setSelfAddress(composite, composite_) {
-		composite.addresses.self = composite_.addresses.ID;
+	static setSuperAddress(composite, superComposite) {
+		this.setAddress(composite, 'super', superComposite.addresses.ID);
+		this.setAddress(composite, 'Super', !this.typeIsComposite(superComposite.type, 'Object') ? superComposite.addresses.ID : this.getTypeInheritedAddress(superComposite.type));
+	}
 
-		if(!this.typeIsComposite(composite_.type, 'Object')) {
-			composite.addresses.Self = composite_.addresses.ID;
-		} else {
-			composite.addresses.Self = this.getTypeInheritedAddress(composite_.type);
+	static setSelfAddress(composite, selfComposite) {
+		this.setAddress(composite, 'self', selfComposite.addresses.ID);
+		this.setAddress(composite, 'Self', !this.typeIsComposite(selfComposite.type, 'Object') ? selfComposite.addresses.ID : this.getTypeInheritedAddress(selfComposite.type));
+	}
+
+	static setSubAddress(object, subObject) {
+		if(!this.typeIsComposite(object.type, 'Object')) {
+			return;
+		}
+
+		if(this.typeIsComposite(subObject.type, 'Object')) {
+			this.setAddress(object, 'sub', subObject.addresses.ID);
+			this.setAddress(object, 'Sub', this.getTypeInheritedAddress(subObject.type));
 		}
 	}
 
-	static setInheritedSelfAddress(composite, composite_) {
-		composite.addresses.self = composite_?.addresses.self;
-		composite.addresses.Self = composite_?.addresses.Self;
+	static setInheritedLevelAddresses(inheritingComposite, inheritedComposite) {
+		this.setAddress(inheritingComposite, 'super', inheritedComposite?.addresses.super);
+		this.setAddress(inheritingComposite, 'Super', inheritedComposite?.addresses.Super);
+		this.setAddress(inheritingComposite, 'self', inheritedComposite?.addresses.self);
+		this.setAddress(inheritingComposite, 'Self', inheritedComposite?.addresses.Self);
+		this.setAddress(inheritingComposite, 'sub', inheritedComposite?.addresses.sub);
+		this.setAddress(inheritingComposite, 'Sub', inheritedComposite?.addresses.Sub);
 	}
 
-	static setSuperSubAddresses(object, superObject, subObject) {
-		if(this.typeIsComposite(superObject.type, 'Object')) {
-			object.addresses.super = superObject.addresses.ID;
-			object.addresses.Super = this.getTypeInheritedAddress(superObject.type);
-		}
-
-		if(subObject != null) {
-			if(this.typeIsComposite(subObject.type, 'Object')) {
-				object.addresses.sub = subObject.addresses.ID;
-				object.addresses.Sub = this.getTypeInheritedAddress(subObject.type);
-			}
-		}
-	}
-
-	static setScopeAddress(composite, composite_) {
-		this.setAddress(composite, 'scope', composite_);
+	static setScopeAddress(composite, scopeComposite) {
+		this.setAddress(composite, 'scope', scopeComposite?.addresses.ID);
 	}
 
 	static addressesRetain(retainingComposite, retainedComposite) {
 		for(let key in retainingComposite.addresses) {
 			if(
-				key !== 'self' && key !== 'retainers' &&
+				key !== 'ID' && key !== 'retainers' &&
 				retainingComposite.addresses[key] === retainedComposite.addresses.ID
 			) {
 				return true;
