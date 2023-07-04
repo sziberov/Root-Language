@@ -120,7 +120,6 @@ class Interpreter {
 
 					this.callFunction(function_, arguments_, object);
 
-					object.state = 0;
 					value = this.createValue('reference', object.addresses.ID);
 				}
 				this.report(0, node, 'ke: '+JSON.stringify(value));
@@ -828,7 +827,7 @@ class Interpreter {
 				scope: undefined,
 				retainers: []
 			},
-			state: 0,  // -1 - Initializing, 0 - Alive, 1 - Deinitializing
+			alive: true,
 			type: type,
 			statements: [],
 			imports: {},
@@ -845,13 +844,13 @@ class Interpreter {
 	}
 
 	static destroyComposite(composite) {
-		if(composite.state === 1) {
+		if(!composite.alive) {
 			return;
 		}
 
 		this.report(0, undefined, 'ds: '+composite.title+', '+composite.addresses.ID+', '+JSON.stringify(this.controlTransfer.value));
 
-		composite.state = 1;
+		composite.alive = false;
 
 		if(this.typeIsComposite(composite.type, 'Object')) {
 			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
@@ -931,7 +930,7 @@ class Interpreter {
 	 * retainer's addresses (excluding "ID" and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainingComposite, retainedComposite) {
-		if(retainingComposite?.state < 1) return (
+		if(retainingComposite?.alive) return (
 			this.addressesRetain(retainingComposite, retainedComposite) ||
 			this.typeRetains(retainingComposite.type, retainedComposite) ||
 			this.importsRetain(retainingComposite, retainedComposite) ||
@@ -1017,8 +1016,6 @@ class Interpreter {
 	static createObject(superObject, selfComposite, subObject) {
 		let title = 'Object<'+(selfComposite.title ?? '#'+selfComposite.addresses.ID)+'>',
 			object = this.createComposite(title, [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: selfComposite.addresses.ID }]);
-
-		object.state = -1;
 
 		if(superObject != null) {
 			this.setSuperAddress(object, superObject);
@@ -1157,7 +1154,13 @@ class Interpreter {
 
 		let returnValue = this.controlTransfer?.value;
 
-		// TODO: If initializer didn't returned value, forcibly return self, so ARC will not delete object and there will be no need for a state hack
+		// If initializer didn't returned value, forcibly return self, so ARC will not delete it
+		// Maybe it's better to just add a return statement in end of an initializerDeclaration
+		if(returnValue == null && function_.title === 'init' && levels != null) {
+			this.setControlTransfer(this.createValue('reference', levels.addresses.self), 'returnStatement');
+
+			returnValue = levels;
+		}
 
 		this.removeScope();
 		this.resetControlTransfer();
