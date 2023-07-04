@@ -103,6 +103,7 @@ class Interpreter {
 					value = this.callFunction(function_, arguments_);
 				} else {
 					let objects = [],
+						object,
 						selfComposite = calleeMOSP.composite;
 
 					while(selfComposite != null) {
@@ -115,9 +116,12 @@ class Interpreter {
 						selfComposite = this.getComposite(this.getTypeInheritedAddress(selfComposite.type));
 					}
 
-					this.callFunction(function_, arguments_);
+					object = objects.at(-1);
 
-					value = this.createValue('reference', objects.at(-1).addresses.ID);
+					this.callFunction(function_, arguments_, object);
+
+					object.state = 0;
+					value = this.createValue('reference', object.addresses.ID);
 				}
 				this.report(0, node, 'ke: '+JSON.stringify(value));
 
@@ -824,7 +828,7 @@ class Interpreter {
 				scope: undefined,
 				retainers: []
 			},
-			alive: true,
+			state: 0,  // -1 - Initializing, 0 - Alive, 1 - Deinitializing
 			type: type,
 			statements: [],
 			imports: {},
@@ -841,11 +845,13 @@ class Interpreter {
 	}
 
 	static destroyComposite(composite) {
-		if(!composite.alive) {
+		if(composite.state === 1) {
 			return;
 		}
 
-		composite.alive = false;
+		this.report(0, undefined, 'ds: '+composite.title+', '+composite.addresses.ID+', '+JSON.stringify(this.controlTransfer.value));
+
+		composite.state = 1;
 
 		if(this.typeIsComposite(composite.type, 'Object')) {
 			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
@@ -925,11 +931,7 @@ class Interpreter {
 	 * retainer's addresses (excluding "ID" and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainingComposite, retainedComposite) {
-		if(!retainingComposite?.alive) {
-			return;
-		}
-
-		return (
+		if(retainingComposite?.state < 1) return (
 			this.addressesRetain(retainingComposite, retainedComposite) ||
 			this.typeRetains(retainingComposite.type, retainedComposite) ||
 			this.importsRetain(retainingComposite, retainedComposite) ||
@@ -1015,6 +1017,8 @@ class Interpreter {
 	static createObject(superObject, selfComposite, subObject) {
 		let title = 'Object<'+(selfComposite.title ?? '#'+selfComposite.addresses.ID)+'>',
 			object = this.createComposite(title, [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: selfComposite.addresses.ID }]);
+
+		object.state = -1;
 
 		if(superObject != null) {
 			this.setSuperAddress(object, superObject);
@@ -1150,10 +1154,12 @@ class Interpreter {
 
 		this.addScope(namespace, function_);
 		this.executeStatements(function_.statements, namespace);
-		this.removeScope();
 
 		let returnValue = this.controlTransfer?.value;
 
+		// TODO: If initializer didn't returned value, forcibly return self, so ARC will not delete object and there will be no need for a state hack
+
+		this.removeScope();
 		this.resetControlTransfer();
 
 		return returnValue;

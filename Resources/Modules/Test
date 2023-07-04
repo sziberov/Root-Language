@@ -1,3 +1,29 @@
+class Base {
+	func init() {
+		f()
+	}
+
+	virtual func f() {
+		print('Base')
+	}
+}
+
+class Derived: Base {
+	func init() {
+	//	super.init()
+
+		return self
+	}
+
+	virtual func f() {
+		print('Derived')
+	}
+}
+
+var d = Derived()
+
+return d
+
 var b
 
 class A {
