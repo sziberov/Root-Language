@@ -1,3 +1,15 @@
+class A {
+	init {
+		print(self)
+
+		var self = 1
+
+		print(self)
+	}
+}
+
+return A()
+
 class Base {
 	init {
 		f()
@@ -25,11 +37,11 @@ return d
 var b
 
 class A {
-	func init(c) {
+	init(c) {
 		b = c; print(1)
 	}
 
-	func deinit() {
+	deinit {
 		b = Self
 
 		print(b)
@@ -44,7 +56,7 @@ return b
 var b
 
 class A {
-	func init(c) {
+	init(c) {
 		b = c; print(1)
 	}
 }
@@ -56,7 +68,7 @@ return b
 var b
 
 class A {
-	func deinit() {
+	deinit {
 		b = Self
 
 		print(b)
@@ -90,7 +102,7 @@ var primitiveArray = [1, 2, 3, 4],
 	primitiveDictionary = [1: 2, 3: 4]
 
 class Animal {
-    func init() {}
+    init {}
 
 	func say() {
 		'...'
@@ -98,11 +110,11 @@ class Animal {
 }
 
 class Canine: Animal {
-    func init() {}
+    init {}
 }
 
 class Fox: Canine {
-    func init() {}
+    init {}
 
 	func say() {
 		'Yiff'

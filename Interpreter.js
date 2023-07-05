@@ -207,6 +207,25 @@ class Interpreter {
 		defaultType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
 		},
+		deinitializerDeclaration: (node, scope) => {
+			let identifier = 'deinit',
+				function_ = this.createFunction(identifier, node.body?.statements, scope),
+				signature = this.rules.functionSignature({
+					type: 'functionSignature',
+					genericParameters: [],
+					parameters: [],
+					awaits: -1,  // 1?
+					throws: -1,  // 1?
+					returnType: undefined
+				}, scope),
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
+				value = this.createValue('reference', function_.addresses.ID),
+				observers = []
+
+			function_.type = signature;
+
+			this.setMemberOverload(scope, identifier, [], type, value, observers, () => {});
+		},
 		dictionaryLiteral: (node, scope) => {
 			let result,
 				entries = new Map();
@@ -286,6 +305,13 @@ class Interpreter {
 
 			if(identifier == null) {
 				return;
+			}
+
+			if(!modifiers.includes('static')) {
+			//	return this.helpers.createStaticObjectFunction(node, scope);
+			//	TODO: Semi-static function generator. Also, maybe should change default
+			//	namespace's scope of function call from function's scope to function itself
+			//	so static members of this semi-static function will be accessible from an object functions
 			}
 
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
@@ -422,7 +448,7 @@ class Interpreter {
 				}
 			}
 
-			signature = this.rules.functionSignature(node.signature, scope);
+			signature = this.rules.functionSignature(signature, scope);
 			function_.type = signature;
 
 			if(function_.statements.at(-1)?.type !== 'returnStatement') {
@@ -783,6 +809,14 @@ class Interpreter {
 			return typePart;
 		},
 		findMemberOverloadValue: (composite, identifier, matching, internal) => {
+			// TODO: Access-related checks
+
+			let overload = this.findMemberOverload(composite, identifier, matching, internal);
+
+			if(overload != null) {
+				return overload.value;
+			}
+
 			let address = {
 				global: () => undefined,				 // Global-object is no thing
 				Global: () => 0,						 // Global-type
@@ -799,10 +833,6 @@ class Interpreter {
 			if(address != null) {
 				return this.createValue('reference', address);
 			}
-
-			// TODO: Access-related checks
-
-			return this.findMemberOverload(composite, identifier, matching, internal)?.value;
 		},
 		getMemberOverloadSearchParameters: (node, scope) => {
 			if(node.type === 'identifier') {
@@ -902,7 +932,7 @@ class Interpreter {
 			return;
 		}
 
-		this.report(0, undefined, 'ds: '+composite.title+', '+composite.addresses.ID+', '+JSON.stringify(this.controlTransfer.value));
+		this.report(0, undefined, 'ds: '+composite.title+', '+composite.addresses.ID);
 
 		composite.alive = false;
 
@@ -1505,7 +1535,7 @@ class Interpreter {
 			return;
 		}
 
-		function_.statements = statements;
+		function_.statements = statements ?? []
 	}
 
 	static getImport(composite, identifier) {
