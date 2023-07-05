@@ -292,8 +292,8 @@ class Interpreter {
 				signature = this.rules.functionSignature(node.signature, scope),
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value = this.createValue('reference', function_.addresses.ID),
-				observers = [],
-				member = this.getMember(scope, identifier);
+				observers = []/*,
+				member = this.getMember(scope, identifier);*/
 
 			function_.type = signature;
 
@@ -389,6 +389,54 @@ class Interpreter {
 
 			return this.controlTransfer?.value;
 		},
+		initializerDeclaration: (node, scope) => {
+			let modifiers = node.modifiers,
+				identifier = 'init',
+				function_ = this.createFunction(identifier, node.body?.statements, scope),
+				signature = node.signature,
+				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
+				value = this.createValue('reference', function_.addresses.ID),
+				observers = []
+
+			signature ??= {
+				type: 'functionSignature',
+				genericParameters: [],
+				parameters: [],
+				awaits: -1,
+				throws: -1,
+				returnType: undefined
+			}
+			signature.returnType = {
+				type: 'typeIdentifier',
+				identifier: {
+					type: 'identifier',
+					value: 'Self'
+				},
+				genericArguments: []
+			}
+
+			if(node.nillable) {
+				signature.returnType = {
+					type: 'nillableType',
+					value: signature.returnType
+				}
+			}
+
+			signature = this.rules.functionSignature(node.signature, scope);
+			function_.type = signature;
+
+			if(function_.statements.at(-1)?.type !== 'returnStatement') {
+				function_.statements.push({
+					type: 'returnStatement',
+					value: {
+						type: 'identifier',
+						value: 'self'
+					}
+				});
+			}
+
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
+		},
 		inoutExpression: (node, scope) => {
 			let value = this.rules[node.value?.type]?.(node.value, scope);
 
@@ -423,28 +471,28 @@ class Interpreter {
 
 			print.type = [
 				{
-	                "predefined": "Function",
-	                "awaits": -1,
-	                "throws": -1
-	            },
-	            {
-	                "parameters": true,
-	                "super": 0
-	            },
-	            {
-	                "super": 1,
-	                "predefined": "_",
-	                "nillable": true,
-	                "identifier": "value"
-	            },
-	            {
-	                "super": 0,
-	                "predefined": "_",
-	                "nillable": true
-	            }
-            ]
+					"predefined": "Function",
+					"awaits": -1,
+					"throws": -1
+				},
+				{
+					"parameters": true,
+					"super": 0
+				},
+				{
+					"super": 1,
+					"predefined": "_",
+					"nillable": true,
+					"identifier": "value"
+				},
+				{
+					"super": 0,
+					"predefined": "_",
+					"nillable": true
+				}
+			]
 
-            this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
+			this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
 
 			this.addScope(namespace);
 			this.executeStatements(this.tree?.statements, namespace);
@@ -509,7 +557,7 @@ class Interpreter {
 
 			this.setOperatorOverload(scope, node.operator.value, node.modifiers, precedence, associativity);
 		},
- 		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
+		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
 			if(!titles.some(v => v in typePart)) {
 				typePart[titles[mainTitle ?? 0]] = true;
 			}
@@ -774,8 +822,11 @@ class Interpreter {
 		}
 	}
 
-	static serializeMemory() /*getSave()*/ {
-		// TODO: Should support references to AST nodes (many references - one definition)
+	static getSave() {
+		// https://isocpp.org/wiki/faq/serialization
+
+		// Can be useful as the optimization step for imports (kind of precompliation)
+		// Then source code changes should be supported using hashes or anything
 
 		/*
 		return {
@@ -803,7 +854,7 @@ class Interpreter {
 		});
 	}
 
-	static deserializeMemory(serializedMemory) /*restoreSave()*/ {}
+	static restoreSave(save) {}
 
 	static getComposite(address) {
 		return this.composites[address]
@@ -837,7 +888,10 @@ class Interpreter {
 		}
 
 		this.composites.push(composite);
-		this.setScopeAddress(composite, scope);
+
+		if(scope != null) {
+			this.setScopeAddress(composite, scope);
+		}
 		this.report(0, undefined, 'cr: '+composite.title+', '+composite.addresses.ID);
 
 		return composite;
@@ -1151,18 +1205,12 @@ class Interpreter {
 
 		this.addScope(namespace, function_);
 		this.executeStatements(function_.statements, namespace);
+		this.removeScope();
 
 		let returnValue = this.controlTransfer?.value;
 
-		// If initializer didn't returned value, forcibly return self, so ARC will not delete it
-		// Maybe it's better to just add a return statement in end of an initializerDeclaration
-		if(returnValue == null && function_.title === 'init' && levels != null) {
-			this.setControlTransfer(this.createValue('reference', levels.addresses.self), 'returnStatement');
+		// TODO: Return value type checking
 
-			returnValue = levels;
-		}
-
-		this.removeScope();
 		this.resetControlTransfer();
 
 		return returnValue;

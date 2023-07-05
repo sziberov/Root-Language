@@ -1,5 +1,5 @@
 class Base {
-	func init() {
+	init {
 		f()
 	}
 
@@ -9,10 +9,8 @@ class Base {
 }
 
 class Derived: Base {
-	func init() {
+	init {
 	//	super.init()
-
-		return self
 	}
 
 	virtual func f() {
