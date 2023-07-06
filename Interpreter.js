@@ -117,10 +117,9 @@ class Interpreter {
 					}
 
 					object = objects.at(-1);
+					value = this.callFunction(function_, arguments_, object);
 
-					this.callFunction(function_, arguments_, object);
-
-					value = this.createValue('reference', object.addresses.ID);
+					// TODO: Somehow call super inititalizers on its own objects
 				}
 				this.report(0, node, 'ke: '+JSON.stringify(value));
 
@@ -168,14 +167,19 @@ class Interpreter {
 				}
 			}
 
+			// TODO: Protocol conformance checking (if not conforms, remove from type and report)
+
 			let type = [this.createTypePart(undefined, undefined, { predefined: 'Class', self: true })],
 				value = this.createValue('reference', composite.addresses.ID),
-				observers = []
+				observers = [],
+				statements = node.body?.statements ?? [],
+				objectStatements = []
+
+			this.helpers.separateStatements(statements, objectStatements);
+			this.setStatements(composite, objectStatements);
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(node.body?.statements, composite);
-
-			// TODO: Protocol conformance checking (if not conforms, remove from list and report)
+			this.executeStatements(statements, composite);
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -308,18 +312,16 @@ class Interpreter {
 			}
 
 			if(!modifiers.includes('static')) {
-			//	return this.helpers.createStaticObjectFunction(node, scope);
-			//	TODO: Semi-static function generator. Also, maybe should change default
-			//	namespace's scope of function call from function's scope to function itself
-			//	so static members of this semi-static function will be accessible from an object functions
+				//	TODO: Semi-static function generator. Also, maybe should change default
+				//	namespace's scope of function call from function's scope to function itself
+				//	so static members of this semi-static function will be accessible from an object functions
 			}
 
 			let function_ = this.createFunction(identifier, node.body?.statements, scope),
 				signature = this.rules.functionSignature(node.signature, scope),
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value = this.createValue('reference', function_.addresses.ID),
-				observers = []/*,
-				member = this.getMember(scope, identifier);*/
+				observers = []
 
 			function_.type = signature;
 
@@ -711,10 +713,15 @@ class Interpreter {
 			let composite = this.createStructure(identifier, scope),
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Structure', self: true })],
 				value = this.createValue('reference', composite.addresses.ID),
-				observers = []
+				observers = [],
+				statements = node.body?.statements ?? [],
+				objectStatements = []
+
+			this.helpers.separateStatements(statements, objectStatements);
+			this.setStatements(composite, objectStatements);
 
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(node.body?.statements, composite);
+			this.executeStatements(statements, composite);
 		},
 		typeIdentifier: (node, scope, type, typePart) => {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
@@ -807,6 +814,23 @@ class Interpreter {
 			}
 
 			return typePart;
+		},
+		separateStatements: (statements, objectStatements) => {
+			let exclusions = ['initializerDeclaration', 'deinitializerDeclaration']
+
+			for(let i = 0; i < statements.length; i++) {
+				let statement = statements[i]
+
+				if(exclusions.includes(statement.type)) {
+					continue;
+				}
+
+				if(statement.modifiers != null && !statement.modifiers.includes('static')) {
+					objectStatements.push(statement);
+					statements.splice(i, 1);
+					i--;
+				}
+			}
 		},
 		findMemberOverloadValue: (composite, identifier, matching, internal) => {
 			// TODO: Access-related checks
@@ -1209,6 +1233,7 @@ class Interpreter {
 
 	/*
 	 * Levels such as super, self or sub, can be inherited from another composite.
+	 * If that composite is an object, it will be initialized with statements stored by its Self.
 	 *
 	 * Specifying a scope means intent to execute function's statements directly into that one fellow composite.
 	 *
@@ -1234,6 +1259,13 @@ class Interpreter {
 		}
 
 		this.addScope(namespace, function_);
+
+		if(this.typeIsComposite(levels?.type, 'Object')) {
+			let selfComposite = this.getComposite(levels.addresses.Self);
+
+			this.executeStatements(selfComposite?.statements, levels);
+		}
+
 		this.executeStatements(function_.statements, namespace);
 		this.removeScope();
 
@@ -1380,7 +1412,7 @@ class Interpreter {
 			return;
 		}
 
-		let values = [
+		let possibleValues = [
 				'Class',
 				'Enumeration',
 				'Function',
@@ -1392,10 +1424,10 @@ class Interpreter {
 			currentValue = type[0]?.predefined;
 
 		if(any) {
-			values.push('Any');
+			possibleValues.push('Any');
 		}
 
-		return values.includes(currentValue) && (wantedValue == null || currentValue === wantedValue);
+		return possibleValues.includes(currentValue) && (wantedValue == null || currentValue === wantedValue);
 	}
 
 	static typeAccepts(acceptingType, acceptedType) {
@@ -1530,12 +1562,16 @@ class Interpreter {
 		}
 	}
 
-	static setStatements(function_, statements) {
-		if(!this.typeIsComposite(function_.type, 'Function')) {
+	static setStatements(callableComposite, statements) {
+		if(
+			!this.typeIsComposite(callableComposite.type, 'Class') &&
+			!this.typeIsComposite(callableComposite.type, 'Function') &&
+			!this.typeIsComposite(callableComposite.type, 'Structure')
+		) {
 			return;
 		}
 
-		function_.statements = statements ?? []
+		callableComposite.statements = statements ?? []
 	}
 
 	static getImport(composite, identifier) {
@@ -1680,8 +1716,8 @@ class Interpreter {
 
 	static getMemberOverloadProxy(overload, additions) {
 		if(overload.additions != null) {
-			for(let k in additions) {
-				overload.additions[k] = additions[k]
+			for(let key in additions) {
+				overload.additions[key] = additions[key]
 			}
 
 			return overload;
@@ -1695,11 +1731,8 @@ class Interpreter {
 				if(key in additions) {
 					return additions[key]
 				}
-				if(additions.super != null && key !== 'value') {
-					return additions.super[key]
-				} else {
-					return overload[key]
-				}
+
+				return overload[key]
 			},
 			set(target, key, value) {
 				if(key === 'additions') {
@@ -1710,11 +1743,8 @@ class Interpreter {
 
 					return true;
 				}
-				if(additions.super != null && key !== 'value') {
-					additions.super[key] = value;
-				} else {
-					overload[key] = value;
-				}
+
+				overload[key] = value;
 
 				return true;
 			}
@@ -1736,26 +1766,16 @@ class Interpreter {
 		);
 	}
 
-	static findMemberOverloadInObject(object, identifier, matching) {
-		if(!this.typeIsComposite(object.type, 'Object')) {
-			return;
-		}
-
-		let overload = this.getMemberOverload(object, identifier, matching);
-
-		if(overload != null) {
-			overload = this.getMemberOverloadProxy(overload, { owner: object, super: this.findMemberOverloadInInheritanceChain(object, identifier, matching) });
-		}
-
-		return overload;
-	}
-
 	static findMemberOverloadInObjectChain(object, identifier, matching) {
+		if(!this.typeIsComposite(object.type, 'Object')) {
+			object = this.getComposite(object.addresses.self);
+		}
+
 		let overload,
 			virtual;
 
 		while(object != null) {  // Higher
-			overload = this.findMemberOverloadInObject(object, identifier, matching);
+			overload = this.getMemberOverload(object, identifier, matching);
 
 			if(overload != null) {
 				if(!virtual && overload.modifiers.includes('virtual')) {
