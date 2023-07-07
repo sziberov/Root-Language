@@ -62,13 +62,22 @@ body {
 
 	background: none;
 }
+
+#buttons {
+	display: flex;
+
+	gap: 8px;
+}
 </style>
 <textarea id="input"></textarea>
 <div id="output_lint"></div>
 <div id="output_trees">
-	<button id="change_tree">Change tree</button>
-	<div id="output_tokens" style="display: none;"></div>
-	<div id="output_ast"></div>
+	<div id="buttons">
+		<button id="change_tree">Change tree</button>
+		<button id="parse_interpret">Parse & interpret</button>
+	</div>
+	<div id="output_tokens"></div>
+	<div id="output_ast" style="display: none;"></div>
 	<div id="output_composites" style="display: none;"></div>
 </div>
 <div id="output_console"></div>
@@ -82,17 +91,18 @@ body {
 		output_ast = document.getElementById('output_ast'),
 		output_composites = document.getElementById('output_composites'),
 		output_console = document.getElementById('output_console'),
-		change_tree = document.getElementById('change_tree');
+		change_tree = document.getElementById('change_tree'),
+		parse_interpret = document.getElementById('parse_interpret');
 
-	function parse() {
-		console.clear();
+	let lexerResult,
+		parserResult,
+		interpreterResult;
 
-		let lexerResult = Lexer.tokenize(input.value),
-			parserResult = Parser.parse(lexerResult),
-			interpreterResult = Interpreter.interpret(lexerResult, parserResult),
-			tokens = lexerResult.rawTokens;
+	function tokenize() {
+ 		lexerResult = Lexer.tokenize(input.value);
 
-		let lintHTML = '';
+ 		let tokens = lexerResult.rawTokens,
+ 			lintHTML = '';
 
 		for(let k = 0; k < tokens.length; k++) {
 			let position = tokens[k].position,
@@ -176,6 +186,14 @@ body {
 			}
 		}
 
+		output_lint.innerHTML = lintHTML;
+		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
+	}
+
+	function interpret() {
+		parserResult = Parser.parse(lexerResult);
+		interpreterResult = Interpreter.interpret(lexerResult, parserResult);
+
 		let consoleHTML = '';
 
 		function logReports(reports, transparent) {
@@ -195,19 +213,12 @@ body {
 					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0';
 
 				consoleHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+');">'+message+'</span><br>';
-				console.log(message);
 			}
 		}
 
 		logReports(parserResult.reports, true);
 		logReports(interpreterResult.reports);
 
-		console.log(lexerResult.tokens);
-		console.log(parserResult.tree);
-		console.log(interpreterResult.composites);
-
-		output_lint.innerHTML = lintHTML;
-		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
 		output_composites.innerText = JSON.stringify(interpreterResult.composites, (k, v) => {
 			if(v instanceof Map) {
@@ -225,7 +236,7 @@ body {
 		output_console.innerHTML = consoleHTML;
 	}
 
-	input.oninput = parse;
+	input.oninput = tokenize;
 	input.onscroll = () => {
 		output_lint.scrollTop = input.scrollTop;
 		output_lint.scrollLeft = input.scrollLeft;
@@ -251,8 +262,9 @@ body {
 			output_composites.style.display = 'none';
 		}
 	}
+	parse_interpret.onclick = interpret;
 
-	parse();
+	tokenize();
 </script>
 </body>
 </html>
