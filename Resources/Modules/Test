@@ -15,17 +15,18 @@ class Base {
 		f()
 	}
 
-	virtual func f() {
+	/*virtual*/ func f() {
 		print('Base')
 	}
 }
 
 class Derived: Base {
 	init {
-	//	super.init()
+		super.init()
+        f()
 	}
 
-	virtual func f() {
+	func f() {
 		print('Derived')
 	}
 }

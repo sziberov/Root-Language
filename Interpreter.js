@@ -96,31 +96,45 @@ class Interpreter {
 					continue;
 				}
 
-				let value;
-
 				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
-				if(i === 0) {
-					value = this.callFunction(function_, arguments_);
+				let value,
+					object;
+
+				if(i !== 1) {
+					if(function_.title === 'init' || calleeMOSP?.identifier === 'init') {
+						let composite = this.getComposite(function_.addresses.Self),
+							object_ = this.getComposite(scope.addresses.self);
+
+						if(this.typeIsComposite(object_?.type, 'Object')) {
+							while(object_ != null) {
+								if(composite === this.getComposite(object_.addresses.Self)) {
+									object = object_;
+
+									break;
+								}
+
+								object_ = this.getComposite(object_.addresses.super);
+							}
+						}
+					}
 				} else {
 					let objects = [],
-						object,
-						selfComposite = calleeMOSP.composite;
+						composite = calleeMOSP.composite;
 
-					while(selfComposite != null) {
-						objects.unshift(this.createObject(undefined, selfComposite, objects[0]));
+					while(composite != null) {
+						objects.unshift(this.createObject(undefined, composite, objects[0]));
 
 						if(objects.length > 1) {
 							this.setSuperAddress(objects[1], objects[0]);
 						}
 
-						selfComposite = this.getComposite(this.getTypeInheritedAddress(selfComposite.type));
+						composite = this.getComposite(this.getTypeInheritedAddress(composite.type));
 					}
 
 					object = objects.at(-1);
-					value = this.callFunction(function_, arguments_, object);
-
-					// TODO: Somehow call super inititalizers on its own objects
 				}
+
+				value = this.callFunction(function_, arguments_, object);
 				this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
@@ -1123,7 +1137,8 @@ class Interpreter {
 
 	static createObject(superObject, selfComposite, subObject) {
 		let title = 'Object<'+(selfComposite.title ?? '#'+selfComposite.addresses.ID)+'>',
-			object = this.createComposite(title, [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: selfComposite.addresses.ID }]);
+			type = [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: selfComposite.addresses.ID }],
+			object = this.createComposite(title, type, selfComposite);
 
 		if(superObject != null) {
 			this.setSuperAddress(object, superObject);
@@ -1412,22 +1427,31 @@ class Interpreter {
 			return;
 		}
 
+		let currentValue = type[0]?.predefined;
+
+		if(wantedValue != null && currentValue !== wantedValue) {
+			return;
+		}
+
 		let possibleValues = [
-				'Class',
-				'Enumeration',
-				'Function',
-				'Namespace',
-				'Object',
-				'Protocol',
-				'Structure'
-			],
-			currentValue = type[0]?.predefined;
+			'Class',
+			'Enumeration',
+			'Function',
+			'Namespace',
+			'Object',
+			'Protocol',
+			'Structure'
+		]
 
 		if(any) {
 			possibleValues.push('Any');
 		}
 
-		return possibleValues.includes(currentValue) && (wantedValue == null || currentValue === wantedValue);
+		if(!possibleValues.includes(currentValue)) {
+			return;
+		}
+
+		return true;
 	}
 
 	static typeAccepts(acceptingType, acceptedType) {
@@ -1442,7 +1466,7 @@ class Interpreter {
 
 	static createValue(primitiveType, primitiveValue) {
 		return {
-			primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'node', 'pointer', 'reference', 'string'
+			primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string'
 			primitiveValue: primitiveValue	// boolean, integer, map (object), string, AST node
 		}
 	}
@@ -1754,9 +1778,9 @@ class Interpreter {
 	/*
 	 * Search order:
 	 *
-	 * 1. Current.(Lowest).Higher.Higher...  Object chain (parentheses - member is virtual)
-	 * 2. Current.Parent.Parent...           Inheritance chain
-	 * 3. Current.Scope.Scope...             Scope chain (search is not internal)
+	 * 1. self.(last sub).super.super...  Object chain (parentheses - member is virtual)
+	 * 2. Self.Super.Super...             Inheritance chain
+	 * 3. (self).scope.scope...           Scope chain (search is not internal) (parentheses - composite is not object)
 	 */
 	static findMemberOverload(composite, identifier, matching, internal) {
 		return (
@@ -1816,6 +1840,10 @@ class Interpreter {
 	}
 
 	static findMemberOverloadInScopeChain(composite, identifier, matching) {
+		if(this.typeIsComposite(composite.type, 'Object')) {
+			composite = this.getComposite(composite.addresses.scope);
+		}
+
 		while(composite != null) {
 			let overload = this.getMemberOverload(composite, identifier, matching);
 
@@ -1913,14 +1941,6 @@ class Interpreter {
 				line: 0,
 				column: 0
 			}
-
-		if(this.reports.find(v =>
-			v.location.line === location.line &&
-			v.location.column === location.column &&
-			v.string === string) != null
-		) {
-			return;
-		}
 
 		this.reports.push({
 			level: level,
