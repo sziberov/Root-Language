@@ -22,7 +22,7 @@ class Base {
 
 class Derived: Base {
 	init {
-		super.init()
+		super()
         f()
 	}
 

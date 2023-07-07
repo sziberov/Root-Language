@@ -68,29 +68,33 @@ class Interpreter {
 			}
 
 			for(let i = 0; i < 2; i++) {
-				if(i === 1) {  // Fallback to search of an initializer
-					calleeMOSP = {
+				let function_ = calleeMOSP == null ? this.findValueFunction(callee, arguments_) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue,
+					initializer = function_?.title === 'init' || calleeMOSP?.identifier === 'init';
+
+				if(function_ == null) {
+					if(initializer) {
+						this.report(2, node, 'Composite doesn\'t have initializer with specified signature.');
+
+						return;
+					}
+
+					calleeMOSP = {  // Fallback to search of an initializer
 						composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
 						identifier: 'init',
 						internal: true
 					}
 
+					if(this.typeIsComposite(calleeMOSP.composite?.type, 'Object')) {
+						calleeMOSP.composite = this.getComposite(calleeMOSP.composite.addresses.Self);
+					}
+
 					if(
-						calleeMOSP.composite == null ||
-						!this.typeIsComposite(calleeMOSP.composite.type, 'Class') &&
-						!this.typeIsComposite(calleeMOSP.composite.type, 'Structure')
+						!this.typeIsComposite(calleeMOSP.composite?.type, 'Class') &&
+						!this.typeIsComposite(calleeMOSP.composite?.type, 'Structure')
 					) {
 						this.report(2, node, 'Function with specified signature wasn\'t found.');
 
 						return;
-					}
-				}
-
-				let function_ = calleeMOSP == null ? this.findValueFunction(callee, arguments_) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue;
-
-				if(function_ == null) {
-					if(i === 1) {
-						this.report(2, node, 'Composite doesn\'t have initializer with specified signature.');
 					}
 
 					continue;
@@ -100,38 +104,41 @@ class Interpreter {
 				let value,
 					object;
 
-				if(i !== 1) {
-					if(function_.title === 'init' || calleeMOSP?.identifier === 'init') {
-						let composite = this.getComposite(function_.addresses.Self),
-							object_ = this.getComposite(scope.addresses.self);
+				if(initializer) {
+					let composite = this.getComposite(function_.addresses.Self),
+						scopeObject = this.getComposite(scope.addresses.self);
 
-						if(this.typeIsComposite(object_?.type, 'Object')) {
-							while(object_ != null) {
-								if(composite === this.getComposite(object_.addresses.Self)) {
-									object = object_;
+					if(this.typeIsComposite(scopeObject?.type, 'Object')) {  // Find initializer's object in scope
+						while(scopeObject != null) {
+							if(composite === this.getComposite(scopeObject.addresses.Self)) {
+								object = scopeObject;
 
-									break;
-								}
-
-								object_ = this.getComposite(object_.addresses.super);
+								break;
 							}
+
+							scopeObject = this.getComposite(scopeObject.addresses.super);
 						}
 					}
-				} else {
-					let objects = [],
+
+					// TODO: Ignore current scope if it is not in the initialization state
+
+					if(object == null) {  // Or create new object chain
+						let objects = []
+
 						composite = calleeMOSP.composite;
 
-					while(composite != null) {
-						objects.unshift(this.createObject(undefined, composite, objects[0]));
+						while(composite != null) {
+							objects.unshift(this.createObject(undefined, composite, objects[0]));
 
-						if(objects.length > 1) {
-							this.setSuperAddress(objects[1], objects[0]);
+							if(objects.length > 1) {
+								this.setSuperAddress(objects[1], objects[0]);
+							}
+
+							composite = this.getComposite(this.getTypeInheritedAddress(composite.type));
 						}
 
-						composite = this.getComposite(this.getTypeInheritedAddress(composite.type));
+						object = objects.at(-1);
 					}
-
-					object = objects.at(-1);
 				}
 
 				value = this.callFunction(function_, arguments_, object);
@@ -157,7 +164,7 @@ class Interpreter {
 				identifier = identifier.value;
 			}
 
-			return this.helpers.findMemberOverloadValue(composite, identifier, undefined, true);
+			return this.helpers.findMemberOverload(scope, composite, identifier, undefined, true)?.value;
 		},
 		classDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
@@ -394,7 +401,7 @@ class Interpreter {
 			typePart.identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
-			return this.helpers.findMemberOverloadValue(scope, node.value);
+			return this.helpers.findMemberOverload(scope, scope, node.value)?.value;
 		},
 		ifStatement: (node, scope) => {
 			if(node.condition == null) {
@@ -846,31 +853,10 @@ class Interpreter {
 				}
 			}
 		},
-		findMemberOverloadValue: (composite, identifier, matching, internal) => {
+		findMemberOverload: (scope, composite, identifier, matching, internal) => {
 			// TODO: Access-related checks
 
-			let overload = this.findMemberOverload(composite, identifier, matching, internal);
-
-			if(overload != null) {
-				return overload.value;
-			}
-
-			let address = {
-				global: () => undefined,				 // Global-object is no thing
-				Global: () => 0,						 // Global-type
-				super: () => composite.addresses.super,  // Super-object or a type
-				Super: () => composite.addresses.Super,  // Super-type
-				self: () => composite.addresses.self,	 // Self-object or a type
-				Self: () => composite.addresses.Self,	 // Self-type
-				sub: () => composite.addresses.sub,		 // Sub-object
-				Sub: () => composite.addresses.Sub,		 // Sub-type
-				metaSelf: () => undefined,				 // Self-object or a type (descriptor)
-				arguments: () => undefined				 // Function arguments array (needed?)
-			}[identifier]?.();
-
-			if(address != null) {
-				return this.createValue('reference', address);
-			}
+			return this.findMemberOverload(composite, identifier, matching, internal);
 		},
 		getMemberOverloadSearchParameters: (node, scope) => {
 			if(node.type === 'identifier') {
@@ -1381,6 +1367,10 @@ class Interpreter {
 	}
 
 	static getTypeInheritedAddress(inheritingType) {
+		if(!inheritingType?.[0].inheritedTypes) {
+			return;
+		}
+
 		return inheritingType.find(v => v.super === 0)?.reference;
 	}
 
@@ -1723,6 +1713,34 @@ class Interpreter {
 	static getMemberOverload(composite, identifier, matching) {
 		let member = this.getMember(composite, identifier);
 
+		if(member == null) {  // Try to substitute pseudovariables
+			let address = {
+			//	global: () => undefined,				    Global-object is no thing
+				Global: () => 0,						 // Global-type
+				super: () => composite.addresses.super,  // Super-object or a type
+				Super: () => composite.addresses.Super,  // Super-type
+				self: () => composite.addresses.self,	 // Self-object or a type
+				Self: () => composite.addresses.Self,	 // Self-type
+				sub: () => composite.addresses.sub,		 // Sub-object
+				Sub: () => composite.addresses.Sub		 // Sub-type
+			//	metaSelf: () => undefined,				    Self-object or a type (descriptor)
+			//	arguments: () => undefined				    Function arguments array (needed?)
+			}[identifier]?.();
+
+			if(address == null) {
+				return;
+			}
+
+			member = [
+				{
+					modifiers: [],
+					type: [{ predefined: 'Any' }],
+					value: this.createValue('reference', address),
+					observers: []
+				}
+			]
+		}
+
 		if(member != null) {
 			for(let overload of member) {
 				if(matching == null) {
@@ -1780,7 +1798,7 @@ class Interpreter {
 	 *
 	 * 1. self.(last sub).super.super...  Object chain (parentheses - member is virtual)
 	 * 2. Self.Super.Super...             Inheritance chain
-	 * 3. (self).scope.scope...           Scope chain (search is not internal) (parentheses - composite is not object)
+	 * 3. (Self).scope.scope...           Scope chain (search is not internal) (parentheses - composite is not object)
 	 */
 	static findMemberOverload(composite, identifier, matching, internal) {
 		return (
@@ -1792,14 +1810,19 @@ class Interpreter {
 
 	static findMemberOverloadInObjectChain(object, identifier, matching) {
 		if(!this.typeIsComposite(object.type, 'Object')) {
-			object = this.getComposite(object.addresses.self);
+			let object_ = this.getComposite(object.addresses.self);
+
+			if(object_ === object || !this.typeIsComposite(object_.type, 'Object')) {
+				return;
+			}
+
+			object = object_;
 		}
 
-		let overload,
-			virtual;
+		let virtual;
 
 		while(object != null) {  // Higher
-			overload = this.getMemberOverload(object, identifier, matching);
+			let overload = this.getMemberOverload(object, identifier, matching);
 
 			if(overload != null) {
 				if(!virtual && overload.modifiers.includes('virtual')) {
@@ -1814,13 +1837,11 @@ class Interpreter {
 					continue;
 				}
 
-				break;
+				return this.getMemberOverloadProxy(overload, { owner: object });
 			}
 
 			object = this.getComposite(object.addresses.super);
 		}
-
-		return overload;
 	}
 
 	static findMemberOverloadInInheritanceChain(composite, identifier, matching) {
