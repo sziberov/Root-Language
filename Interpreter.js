@@ -1799,9 +1799,9 @@ class Interpreter {
 	}
 
 	/*
-	 * If composite is equal to current scope's namespace, search will start within Scope chain.
-	 * If it's not or when something that is not a Function appears in the chain, search will be switched to Object and Inheritance chains.
-	 * Afterwards, Scope chain will be looked up again or newly starting from the place that its first pass should have stopped at.
+	 * 1. If composite is equal to current scope's namespace, search will start within Scope chain.
+	 * 2. If it's not or when something that is not a Function appears in the chain, search will be switched to Object and Inheritance chains.
+	 * 3. Afterwards, Scope chain will be looked up again or newly starting from the place that its first pass should have stopped at. At this stage first rule can cause new search.
 	 *
 	 * - If search is not internal, Scope chains will be skipped.
 	 * - When a "virtual" overload is found in Object chain, search oncely displaces to a lowest sub-object.
@@ -1828,13 +1828,16 @@ class Interpreter {
 		}
 
 		while(composite != null) {
-			if(!last && composite !== namespace && !this.typeIsComposite(composite.type, 'Function')) {
-				last = true;
+			if(!last) {
+				last = composite !== namespace && !this.typeIsComposite(composite.type, 'Function');
+			} else
+			if(first) {
+				break;
+			} else
+			if(composite === namespace) {
+				return this.findMemberOverload(composite, identifier, matching);
 			}
 
-			if(first && last) {
-				break;
-			}
 			if(first !== last) {
 				let overload = this.getMemberOverload(composite, identifier, matching);
 
