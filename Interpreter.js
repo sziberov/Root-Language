@@ -110,7 +110,7 @@ class Interpreter {
 
 					if(this.typeIsComposite(scopeObject?.type, 'Object')) {  // Find initializer's object in scope
 						while(scopeObject != null) {
-							if(composite === this.getComposite(scopeObject.addresses.Self)) {
+							if(composite === this.getComposite(scopeObject.addresses.Self)) {  // TODO: Ignore object if it is not in the initialization state
 								object = scopeObject;
 
 								break;
@@ -119,8 +119,6 @@ class Interpreter {
 							scopeObject = this.getComposite(scopeObject.addresses.super);
 						}
 					}
-
-					// TODO: Ignore current scope if it is not in the initialization state
 
 					if(object == null) {  // Or create new object chain
 						let objects = []
@@ -639,15 +637,17 @@ class Interpreter {
 				return;
 			}
 
-			if(node.operator?.value === '++' && value.primitiveType === 'integer') {
-				value.primitiveValue++;
+			if(['float', 'integer'].includes(value.primitiveType)) {
+				if(node.operator?.value === '++') {
+					value.primitiveValue = value.primitiveValue*1+1;
 
-				return this.createValue('integer', value.primitiveValue-1);
-			}
-			if(node.operator?.value === '--' && value.primitiveType === 'integer') {
-				value.primitiveValue--;
+					return this.createValue(value.primitiveType, value.primitiveValue-1);
+				}
+				if(node.operator?.value === '--') {
+					value.primitiveValue = value.primitiveValue*1-1;
 
-				return this.createValue('integer', value.primitiveValue+1);
+					return this.createValue(value.primitiveType, value.primitiveValue+1);
+				}
 			}
 
 			//TODO: Dynamic operators lookup
@@ -667,15 +667,20 @@ class Interpreter {
 			if(node.operator?.value === '!' && value.primitiveType === 'boolean') {
 				return this.createValue('boolean', !value.primitiveValue);
 			}
-			if(node.operator?.value === '++' && value.primitiveType === 'integer') {
-				value.primitiveValue++;
+			if(['float', 'integer'].includes(value.primitiveType)) {
+				if(node.operator?.value === '-') {
+					return this.createValue(value.primitiveType, -value.primitiveValue);
+				}
+				if(node.operator?.value === '++') {
+					value.primitiveValue = value.primitiveValue*1+1;
 
-				return this.createValue('integer', value.primitiveValue);
-			}
-			if(node.operator?.value === '--' && value.primitiveType === 'integer') {
-				value.primitiveValue--;
+					return this.createValue(value.primitiveType, value.primitiveValue);
+				}
+				if(node.operator?.value === '--') {
+					value.primitiveValue = value.primitiveValue*1-1;
 
-				return this.createValue('integer', value.primitiveValue);
+					return this.createValue(value.primitiveType, value.primitiveValue);
+				}
 			}
 
 			//TODO: Dynamic operators lookup
@@ -1056,7 +1061,7 @@ class Interpreter {
 	static compositeRetained(composite) {
 		return (
 			this.compositeReachable(composite, this.getComposite(0)) ||
-			this.compositeReachable(composite, this.getScope().namespace) ||
+			this.compositeReachable(composite, this.getScope()?.namespace) ||
 			this.compositeReachable(composite, this.getValueComposite(this.controlTransfer?.value))
 		);
 	}
@@ -1515,7 +1520,7 @@ class Interpreter {
 
 		let parameters = this.getTypeFunctionParameters(function_.type);
 
-		if(arguments_.length !== parameters.length) {
+		if(arguments_.length !== parameters.filter(v => v.super === 0).length) {
 			// TODO: Variadic parameters support
 
 			return;
@@ -1794,18 +1799,54 @@ class Interpreter {
 	}
 
 	/*
-	 * Search order:
+	 * If composite is equal to current scope's namespace, search will start within Scope chain.
+	 * If it's not or when something that is not a Function appears in the chain, search will be switched to Object and Inheritance chains.
+	 * Afterwards, Scope chain will be looked up again or newly starting from the place that its first pass should have stopped at.
 	 *
-	 * 1. self.(last sub).super.super...  Object chain (parentheses - member is virtual)
-	 * 2. Self.Super.Super...             Inheritance chain
-	 * 3. (Self).scope.scope...           Scope chain (search is not internal) (parentheses - composite is not object)
+	 * - If search is not internal, Scope chains will be skipped.
+	 * - When a "virtual" overload is found in Object chain, search oncely displaces to a lowest sub-object.
 	 */
 	static findMemberOverload(composite, identifier, matching, internal) {
 		return (
+			(!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching, true) : undefined) ??
 			this.findMemberOverloadInObjectChain(composite, identifier, matching) ??
 			this.findMemberOverloadInInheritanceChain(composite, identifier, matching) ??
 			(!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching) : undefined)
 		);
+	}
+
+	static findMemberOverloadInScopeChain(composite, identifier, matching, first) {
+		let namespace = this.getScope()?.namespace,
+			last;
+
+		if(composite !== namespace) {
+			if(first) {
+				return;
+			}
+
+			last = true;
+		}
+
+		while(composite != null) {
+			if(!last && composite !== namespace && !this.typeIsComposite(composite.type, 'Function')) {
+				last = true;
+			}
+
+			if(first && last) {
+				break;
+			}
+			if(first !== last) {
+				let overload = this.getMemberOverload(composite, identifier, matching);
+
+				if(overload != null) {
+					return this.getMemberOverloadProxy(overload, { owner: composite });
+				}
+
+				// TODO: In-imports lookup
+			}
+
+			composite = this.getComposite(composite.addresses.scope);
+		}
 	}
 
 	static findMemberOverloadInObjectChain(object, identifier, matching) {
@@ -1857,24 +1898,6 @@ class Interpreter {
 			}
 
 			composite = this.getComposite(composite.addresses.Super);
-		}
-	}
-
-	static findMemberOverloadInScopeChain(composite, identifier, matching) {
-		if(this.typeIsComposite(composite.type, 'Object')) {
-			composite = this.getComposite(composite.addresses.scope);
-		}
-
-		while(composite != null) {
-			let overload = this.getMemberOverload(composite, identifier, matching);
-
-			if(overload != null) {
-				return this.getMemberOverloadProxy(overload, { owner: composite });
-			}
-
-			// TODO: In-imports lookup
-
-			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
