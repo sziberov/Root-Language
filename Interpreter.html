@@ -241,7 +241,7 @@ body {
 		output_lint.scrollTop = input.scrollTop;
 		output_lint.scrollLeft = input.scrollLeft;
 	}
-	input.value = require('fs').readFileSync(global.__dirname+'/Resources/Modules/Test').toString();
+	input.value = typeof require !== 'undefined' ? require('fs').readFileSync(global.__dirname+'/Resources/Modules/Test').toString() : '';
 
 	change_tree.onclick = () => {
 		if(output_tokens.style.display !== 'none') {
