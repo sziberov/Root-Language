@@ -1037,10 +1037,10 @@ class Interpreter {
 	}
 
 	/*
-	 * Returns a real state of retainment.
+	 * Returns a real state of direct retainment.
 	 *
 	 * Composite considered really retained if it is used by an at least one of
-	 * retainer's addresses (excluding "ID" and retainers list), type, import, member or observer.
+	 * the retainer's addresses (excluding "ID" and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainingComposite, retainedComposite) {
 		if(retainingComposite?.alive) return (
@@ -1053,26 +1053,15 @@ class Interpreter {
 	}
 
 	/*
-	 * Returns a significant state of retainment.
+	 * Returns a formal state of direct or indirect retainment.
 	 *
-	 * Composite considered significantly retained if it is reachable from
-	 * the global namespace, a current scope namespace or a return value.
-	 */
-	static compositeRetained(composite) {
-		return (
-			this.compositeReachable(composite, this.getComposite(0)) ||
-			this.compositeReachable(composite, this.getScope()?.namespace) ||
-			this.compositeReachable(composite, this.getValueComposite(this.controlTransfer?.value))
-		);
-	}
-
-	/*
-	 * Returns true if the retainedComposite is reachable from the retainingComposite,
-	 * recursively checking its retainers addresses.
+	 * Composite considered formally retained if it or at least one of
+	 * its retainers list members (recursively) can be as recognized as the retainer.
 	 *
-	 * retainChain is used to exclude a retain cycles and meant to be set internally only.
+	 * retainersAddresses is used to exclude a retain cycles and redundant passes
+	 * from the lookup and meant to be set internally only.
 	 */
-	static compositeReachable(retainedComposite, retainingComposite, retainChain = []) {
+	static compositeRetainsDistant(retainingComposite, retainedComposite, retainersAddresses = []) {
 		if(retainedComposite == null || retainingComposite == null) {
 			return;
 		}
@@ -1081,16 +1070,30 @@ class Interpreter {
 		}
 
 		for(let retainerAddress of retainedComposite.addresses.retainers) {
-			if(retainChain.includes(retainerAddress)) {
+			if(retainersAddresses.includes(retainerAddress)) {
 				continue;
 			}
 
-			retainChain.push(retainerAddress);
+			retainersAddresses.push(retainerAddress);
 
-			if(this.compositeReachable(this.getComposite(retainerAddress), retainingComposite, retainChain)) {
+			if(this.compositeRetainsDistant(retainingComposite, this.getComposite(retainerAddress), retainersAddresses)) {
 				return true;
 			}
 		}
+	}
+
+	/*
+	 * Returns a significant state of general retainment.
+	 *
+	 * Composite considered significantly retained if it is formally retained by
+	 * the global namespace, a current scope namespace or a return value.
+	 */
+	static compositeRetained(composite) {
+		return (
+			this.compositeRetainsDistant(this.getComposite(0), composite) ||
+			this.compositeRetainsDistant(this.getScope()?.namespace, composite) ||
+			this.compositeRetainsDistant(this.getValueComposite(this.controlTransfer?.value), composite)
+		);
 	}
 
 	static createClass(title, scope) {
@@ -1301,6 +1304,23 @@ class Interpreter {
 
 		ov = composite.addresses[key]
 		nv = composite.addresses[key] = value;
+
+		if(key.toLowerCase() !== 'self') {  // Address chains should not be cyclic
+			let addressedComposites = [],
+				addressedComposite = composite;
+
+			while(addressedComposite != null) {
+				if(addressedComposites.includes(addressedComposite)) {
+					composite.addresses[key] = ov;
+
+					return;
+				}
+
+				addressedComposites.push(addressedComposite);
+
+				addressedComposite = this.getComposite(addressedComposite.addresses[key]);
+			}
+		}
 
 		if(ov !== nv) {
 			this.retainOrReleaseComposite(composite, this.getComposite(ov));
@@ -1856,7 +1876,7 @@ class Interpreter {
 		if(!this.typeIsComposite(object.type, 'Object')) {
 			let object_ = this.getComposite(object.addresses.self);
 
-			if(object_ === object || !this.typeIsComposite(object_.type, 'Object')) {
+			if(object_ === object || !this.typeIsComposite(object_?.type, 'Object')) {
 				return;
 			}
 
@@ -1983,7 +2003,7 @@ class Interpreter {
 	}
 
 	static report(level, node, string) {
-		let position = node?.range.start ?? 0,
+		let position = node?.range?.start ?? 0,
 			location = this.tokens[position]?.location ?? {
 				line: 0,
 				column: 0
