@@ -310,7 +310,7 @@ class Lexer {
 				'postfix', 'prefix', 'private', 'protected', 'protocol', 'public',
 				'return',
 				'static', 'string', 'struct',
-				'throw', 'throws', 'true', 'try',
+				'throw', 'throws', 'true', 'try', 'type',
 				'var', 'virtual',
 				'when', 'where', 'while',
 				'_'

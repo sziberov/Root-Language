@@ -1481,8 +1481,8 @@ class Interpreter {
 
 	static createValue(primitiveType, primitiveValue) {
 		return {
-			primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string'
-			primitiveValue: primitiveValue	// boolean, integer, map (object), string, AST node
+			primitiveType: primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
+			primitiveValue: primitiveValue	// boolean, integer, map (object), string, type
 		}
 	}
 

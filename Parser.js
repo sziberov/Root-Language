@@ -2048,6 +2048,7 @@ class Parser {
 				'keywordFloat',
 				'keywordInt',
 				'keywordString',
+				'keywordType',
 
 				'keywordCapitalAny',
 				'keywordCapitalClass',
@@ -2124,7 +2125,8 @@ class Parser {
 				this.rules.namespaceExpression() ??
 				this.rules.parenthesizedExpression() ??
 				this.rules.protocolExpression() ??
-				this.rules.structureExpression()
+				this.rules.structureExpression() ??
+				this.rules.typeExpression()
 			);
 		},
 		primaryType: () => {
@@ -2574,6 +2576,32 @@ class Parser {
 			if(node == null) {
 				this.report(0, start, 'typeClause', 'No value.');
 			}
+
+			return node;
+		},
+		typeExpression: () => {
+			let node = {
+				type: 'typeExpression',
+				range: {
+					start: this.position
+				},
+				type_: undefined
+			}
+
+			if(this.token.type !== 'keywordType') {
+				return;
+			}
+
+			this.position++;
+			node.type_ = this.rules.type();
+
+			if(node.type_ == null) {
+				this.position = node.range.start;
+
+				return;
+			}
+
+			node.range.end = this.position-1;
 
 			return node;
 		},
