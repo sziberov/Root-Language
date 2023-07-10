@@ -1145,9 +1145,17 @@ class Parser {
 				}
 			}
 
-			if(this.token.type.startsWith('operator') && this.token.value === '->') {
-				this.position++;
-				node.returnType = this.rules.type();
+			if(!this.token.type.startsWith('operator') || this.token.value !== '->') {
+				this.position = node.range.start;
+
+				return;
+			}
+
+			this.position++;
+			node.returnType = this.rules.type();
+
+			if(node.returnType == null) {
+				this.report(1, node.range.start, node.type, 'No return type.');
 			}
 
 			node.range.end = this.position-1;
@@ -2041,6 +2049,7 @@ class Parser {
 
 			if(![
 				'keywordUnderscore',
+				'keywordVoid',
 
 				'keywordAny',
 				'keywordBool',

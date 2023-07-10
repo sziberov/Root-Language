@@ -311,7 +311,7 @@ class Lexer {
 				'return',
 				'static', 'string', 'struct',
 				'throw', 'throws', 'true', 'try', 'type',
-				'var', 'virtual',
+				'var', 'virtual', 'void',
 				'when', 'where', 'while',
 				'_'
 			]

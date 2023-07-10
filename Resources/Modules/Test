@@ -1,7 +1,5 @@
 var a: type = type ((String, F) -> Int)?
 
-//public type a = ((String, F) -> Int)?
-
 return
 
 var a = 0

@@ -749,6 +749,12 @@ class Interpreter {
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
 			this.executeStatements(statements, composite);
 		},
+		typeExpression: (node, scope) => {
+			let type = [],
+				typePart = this.helpers.createTypePart(type, undefined, node.type_, scope);
+
+			return this.createValue('type', type);
+		},
 		typeIdentifier: (node, scope, type, typePart) => {
 			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
 
