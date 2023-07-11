@@ -198,21 +198,29 @@ body {
 
 		function logReports(reports, transparent) {
 			for(let report of reports) {
-				let level = report.level.toString()
-										.replace('0', 'Info')
-										.replace('1', 'Warning')
-										.replace('2', 'Error'),
-					line = report.location.line+1,
-					column = report.location.column+1,
-					string = report.string,
-					message = line+':'+column+': '+level+': '+string.replace(/&/g, '&amp;')
-															        .replace(/</g, '&lt;')
-															        .replace(/>/g, '&gt;')
-															        .replace(/"/g, '&quot;')
-															        .replace(/'/g, '&#039;'),
-					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0';
+				let message = report.string.replace(/&/g, '&amp;')
+									       .replace(/</g, '&lt;')
+									       .replace(/>/g, '&gt;')
+									       .replace(/"/g, '&quot;')
+									       .replace(/'/g, '&#039;'),
+					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
+					weight;
 
-				consoleHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+');">'+message+'</span><br>';
+				if(report.location != null) {
+					let line = report.location.line+1,
+						column = report.location.column+1,
+						level = report.level.toString()
+											.replace('0', 'Info')
+											.replace('1', 'Warning')
+											.replace('2', 'Error');
+
+					weight = 'regular';
+					message = line+':'+column+': '+level+': '+message;
+				} else {
+					weight = 'bold';
+				}
+
+				consoleHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
 			}
 		}
 

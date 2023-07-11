@@ -7,29 +7,55 @@ var a = 0
 class A {
 	var a = 1,
 		b = -1,
-		a_ = print('local a: \(a)'), // 1
-		b_ = print('local b: \(b)')  // -1
+		a_ = print('local a: \(a) == 1'),
+		b_ = print('local b: \(b) == -1')
 
 	init(a) {
-		print('call self.a: \(self.a)')  // 1
-		print('call self.b: \(self.b)')  // -1
-		print('call a: \(a)')            // 2
-		print('call b: \(b)')            // -1
+		print('call self.a: \(self.a) == 1')
+		print('call self.b: \(self.b) == -1')
+		print('call a: \(a) == 2')
+		print('call b: \(b) == -1')
 
 		class B {
 			static var a = a,
 					   b = b,
-					   a_ = print('local (sub) a: \(a)'), // 2
-					   b_ = print('local (sub) b: \(b)')  // -1
+					   a_ = print('local (sub) a: \(a) == 2'),
+					   b_ = print('local (sub) b: \(b) == -1')
 		}
+	}
+
+	func f1() {
+		static var s = 10
+
+		return ++s
+	}
+
+	static func f2() {
+		static var s = 20
+
+		return ++s
 	}
 }
 
 var a_ins = A(2)
 
-print('global a: \(a)')              // 0
-print('global a_ins.a: \(a_ins.a)')  // 1
-print('global a_ins.b: \(a_ins.b)')  // -1
+print('global a: \(a) == 0')
+print('global a_ins.a: \(a_ins.a) == 1')
+print('global a_ins.b: \(a_ins.b) == -1')
+
+print('global A.f1.s: \(A.f1.s) == 10')
+print('global a_ins.f1.s: \(a_ins.f1.s) == 10')
+
+print('Add to static 1 \(a_ins.f1()) == 11')
+print('Add to static 1 \(a_ins.f1()) == 12')
+print('Add to static 1 \(a_ins.f1()) == 13')
+
+print('global A.f2.s: \(A.f2.s) == 20')
+print('global a_ins.f2.s: \(a_ins.f2.s) == 20')
+
+print('Add to static 2 \(A.f2()) == 21')
+print('Add to static 2 \(A.f2()) == 22')
+print('Add to static 2 \(A.'\('f2')'()) == 23')
 
 return
 

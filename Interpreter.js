@@ -45,6 +45,14 @@ class Interpreter {
 			return this.createValue('boolean', node.value === 'true');
 		},
 		callExpression: (node, scope) => {
+			let genericArguments = []
+
+			for(let genericArgument of node.genericArguments) {
+				genericArgument = this.rules.typeExpression(genericArgument, scope);
+
+				genericArguments.push(genericArgument);
+			}
+
 			let arguments_ = []
 
 			for(let argument of node.arguments) {
@@ -126,8 +134,21 @@ class Interpreter {
 						composite = calleeMOSP.composite;
 
 						while(composite != null) {
-							objects.unshift(this.createObject(undefined, composite, objects[0]));
+							let object = this.createObject(undefined, composite, objects[0]);
 
+							objects.unshift(object);
+
+							if(objects.length === 1) {
+								/*
+								let genericParameters = this.getTypeGenericParameters(composite.type);
+
+								for(let i = 0; i < genericArguments.length; i++) {
+									let genericArgument = genericArguments[i]
+
+									this.setMemberOverload(object, genericParameters[i].identifier, [], [{ predefined: 'type' }], genericArgument, []);
+								}
+								*/
+							}
 							if(objects.length > 1) {
 								this.setSuperAddress(objects[1], objects[0]);
 							}
@@ -156,8 +177,8 @@ class Interpreter {
 
 			let identifier = node.member;
 
-			if(identifier.type === 'stringExpression') {
-				identifier = this.rules.stringExpression?.(node.member, scope);
+			if(identifier.type === 'stringLiteral') {
+				identifier = this.rules.stringLiteral(node.member, scope);
 			} else {
 				identifier = identifier.value;
 			}
@@ -330,20 +351,40 @@ class Interpreter {
 				return;
 			}
 
-			if(!modifiers.includes('static')) {
-				//	TODO: Semi-static function generator. Also, maybe should change default
-				//	namespace's scope of function call from function's scope to function itself
-				//	so static members of this semi-static function will be accessible from an object functions
-			}
-
-			let function_ = this.createFunction(identifier, node.body?.statements, scope),
-				signature = this.rules.functionSignature(node.signature, scope),
+			let function_,
+				statements = Array.from(node.body?.statements ?? []),
+				objectStatements = [],
+				signature,
+				functionScope,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
-				value = this.createValue('reference', function_.addresses.ID),
+				value,
 				observers = []
 
-			function_.type = signature;
+			this.helpers.separateStatements(statements, objectStatements);
 
+			if(modifiers.includes('static')) {
+				if(!this.typeIsComposite(scope.type, 'Object')) {  // Static in non-object
+					signature = node.signature;
+					functionScope = scope;
+				} else {  // Static in object
+					return;
+				}
+			} else {
+				if(this.typeIsComposite(scope.type, 'Object')) {  // Non-static in object
+					statements = []
+					signature = node.signature;
+					functionScope = this.findMemberOverload(scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? scope;
+				} else {  // Non-static in non-object
+					objectStatements = []
+					functionScope = scope;
+				}
+			}
+
+			function_ = this.createFunction(identifier, objectStatements, functionScope);
+			function_.type = this.rules.functionSignature(signature, scope);
+			value = this.createValue('reference', function_.addresses.ID);
+
+			this.executeStatements(statements, function_);
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
 		},
 		functionExpression: (node, scope) => {
@@ -513,7 +554,7 @@ class Interpreter {
 			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 			let print = this.createFunction('print', (arguments_) => {
-				this.report(0, undefined, JSON.stringify(arguments_[0].value));
+				this.print(this.getValueString(arguments_[0].value));
 			}, namespace);
 
 			print.type = [
@@ -711,16 +752,7 @@ class Interpreter {
 				if(segment.type === 'stringSegment') {
 					string += segment.value;
 				} else {
-					let value = this.rules[segment.value?.type]?.(segment.value, scope);
-
-					if(['boolean', 'float', 'integer', 'string'].includes(value?.primitiveType)) {
-						value = value.primitiveValue;
-					} else
-					if(value != null) {
-						value = '[not implemented]';  // TODO: Primitives to string conversion
-					}
-
-					string += value ?? '';
+					string += this.getValueString(this.rules[segment.value?.type]?.(segment.value, scope));
 				}
 			}
 
@@ -848,17 +880,23 @@ class Interpreter {
 			return typePart;
 		},
 		separateStatements: (statements, objectStatements) => {
-			let exclusions = ['initializerDeclaration', 'deinitializerDeclaration']
+			let staticTypes = ['deinitializerDeclaration', 'initializerDeclaration'],
+				bothTypes = ['functionDeclaration']
 
 			for(let i = 0; i < statements.length; i++) {
 				let statement = statements[i]
 
-				if(exclusions.includes(statement.type)) {
+				if(staticTypes.includes(statement.type)) {
 					continue;
 				}
 
-				if(statement.modifiers != null && !statement.modifiers.includes('static')) {
+				if(!statement.modifiers?.includes('static')) {
 					objectStatements.push(statement);
+
+					if(bothTypes.includes(statement.type)) {
+						continue;
+					}
+
 					statements.splice(i, 1);
 					i--;
 				}
@@ -957,7 +995,7 @@ class Interpreter {
 		if(scope != null) {
 			this.setScopeAddress(composite, scope);
 		}
-		this.report(0, undefined, 'cr: '+composite.title+', '+composite.addresses.ID);
+		this.print('cr: '+composite.title+', '+composite.addresses.ID);
 
 		return composite;
 	}
@@ -967,7 +1005,7 @@ class Interpreter {
 			return;
 		}
 
-		this.report(0, undefined, 'ds: '+composite.title+', '+composite.addresses.ID);
+		this.print('ds: '+composite.title+', '+composite.addresses.ID);
 
 		composite.alive = false;
 
@@ -993,7 +1031,7 @@ class Interpreter {
 			this.report(1, undefined, 'Composite #'+composite.addresses.ID+' was destroyed with a non-empty retainer list.');
 		}
 
-		this.report(0, undefined, 'de: '+JSON.stringify(composite));
+		this.print('de: '+JSON.stringify(composite));
 	}
 
 	static destroyReleasedComposite(composite) {
@@ -1260,7 +1298,7 @@ class Interpreter {
 		}
 
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.ID)+'>',
-			namespace = scope ?? this.createNamespace(namespaceTitle, this.getComposite(function_.addresses.scope)),
+			namespace = scope ?? this.createNamespace(namespaceTitle, function_),
 			parameters = this.getTypeFunctionParameters(function_.type);
 
 		this.setInheritedLevelAddresses(namespace, levels ?? function_);
@@ -1535,6 +1573,20 @@ class Interpreter {
 		}
 
 		return this.getComposite(value.primitiveValue);
+	}
+
+	static getValueString(value) {
+		if(['boolean', 'float', 'integer', 'string'].includes(value?.primitiveType)) {
+			return value.primitiveValue+'';
+		}
+
+		let composite = this.getValueComposite(value);
+
+		if(composite != null) {
+			return JSON.stringify(composite);
+		}
+
+		return value != null ? JSON.stringify(value) : 'nil';
 	}
 
 	static getValueFunction(value, arguments_) {
@@ -2020,6 +2072,15 @@ class Interpreter {
 			position: position,
 			location: location,
 			string: (node != null ? node.type+' -> ' : '')+string
+		});
+	}
+
+	static print(string) {
+		this.reports.push({
+			level: 0,
+			position: undefined,
+			location: undefined,
+			string: string
 		});
 	}
 
