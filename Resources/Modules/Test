@@ -1,26 +1,24 @@
-var a: type = type ((String, F) -> Int)?
-
-return
-
 var a = 0
 
 class A {
 	var a = 1,
 		b = -1,
-		a_ = print('local a: \(a) == 1'),
-		b_ = print('local b: \(b) == -1')
+		a_ = print('local a: \(a == 1)'),
+		b_ = print('local b: \(b == -1)')
 
 	init(a) {
-		print('call self.a: \(self.a) == 1')
-		print('call self.b: \(self.b) == -1')
-		print('call a: \(a) == 2')
-		print('call b: \(b) == -1')
+		print('call self.a: \(self.a == 1)')
+		print('call self.b: \(self.b == -1)')
+		print('call a: \(a == 2)')
+		print('call b: \(b == -1)')
 
 		class B {
 			static var a = a,
 					   b = b,
-					   a_ = print('local (sub) a: \(a) == 2'),
-					   b_ = print('local (sub) b: \(b) == -1')
+					   a_ = print('local (nested) a: \(a == 2)'),
+					   b_ = print('local (nested) b: \(b == -1)'),
+					   c_ = print('local (nested) f1.s: \(f1.s == 10) == false'),
+					   d_ = print('local (nested) f2.s: \(f2.s == 20)')
 		}
 	}
 
@@ -37,25 +35,64 @@ class A {
 	}
 }
 
+namespace B {
+	namespace C {
+		var b = 1
+
+		class D {
+			static namespace E {
+				func f() {
+					static var c = 2,
+							   a_ = print('local (nested ns) a: \(a == 0)'),
+							   b_ = print('local (nested ns) b: \(b == 1)'),
+							   c_ = print('local (nested ns) c: \(c == 2)')
+				}
+			}
+		}
+	}
+}
+
 var a_ins = A(2)
 
-print('global a: \(a) == 0')
-print('global a_ins.a: \(a_ins.a) == 1')
-print('global a_ins.b: \(a_ins.b) == -1')
+print('global a: \(a == 0)')
+print('global a_ins.a: \(a_ins.a == 1)')
+print('global a_ins.b: \(a_ins.b == -1)')
 
-print('global A.f1.s: \(A.f1.s) == 10')
-print('global a_ins.f1.s: \(a_ins.f1.s) == 10')
+print('global A.f1.s: \(A.f1.s == 10)')
+print('global a_ins.f1.s: \(a_ins.f1.s == 10) == false')
 
-print('Add to static 1 \(a_ins.f1()) == 11')
-print('Add to static 1 \(a_ins.f1()) == 12')
-print('Add to static 1 \(a_ins.f1()) == 13')
+print('Add to static 1 \(a_ins.f1() == 11)')
+print('Add to static 1 \(a_ins.f1() == 12)')
+print('Add to static 1 \(a_ins.f1() == 13)')
 
-print('global A.f2.s: \(A.f2.s) == 20')
-print('global a_ins.f2.s: \(a_ins.f2.s) == 20')
+print('global A.f2.s: \(A.f2.s == 20)')
+print('global a_ins.f2.s: \(a_ins.f2.s == 20)')
 
-print('Add to static 2 \(A.f2()) == 21')
-print('Add to static 2 \(A.f2()) == 22')
-print('Add to static 2 \(A.'\('f2')'()) == 23')
+print('Add to static 2 \(A.f2() == 21)')
+print('Add to static 2 \(A.f2() == 22)')
+print('Add to static 2 \(A.'\('f2')'() == 23)')
+
+print('global B.C.D.E.f.a: \(B.C.D.E.f.a == 0) == false')
+print('global B.C.D.E.f.b: \(B.C.D.E.f.b == 1) == false')
+print('global B.C.D.E.f.c: \(B.C.D.E.f.c == 2)')
+
+return
+
+var a: type = type ((String, F) -> Int)?
+
+return
+
+class A {
+	static func e() { 1 }
+}
+
+class B: A {
+	static func t() {
+		print(Super.e())
+	}
+}
+
+B.t()
 
 return
 
@@ -90,21 +127,21 @@ struct C {
 var a = A(C.e),
 	b = B(C.e)
 
-print(a.a)  // -1
-print(b.a)  // -1
-print(C.a)  // 1
+print(a.a == -1)
+print(b.a == -1)
+print(C.a == 1)
 
 return
 
 var b
 
 class A {
-    class B {
-        static var c
-    }
+	class B {
+		static var c
+	}
 
 	init(c) {
-        B.c = c; print(B.c)
+		B.c = c; print(B.c)
 	}
 }
 
@@ -138,7 +175,7 @@ class Base {
 class Derived: Base {
 	init {
 		super()
-        f()
+		f()
 	}
 
 	func f() {
@@ -196,20 +233,20 @@ A = nil
 return b
 
 struct A {
-    struct B {}
+	struct B {}
 
-    var E
+	var E
 }
 
 func a() {
-    class C {
-        var b = A.B
-    }
+	class C {
+		var b = A.B
+	}
 
-    A.B = 1
-    //A.E = C.b
+	A.B = 1
+	//A.E = C.b
 
-    struct A {}
+	struct A {}
 }
 
 return a()
@@ -218,7 +255,7 @@ var primitiveArray = [1, 2, 3, 4],
 	primitiveDictionary = [1: 2, 3: 4]
 
 class Animal {
-    init {}
+	init {}
 
 	func say() {
 		'...'
@@ -226,11 +263,11 @@ class Animal {
 }
 
 class Canine: Animal {
-    init {}
+	init {}
 }
 
 class Fox: Canine {
-    init {}
+	init {}
 
 	func say() {
 		'Yiff'
@@ -277,22 +314,22 @@ family(Wolf())
 family(Cat())
 
 func testFlowTransfer() {
-    if true {
-        if true {
-        	var a = 1
+	if true {
+		if true {
+			var a = 1
 
-        	return a
-        } else
-        if true {
-        	return 2
+			return a
+		} else
+		if true {
+			return 2
 
-        	3
-        }
-    } else {
-        4
-    }
+			3
+		}
+	} else {
+		4
+	}
 
-    //5
+	//5
 }
 
 var flowTransferTest = testFlowTransfer()
@@ -306,9 +343,9 @@ struct Person {
   var age = 0
 
   func change() {
-    do_(func (age) {
-      self.age = ++age
-    })
+	do_(func (age) {
+	  self.age = ++age
+	})
   }
 }
 
@@ -321,17 +358,17 @@ var a: [Global]
 func A() {
 	struct AB {}  // Retain chain: AB -> A() -> Global
 
-    return AB
+	return AB
 }
 
 func B() {
 	A()
 
-    return A()
+	return A()
 }
 
 func C(CC) {
-    return CC
+	return CC
 }
 
 var retainTest = C(CC: B())  // Preserve value globally, simple return cleans up memory
@@ -356,9 +393,9 @@ func D() {
 
 			return G.H()
 		}
-    }
+	}
 
-    return E.F()
+	return E.F()
 }
 
 var retainTest = D()
@@ -403,12 +440,12 @@ for i in 0...3 where i > -1 {  // sequence, prefixed
 import Foundation
 
 final var Boolean = Foundation.Boolean,
-	  	  Number = Foundation.Number,
-	  	  Decimal = Foundation.Decimal,
-	  	  Integer = Foundation.Integer,
-	  	  String = Foundation.String,
-	  	  Array = Foundation.Array,
-	  	  Dictionary = Foundation.Dictionary
+		  Number = Foundation.Number,
+		  Decimal = Foundation.Decimal,
+		  Integer = Foundation.Integer,
+		  String = Foundation.String,
+		  Array = Foundation.Array,
+		  Dictionary = Foundation.Dictionary
 
 final var constant = Number.Pi
 
@@ -514,30 +551,30 @@ function = func (x) { x > 0 }
 function = func (x) { return x > 0 } - 3
 
 func getMnemonic(color: Color) =
-    when color {
-        .RED -> "кот"
-        .ORANGE -> "охотник"
-        .YELLOW -> "желает"
-        .GREEN -> "знать"
-        .BLUE -> "где"
-        .INDIGO -> "сидят"
-        .VIOLET -> "фазаны"
+	when color {
+		.RED -> "кот"
+		.ORANGE -> "охотник"
+		.YELLOW -> "желает"
+		.GREEN -> "знать"
+		.BLUE -> "где"
+		.INDIGO -> "сидят"
+		.VIOLET -> "фазаны"
 	}
 
 func getWarmth(color: Int) {
 	when color {
-	    RED || YELLOW: 'warm'
-	    GREEN: 'neutral'
-	    BLUE: 'cold'
-	    else: 'unknown'
+		RED || YELLOW: 'warm'
+		GREEN: 'neutral'
+		BLUE: 'cold'
+		else: 'unknown'
 	}
 }
 */
 
 when catImageView.visibility {
-    View.VISIBLE -> println('visible')
-    View.INVISIBLE -> println('invisible')
-    else -> println('gone')
+	View.VISIBLE -> println('visible')
+	View.INVISIBLE -> println('invisible')
+	else -> println('gone')
 }
 
 var switchedByDictionary = [

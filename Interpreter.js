@@ -108,7 +108,7 @@ class Interpreter {
 					continue;
 				}
 
-				this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
+			//	this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
 				let value,
 					object;
 
@@ -161,7 +161,7 @@ class Interpreter {
 				}
 
 				value = this.callFunction(function_, arguments_, object);
-				this.report(0, node, 'ke: '+JSON.stringify(value));
+			//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
 			}
@@ -194,7 +194,8 @@ class Interpreter {
 			}
 
 			let inheritedTypes = node.inheritedTypes,
-				composite = this.createClass(identifier, scope);
+				composite = this.createClass(identifier, scope),
+				superComposite;
 
 			if(node.inheritedTypes.length > 0) {
 				composite.type[0].inheritedTypes = true;
@@ -205,6 +206,12 @@ class Interpreter {
 				for(let typePart of composite.type) {
 					this.retainComposite(composite, this.getComposite(typePart.reference));
 				}
+			}
+
+			superComposite = this.getComposite(this.getTypeInheritedAddress(composite.type));
+
+			if(superComposite != null) {
+				this.setSuperAddress(composite, superComposite);
 			}
 
 			// TODO: Protocol conformance checking (if not conforms, remove from type and report)
@@ -336,6 +343,17 @@ class Interpreter {
 				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
 
 				return rhs;
+			}
+			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '==') {
+				let lhs = this.rules[node.values[0].type]?.(node.values[0], scope),
+					rhs = this.rules[node.values[2].type]?.(node.values[2], scope),
+					value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
+
+				if(!value) {
+				//	debugger;
+				}
+
+				return this.createValue('boolean', value);
 			}
 		},
 		floatLiteral: (node) => {
@@ -982,6 +1000,7 @@ class Interpreter {
 				retainers: []
 			},
 			alive: true,
+		//	state: 0  // (0 - Create, 1 - Initialize), 2 - Idle, (3 - Deinitialize, 4 - Destroy)
 			type: type,
 			statements: [],
 			imports: {},
@@ -995,7 +1014,7 @@ class Interpreter {
 		if(scope != null) {
 			this.setScopeAddress(composite, scope);
 		}
-		this.print('cr: '+composite.title+', '+composite.addresses.ID);
+	//	this.print('cr: '+composite.title+', '+composite.addresses.ID);
 
 		return composite;
 	}
@@ -1005,7 +1024,7 @@ class Interpreter {
 			return;
 		}
 
-		this.print('ds: '+composite.title+', '+composite.addresses.ID);
+	//	this.print('ds: '+composite.title+', '+composite.addresses.ID);
 
 		composite.alive = false;
 
@@ -1031,7 +1050,7 @@ class Interpreter {
 			this.report(1, undefined, 'Composite #'+composite.addresses.ID+' was destroyed with a non-empty retainer list.');
 		}
 
-		this.print('de: '+JSON.stringify(composite));
+	//	this.print('de: '+JSON.stringify(composite));
 	}
 
 	static destroyReleasedComposite(composite) {
@@ -1877,59 +1896,58 @@ class Interpreter {
 	}
 
 	/*
-	 * 1. If composite is equal to current scope's namespace, search will start within Scope chain.
-	 * 2. If it's not or when something that is not a Function appears in the chain, search will be switched to Object and Inheritance chains.
-	 * 3. Afterwards, Scope chain will be looked up again or newly starting from the place that its first pass should have stopped at. At this stage first rule can cause new search.
+	 * Looking for member overload in Scope chain (scope).
 	 *
-	 * - If search is not internal, Scope chains will be skipped.
-	 * - When a "virtual" overload is found in Object chain, search oncely displaces to a lowest sub-object.
+	 * If search is internal, only first composite in chain will be checked.
 	 */
 	static findMemberOverload(composite, identifier, matching, internal) {
-		return (
-			(!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching, true) : undefined) ??
-			this.findMemberOverloadInObjectChain(composite, identifier, matching) ??
-			this.findMemberOverloadInInheritanceChain(composite, identifier, matching) ??
-			(!internal ? this.findMemberOverloadInScopeChain(composite, identifier, matching) : undefined)
-		);
-	}
-
-	static findMemberOverloadInScopeChain(composite, identifier, matching, first) {
-		let namespace = this.getScope()?.namespace,
-			last;
-
-		if(composite !== namespace) {
-			if(first) {
-				return;
-			}
-
-			last = true;
-		}
-
 		while(composite != null) {
-			if(!last) {
-				last = composite !== namespace && !this.typeIsComposite(composite.type, 'Function');
-			} else
-			if(first) {
-				break;
-			} else
-			if(composite === namespace) {
-				return this.findMemberOverload(composite, identifier, matching);
+			let overload =
+				this.findMemberOverloadInComposite(composite, identifier, matching) ??
+				this.findMemberOverloadInObjectChain(composite, identifier, matching) ??
+				this.findMemberOverloadInInheritanceChain(composite, identifier, matching);
+
+			if(overload != null) {
+				return overload;
 			}
 
-			if(first !== last) {
-				let overload = this.getMemberOverload(composite, identifier, matching);
-
-				if(overload != null) {
-					return this.getMemberOverloadProxy(overload, { owner: composite });
-				}
-
-				// TODO: In-imports lookup
+			if(internal) {
+				break;
 			}
 
 			composite = this.getComposite(composite.addresses.scope);
 		}
 	}
 
+	/*
+	 * Looking for member overload in a function or namespace.
+	 *
+	 * This types are slightly different from other. They inherit levels and eventually aren't
+	 * instantiable nor inheritable themself. But they are still used as members storage
+	 * and can participate in plain scope chains.
+	 */
+	static findMemberOverloadInComposite(composite, identifier, matching) {
+		if(
+			!this.typeIsComposite(composite.type, 'Function') &&
+			!this.typeIsComposite(composite.type, 'Namespace')
+		) {
+			return;
+		}
+
+		let overload = this.getMemberOverload(composite, identifier, matching);
+
+		if(overload != null) {
+			return this.getMemberOverloadProxy(overload, { owner: composite });
+		}
+
+		// TODO: Imports lookup
+	}
+
+	/*
+	 * Looking for member overload in Object chain (super, self, sub).
+	 *
+	 * When a "virtual" overload is found, search oncely displaces to a lowest sub-object.
+	 */
 	static findMemberOverloadInObjectChain(object, identifier, matching) {
 		if(!this.typeIsComposite(object.type, 'Object')) {
 			let object_ = this.getComposite(object.addresses.self);
@@ -1966,6 +1984,9 @@ class Interpreter {
 		}
 	}
 
+	/*
+	 * Looking for member overload in Inheritance chain (Super, Self).
+	 */
 	static findMemberOverloadInInheritanceChain(composite, identifier, matching) {
 		if(this.typeIsComposite(composite.type, 'Object')) {
 			composite = this.getComposite(composite.addresses.Self);
