@@ -343,6 +343,10 @@ class Interpreter {
 					signature = node.signature;
 					functionScope = this.findMemberOverload(scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? scope;
 				} else {  // Non-static in non-object
+					if(statements.length === 0) {
+						return;
+					}
+
 					objectStatements = []
 					functionScope = scope;
 				}

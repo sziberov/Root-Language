@@ -1,3 +1,20 @@
+struct Integer {
+    private var value: int
+
+    init(v: int) {
+        value = v
+    }
+
+    static func ==(lhs: Self, rhs: Self) {
+        return lhs.value == rhs.value
+    }
+}
+
+print(Integer.'=='(Integer(1), Integer(1))) // true
+print(Integer.'=='(Integer(1), Integer(0))) // false
+
+return
+
 func f3() {
 	print(caller)
 

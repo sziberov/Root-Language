@@ -413,7 +413,7 @@ class Lexer {
 				location.line++;
 				location.column = 0;
 			} else {
-				location.column += character === '\t' ? 3 : 1;
+				location.column += character === '\t' ? 4 : 1;
 			}
 		}
 
