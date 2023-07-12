@@ -1347,7 +1347,7 @@ class Interpreter {
 		this.setInheritedLevelAddresses(namespace, levels ?? function_);
 
 		if(caller != null) {
-			this.setMemberOverload(namespace, 'caller', [], [{ predefined: 'string' }], this.createValue('reference', caller), []);
+			this.setMemberOverload(namespace, 'caller', [], [{ predefined: 'Any', nillable: true }], this.createValue('reference', caller.addresses.ID), []);
 		}
 
 		for(let i = 0; i < arguments_.length; i++) {

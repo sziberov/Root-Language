@@ -359,15 +359,14 @@ func testFlowTransfer() {
 
 var flowTransferTest = testFlowTransfer()
 
-
 func do_(a) {
   a(4)
 }
 
 struct Person {
-  var age = 0
+  static var age = 0
 
-  func change() {
+  static func change() {
 	do_(func (age) {
 	  self.age = ++age
 	})
@@ -381,7 +380,7 @@ struct Array {}
 var a: [Global]
 
 func A() {
-	struct AB {}  // Retain chain: AB -> A() -> Global
+	struct AB {}  // Retain chain: AB -> Call<A> -> A -> Global
 
 	return AB
 }
@@ -403,12 +402,12 @@ return retainTest
 /*
 func D() {
 	struct E {
-		func F() {
+		static func F() {
 			struct G {
-				func a()
+				static func a()
 
-				func H() {
-					struct J {}  // J > H(), G, F(), E, D(), Global
+				static func H() {
+					struct J {}  // J, Call<H>, H, G, Call<F>, F, E, Call<D>, D, Global
 
 					return J
 				}
@@ -612,9 +611,9 @@ var A = 1
 print(A)		// 1
 
 if true {		// If statements have local scopes
-	print(A)	// class (Declarations execute first)
-
 	class A {}
+
+	print(A)	// class
 }
 
 print(A)		// 1
