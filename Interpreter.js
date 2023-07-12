@@ -45,21 +45,19 @@ class Interpreter {
 			return this.createValue('boolean', node.value === 'true');
 		},
 		callExpression: (node, scope) => {
-			let genericArguments = []
+			let gargs = [],  // (Generic) arguments
+				args = []
 
-			for(let genericArgument of node.genericArguments) {
-				genericArgument = this.rules.typeExpression(genericArgument, scope);
+			for(let garg of node.genericArguments) {
+				garg = this.rules.typeExpression(garg, scope);
 
-				genericArguments.push(genericArgument);
+				gargs.push(garg);
 			}
+			for(let arg of node.arguments) {
+				arg = this.rules[arg.type]?.(arg, scope);
 
-			let arguments_ = []
-
-			for(let argument of node.arguments) {
-				argument = this.rules[argument.type]?.(argument, scope);
-
-				if(argument != null) {
-					arguments_.push(argument);
+				if(arg != null) {
+					args.push(arg);
 				}
 			}
 
@@ -76,76 +74,65 @@ class Interpreter {
 			}
 
 			for(let i = 0; i < 2; i++) {
-				let function_ = calleeMOSP == null ? this.findValueFunction(callee, arguments_) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, arguments_), calleeMOSP.internal)?.matchingValue,
-					initializer = function_?.title === 'init' || calleeMOSP?.identifier === 'init';
+				let function_ = calleeMOSP == null ? this.findValueFunction(callee, args) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, args), calleeMOSP.internal)?.matchingValue,
+					FSC = this.getComposite(function_?.addresses.Self) ?? calleeMOSP.composite,  // Function self composite
+					initializer = (function_?.title === 'init' || calleeMOSP?.identifier === 'init') && (this.typeIsComposite(FSC?.type, 'Class') || this.typeIsComposite(FSC?.type, 'Structure'));
 
 				if(function_ == null) {
-					if(initializer) {
-						this.report(2, node, 'Composite doesn\'t have initializer with specified signature.');
+					if(i === 0 && !initializer) {  // Fallback to search of an initializer
+						calleeMOSP = {
+							composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
+							identifier: 'init',
+							internal: true
+						}
 
-						return;
+						if(this.typeIsComposite(calleeMOSP.composite?.type, 'Object')) {
+							calleeMOSP.composite = this.getComposite(calleeMOSP.composite.addresses.Self);
+						}
+
+						continue;
 					}
 
-					calleeMOSP = {  // Fallback to search of an initializer
-						composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
-						identifier: 'init',
-						internal: true
-					}
+					this.report(2, node, (!initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
 
-					if(this.typeIsComposite(calleeMOSP.composite?.type, 'Object')) {
-						calleeMOSP.composite = this.getComposite(calleeMOSP.composite.addresses.Self);
-					}
-
-					if(
-						!this.typeIsComposite(calleeMOSP.composite?.type, 'Class') &&
-						!this.typeIsComposite(calleeMOSP.composite?.type, 'Structure')
-					) {
-						this.report(2, node, 'Function with specified signature wasn\'t found.');
-
-						return;
-					}
-
-					continue;
+					return;
 				}
 
 			//	this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
 				let value,
-					object;
+					FSO;  // Function self object
 
 				if(initializer) {
-					let composite = this.getComposite(function_.addresses.Self),
-						scopeObject = this.getComposite(scope.addresses.self);
+					let SSO = this.getComposite(scope.addresses.self);  // Scope self (super) object
 
-					if(this.typeIsComposite(scopeObject?.type, 'Object')) {  // Find initializer's object in scope
-						while(scopeObject != null) {
-							if(composite === this.getComposite(scopeObject.addresses.Self)) {  // TODO: Ignore object if it is not in the initialization state
-								object = scopeObject;
+					if(this.typeIsComposite(SSO?.type, 'Object')) {  // Find initializer's object in scope
+						while(SSO != null) {
+							if(FSC === this.getComposite(SSO.addresses.Self)) {  // TODO: Ignore object if it is not in the initialization state
+								FSO = SSO;
 
 								break;
 							}
 
-							scopeObject = this.getComposite(scopeObject.addresses.super);
+							SSO = this.getComposite(SSO.addresses.super);
 						}
 					}
 
-					if(object == null) {  // Or create new object chain
+					if(FSO == null) {  // Or create new object chain
 						let objects = []
 
-						composite = calleeMOSP.composite;
-
-						while(composite != null) {
-							let object = this.createObject(undefined, composite, objects[0]);
+						while(FSC != null) {
+							let object = this.createObject(undefined, FSC, objects[0]);
 
 							objects.unshift(object);
 
 							if(objects.length === 1) {
 								/*
-								let genericParameters = this.getTypeGenericParameters(composite.type);
+								let gparams = this.getTypeGenericParameters(FSC.type);  // Generic parameters
 
-								for(let i = 0; i < genericArguments.length; i++) {
-									let genericArgument = genericArguments[i]
+								for(let i = 0; i < gargs.length; i++) {
+									let garg = gargs[i]
 
-									this.setMemberOverload(object, genericParameters[i].identifier, [], [{ predefined: 'type' }], genericArgument, []);
+									this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], garg, []);
 								}
 								*/
 							}
@@ -153,14 +140,14 @@ class Interpreter {
 								this.setSuperAddress(objects[1], objects[0]);
 							}
 
-							composite = this.getComposite(this.getTypeInheritedAddress(composite.type));
+							FSC = this.getComposite(this.getTypeInheritedAddress(FSC.type));
 						}
 
-						object = objects.at(-1);
+						FSO = objects.at(-1);
 					}
 				}
 
-				value = this.callFunction(function_, arguments_, object);
+				value = this.callFunction(function_, args, FSO);
 			//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
@@ -186,47 +173,7 @@ class Interpreter {
 			return this.helpers.findMemberOverload(scope, composite, identifier, undefined, true)?.value;
 		},
 		classDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier?.value;
-
-			if(identifier == null) {
-				return;
-			}
-
-			let inheritedTypes = node.inheritedTypes,
-				composite = this.createClass(identifier, scope),
-				superComposite;
-
-			if(node.inheritedTypes.length > 0) {
-				composite.type[0].inheritedTypes = true;
-
-				for(let node_ of node.inheritedTypes) {
-					this.helpers.createTypePart(composite.type, composite.type[0], node_, scope, false);
-				}
-				for(let typePart of composite.type) {
-					this.retainComposite(composite, this.getComposite(typePart.reference));
-				}
-			}
-
-			superComposite = this.getComposite(this.getTypeInheritedAddress(composite.type));
-
-			if(superComposite != null) {
-				this.setSuperAddress(composite, superComposite);
-			}
-
-			// TODO: Protocol conformance checking (if not conforms, remove from type and report)
-
-			let type = [this.createTypePart(undefined, undefined, { predefined: 'Class', self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = [],
-				statements = node.body?.statements ?? [],
-				objectStatements = []
-
-			this.helpers.separateStatements(statements, objectStatements);
-			this.setStatements(composite, objectStatements);
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(statements, composite);
+			this.rules.instantiableDeclaration(node, scope);
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -376,19 +323,21 @@ class Interpreter {
 				functionScope,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value,
-				observers = []
+				observers = [],
+				object = this.typeIsComposite(scope.type, 'Object'),
+				staticDeclaration = modifiers.includes('static') || !object && !this.typeIsComposite(scope.type, 'Class') && !this.typeIsComposite(scope.type, 'Structure');
 
 			this.helpers.separateStatements(statements, objectStatements);
 
-			if(modifiers.includes('static')) {
-				if(!this.typeIsComposite(scope.type, 'Object')) {  // Static in non-object
+			if(staticDeclaration) {
+				if(!object) {  // Static in non-object
 					signature = node.signature;
 					functionScope = scope;
 				} else {  // Static in object
 					return;
 				}
 			} else {
-				if(this.typeIsComposite(scope.type, 'Object')) {  // Non-static in object
+				if(object) {  // Non-static in object
 					statements = []
 					signature = node.signature;
 					functionScope = this.findMemberOverload(scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? scope;
@@ -402,8 +351,8 @@ class Interpreter {
 			function_.type = this.rules.functionSignature(signature, scope);
 			value = this.createValue('reference', function_.addresses.ID);
 
-			this.executeStatements(statements, function_);
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
+			this.executeStatements(statements, function_);
 		},
 		functionExpression: (node, scope) => {
 			let signature = this.rules.functionSignature(node.signature, scope),
@@ -559,6 +508,51 @@ class Interpreter {
 		},
 		inoutType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['inout']);
+		},
+		instantiableDeclaration: (node, scope) => {
+			let modifiers = node.modifiers,
+				identifier = node.identifier?.value;
+
+			if(identifier == null) {
+				return;
+			}
+
+			let title = node.type.replace('Declaration', ''),
+				capitalizedTitle = title[0].toUpperCase()+title.slice(1),
+				inheritedTypes = node.inheritedTypes,
+				composite = this['create'+capitalizedTitle](identifier, scope),
+				superComposite;
+
+			if(node.inheritedTypes.length > 0) {
+				composite.type[0].inheritedTypes = true;
+
+				for(let node_ of node.inheritedTypes) {
+					this.helpers.createTypePart(composite.type, composite.type[0], node_, scope, false);
+				}
+				for(let typePart of composite.type) {
+					this.retainComposite(composite, this.getComposite(typePart.reference));
+				}
+			}
+
+			superComposite = this.getComposite(this.getTypeInheritedAddress(composite.type));
+
+			if(superComposite != null) {
+				this.setSuperAddress(composite, superComposite);
+			}
+
+			// TODO: Protocol conformance checking (if not conforms, remove from type and report)
+
+			let type = [this.createTypePart(undefined, undefined, { predefined: capitalizedTitle, self: true })],
+				value = this.createValue('reference', composite.addresses.ID),
+				observers = [],
+				statements = node.body?.statements ?? [],
+				objectStatements = []
+
+			this.helpers.separateStatements(statements, objectStatements);
+			this.setStatements(composite, objectStatements);
+
+			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
+			this.executeStatements(statements, composite);
 		},
 		integerLiteral: (node) => {
 			// TODO: Instantinate Integer()
@@ -779,25 +773,7 @@ class Interpreter {
 			return this.createValue('string', string);
 		},
 		structureDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier?.value;
-
-			if(identifier == null) {
-				return;
-			}
-
-			let composite = this.createStructure(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { predefined: 'Structure', self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = [],
-				statements = node.body?.statements ?? [],
-				objectStatements = []
-
-			this.helpers.separateStatements(statements, objectStatements);
-			this.setStatements(composite, objectStatements);
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(statements, composite);
+			this.rules.instantiableDeclaration(node, scope);
 		},
 		typeExpression: (node, scope) => {
 			let type = [],
@@ -1247,10 +1223,7 @@ class Interpreter {
 	 * Removes from the stack and automatically destroys its last scope.
 	 */
 	static removeScope() {
-		let namespace = this.scopes.at(-1)?.namespace;
-
-		this.scopes.pop();
-		this.destroyReleasedComposite(namespace);
+		this.destroyReleasedComposite(this.scopes.pop()?.namespace);
 	}
 
 	static setControlTransfer(value, type) {
