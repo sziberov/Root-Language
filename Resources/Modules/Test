@@ -1,3 +1,28 @@
+func f3() {
+	print(caller)
+
+	func () {
+		print(caller)
+		print(getCallsString())
+	}()
+}
+
+class B {
+	static func f2() {
+		print(caller)
+		f3()
+	}
+}
+
+class A {
+	static func f1() {
+		print(caller)
+		B.f2()
+	}
+}
+
+return A.f1()
+
 var a = 0
 
 class A {

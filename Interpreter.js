@@ -99,8 +99,7 @@ class Interpreter {
 				}
 
 			//	this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
-				let value,
-					FSO;  // Function self object
+				let FSO;  // Function self object
 
 				if(initializer) {
 					let SSO = this.getComposite(scope.addresses.self);  // Scope self (super) object
@@ -147,7 +146,9 @@ class Interpreter {
 					}
 				}
 
-				value = this.callFunction(function_, args, FSO);
+				let SSC = this.getComposite(scope.addresses.Self),  // Scope self composite
+					location = this.tokens[node.range.start]?.location,
+					value = this.callFunction(function_, args, FSO, undefined, SSC, location);
 			//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 				return value;
@@ -566,33 +567,46 @@ class Interpreter {
 			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
 
 			let print = this.createFunction('print', (arguments_) => {
-				this.print(this.getValueString(arguments_[0].value));
-			}, namespace);
+					this.print(this.getValueString(arguments_[0].value));
+				}, namespace),
+				getCallsString = this.createFunction('getCallsString', () => this.createValue('string', this.getCallsString()), namespace);
 
 			print.type = [
 				{
-					"predefined": "Function",
-					"awaits": -1,
-					"throws": -1
+					predefined: 'Function',
+					awaits: -1,
+					throws: -1
 				},
 				{
-					"parameters": true,
-					"super": 0
+					parameters: true,
+					super: 0
 				},
 				{
-					"super": 1,
-					"predefined": "_",
-					"nillable": true,
-					"identifier": "value"
+					super: 1,
+					predefined: '_',
+					nillable: true,
+					identifier: 'value'
 				},
 				{
-					"super": 0,
-					"predefined": "_",
-					"nillable": true
+					super: 0,
+					predefined: '_',
+					nillable: true
+				}
+			]
+			getCallsString.type = [
+				{
+					predefined: 'Function',
+					awaits: -1,
+					throws: -1
+				},
+				{
+					super: 0,
+					predefined: 'string'
 				}
 			]
 
 			this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', print.addresses.ID), []);
+			this.setMemberOverload(namespace, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', getCallsString.addresses.ID), []);
 
 			this.addScope(namespace);
 			this.executeStatements(this.tree?.statements, namespace);
@@ -1210,12 +1224,13 @@ class Interpreter {
 	 * Should be used for function bodies before evaluating its contents,
 	 * so ARC can correctly detect any references.
 	 *
-	 * Additionally function itself can be specified for debugging purposes.
+	 * Additionally function itself and its call location can be specified for debugging purposes.
 	 */
-	static addScope(namespace, function_) {
+	static addScope(namespace, function_, location) {
 		this.scopes.push({
 			namespace: namespace,
-			function: function_
+			function: function_,
+			location: location
 		});
 	}
 
@@ -1224,6 +1239,42 @@ class Interpreter {
 	 */
 	static removeScope() {
 		this.destroyReleasedComposite(this.scopes.pop()?.namespace);
+	}
+
+	static getCallsString() {
+		let result = '';
+
+		for(let i = this.scopes.length-1, j = 0; i >= 0 && j < 8; i--) {
+			let scope = this.scopes[i],
+				function_ = scope.function,
+				location = scope.location;
+
+			if(function_ == null) {
+				continue;
+			}
+
+			if(j > 0) {
+				result += '\n';
+			}
+
+			result += j+': ';
+
+			let composite = this.getComposite(function_.addresses.Self);
+
+			if(function_.title != null && composite != null) {
+				result += (composite.title ?? '#'+composite.addresses.ID)+'.';
+			}
+
+			result += function_.title ?? '#'+function_.addresses.ID;
+
+			if(location != null) {
+				result += ':'+(location.line+1)+':'+(location.column+1);
+			}
+
+			j++;
+		}
+
+		return result;
 	}
 
 	static setControlTransfer(value, type) {
@@ -1284,7 +1335,7 @@ class Interpreter {
 	 *
 	 * If no levels or scope is specified, original function ones is used.
 	 */
-	static callFunction(function_, arguments_ = [], levels, scope) {
+	static callFunction(function_, arguments_ = [], levels, scope, caller, location) {
 		if(typeof function_.statements === 'function') {
 			return function_.statements(arguments_);
 		}
@@ -1295,6 +1346,10 @@ class Interpreter {
 
 		this.setInheritedLevelAddresses(namespace, levels ?? function_);
 
+		if(caller != null) {
+			this.setMemberOverload(namespace, 'caller', [], [{ predefined: 'string' }], this.createValue('reference', caller), []);
+		}
+
 		for(let i = 0; i < arguments_.length; i++) {
 			let argument = arguments_[i],
 				parameterType = this.getSubtype(parameters, parameters[i]),
@@ -1303,7 +1358,7 @@ class Interpreter {
 			this.setMemberOverload(namespace, identifier, [], parameterType, argument.value, []);
 		}
 
-		this.addScope(namespace, function_);
+		this.addScope(namespace, function_, location);
 
 		if(this.typeIsComposite(levels?.type, 'Object')) {
 			let selfComposite = this.getComposite(levels.addresses.Self);
