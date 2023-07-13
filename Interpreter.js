@@ -49,9 +49,10 @@ class Interpreter {
 				args = []
 
 			for(let garg of node.genericArguments) {
-				garg = this.rules.typeExpression(garg, scope);
+				let type = [],
+					typePart = this.helpers.createTypePart(type, undefined, garg, scope);
 
-				gargs.push(garg);
+				gargs.push(type);
 			}
 			for(let arg of node.arguments) {
 				arg = this.rules[arg.type]?.(arg, scope);
@@ -125,15 +126,15 @@ class Interpreter {
 							objects.unshift(object);
 
 							if(objects.length === 1) {
-								/*
 								let gparams = this.getTypeGenericParameters(FSC.type);  // Generic parameters
 
-								for(let i = 0; i < gargs.length; i++) {
-									let garg = gargs[i]
+								for(let i = 0; i < gparams.length; i++) {
+									if(gargs.length-1 < i) {
+										break;
+									}
 
-									this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], garg, []);
+									this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], gargs[i], []);
 								}
-								*/
 							}
 							if(objects.length > 1) {
 								this.setSuperAddress(objects[1], objects[0]);
@@ -174,7 +175,10 @@ class Interpreter {
 			return this.helpers.findMemberOverload(scope, composite, identifier, undefined, true)?.value;
 		},
 		classDeclaration: (node, scope) => {
-			this.rules.instantiableDeclaration(node, scope);
+			this.rules.compositeDeclaration(node, scope);
+		},
+		classExpression: (node, scope) => {
+			return this.rules.compositeDeclaration(node, scope, true);
 		},
 		collectionType: (node, scope, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
@@ -201,6 +205,74 @@ class Interpreter {
 
 			for(let subtype of node.subtypes) {
 				this.helpers.createTypePart(type, typePart, subtype, scope);
+			}
+		},
+		compositeDeclaration: (node, scope, anonymous) => {
+			let modifiers = node.modifiers,
+				identifier = node.identifier?.value;
+
+			if(!anonymous && identifier == null) {
+				return;
+			}
+
+			let title = node.type.replace('Declaration', '')
+								 .replace('Expression', ''),
+				capitalizedTitle = title[0].toUpperCase()+title.slice(1),
+				genericParameters = node.genericParameters,
+				inheritedTypes = node.inheritedTypes,
+				composite = this['create'+capitalizedTitle](identifier, scope);
+
+			if(genericParameters?.length > 0) {
+				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { genericParameters: true });
+
+				for(let genericParameter of genericParameters) {
+					this.rules.genericParameter(genericParameter, scope, composite.type, typePart);
+				}
+			}
+			if(inheritedTypes?.length > 0) {
+				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { inheritedTypes: true });
+
+				for(let inheritedType of inheritedTypes) {
+					this.helpers.createTypePart(composite.type, typePart, inheritedType, scope, false);
+
+					// TODO: Protocol conformance checking (if not conforms, remove from type and report)
+				}
+			}
+			for(let typePart of composite.type) {
+				this.retainComposite(composite, this.getComposite(typePart.reference));
+			}
+
+			if(title === 'class') {
+				let superComposite = this.getComposite(this.getTypeInheritedAddress(composite.type));
+
+				if(superComposite != null) {
+					this.setSuperAddress(composite, superComposite);
+				}
+			}
+
+			let type = [this.createTypePart(undefined, undefined, { predefined: capitalizedTitle, self: true })],
+				value = this.createValue('reference', composite.addresses.ID),
+				observers = [],
+				statements = node.body?.statements ?? [],
+				objectStatements = []
+
+			if(['class', 'structure'].includes(title)) {
+				this.helpers.separateStatements(statements, objectStatements);
+				this.setStatements(composite, objectStatements);
+			}
+
+			if(!anonymous) {
+				this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
+			} else {
+				this.addScope(composite);
+			}
+
+			this.executeStatements(statements, composite);
+
+			if(anonymous) {
+				this.removeScope(false);
+
+				return value;
 			}
 		},
 		defaultType: (n, s, t, tp) => {
@@ -257,15 +329,10 @@ class Interpreter {
 			}
 		},
 		enumerationDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier.value,
-				composite = this.createEnumeration(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { predefined: 'Enumeration', self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = []
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(node.body?.statements, composite);
+			this.rules.compositeDeclaration(node, scope);
+		},
+		enumerationExpression: (node, scope) => {
+			return this.rules.compositeDeclaration(node, scope, true);
 		},
 		expressionsSequence: (node, scope) => {
 			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
@@ -408,7 +475,6 @@ class Interpreter {
 		},
 		genericParameter: (node, scope, type, typePart) => {
 			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
-
 			typePart.identifier = node.identifier.value;
 		},
 		identifier: (node, scope) => {
@@ -514,51 +580,6 @@ class Interpreter {
 		inoutType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['inout']);
 		},
-		instantiableDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier?.value;
-
-			if(identifier == null) {
-				return;
-			}
-
-			let title = node.type.replace('Declaration', ''),
-				capitalizedTitle = title[0].toUpperCase()+title.slice(1),
-				inheritedTypes = node.inheritedTypes,
-				composite = this['create'+capitalizedTitle](identifier, scope),
-				superComposite;
-
-			if(node.inheritedTypes.length > 0) {
-				composite.type[0].inheritedTypes = true;
-
-				for(let node_ of node.inheritedTypes) {
-					this.helpers.createTypePart(composite.type, composite.type[0], node_, scope, false);
-				}
-				for(let typePart of composite.type) {
-					this.retainComposite(composite, this.getComposite(typePart.reference));
-				}
-			}
-
-			superComposite = this.getComposite(this.getTypeInheritedAddress(composite.type));
-
-			if(superComposite != null) {
-				this.setSuperAddress(composite, superComposite);
-			}
-
-			// TODO: Protocol conformance checking (if not conforms, remove from type and report)
-
-			let type = [this.createTypePart(undefined, undefined, { predefined: capitalizedTitle, self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = [],
-				statements = node.body?.statements ?? [],
-				objectStatements = []
-
-			this.helpers.separateStatements(statements, objectStatements);
-			this.setStatements(composite, objectStatements);
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(statements, composite);
-		},
 		integerLiteral: (node) => {
 			// TODO: Instantinate Integer()
 
@@ -618,15 +639,10 @@ class Interpreter {
 			this.resetControlTransfer();
 		},
 		namespaceDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier.value,
-				composite = this.createNamespace(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { predefined: 'Namespace', self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = []
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(node.body?.statements, composite);
+			this.rules.compositeDeclaration(node, scope);
+		},
+		namespaceExpression: (node, scope) => {
+			return this.rules.compositeDeclaration(node, scope, true);
 		},
 		nillableExpression: (node, scope) => {
 			let value;
@@ -721,7 +737,7 @@ class Interpreter {
 				}
 			}
 
-			//TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup
 
 			return value;
 		},
@@ -754,23 +770,18 @@ class Interpreter {
 				}
 			}
 
-			//TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup
 
 			return value;
 		},
 		protocolDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier.value,
-				composite = this.createProtocol(identifier, scope),
-				type = [this.createTypePart(undefined, undefined, { predefined: 'Protocol', self: true })],
-				value = this.createValue('reference', composite.addresses.ID),
-				observers = []
-
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			this.executeStatements(node.body?.statements, composite);
+			this.rules.compositeDeclaration(node, scope);
+		},
+		protocolExpression: (node, scope) => {
+			return this.rules.compositeDeclaration(node, scope, true);
 		},
 		protocolType: (node, scope, type, typePart) => {
-
+			// TODO: This
 		},
 		returnStatement: (node, scope) => {
 			return this.rules[node.value?.type]?.(node.value, scope);
@@ -791,7 +802,10 @@ class Interpreter {
 			return this.createValue('string', string);
 		},
 		structureDeclaration: (node, scope) => {
-			this.rules.instantiableDeclaration(node, scope);
+			this.rules.compositeDeclaration(node, scope);
+		},
+		structureExpression: (node, scope) => {
+			return this.rules.compositeDeclaration(node, scope, true);
 		},
 		typeExpression: (node, scope) => {
 			let type = [],
@@ -1143,7 +1157,7 @@ class Interpreter {
 	 * Returns a significant state of general retainment.
 	 *
 	 * Composite considered significantly retained if it is formally retained by
-	 * the global namespace, a current scope namespace or a return value.
+	 * the global namespace, a current scope namespace or a control trasfer value.
 	 */
 	static compositeRetained(composite) {
 		return (
@@ -1225,10 +1239,12 @@ class Interpreter {
 	}
 
 	/*
-	 * Should be used for function bodies before evaluating its contents,
-	 * so ARC can correctly detect any references.
+	 * Should be used for a bodies before executing its contents.
 	 *
-	 * Additionally function itself and its call location can be specified for debugging purposes.
+	 * ARC utilize a current scope to be aware of retainments by the execution state
+	 * along with a control transfer value.
+	 *
+	 * Additionally function and its call location can be specified for debugging purposes.
 	 */
 	static addScope(namespace, function_, location) {
 		this.scopes.push({
@@ -1239,10 +1255,14 @@ class Interpreter {
 	}
 
 	/*
-	 * Removes from the stack and automatically destroys its last scope.
+	 * Removes from the stack and optionally automatically destroys its last scope.
 	 */
-	static removeScope() {
-		this.destroyReleasedComposite(this.scopes.pop()?.namespace);
+	static removeScope(destroy = true) {
+		let namespace = this.scopes.pop()?.namespace;
+
+		if(destroy) {
+			this.destroyReleasedComposite(namespace);
+		}
 	}
 
 	static getCallsString() {
@@ -1281,6 +1301,12 @@ class Interpreter {
 		return result;
 	}
 
+	/*
+	 * Should be used for a return values before releasing its scopes.
+	 *
+	 * ARC utilize a control trasfer value to be aware of retainments by the execution state
+	 * along with a current scope.
+	 */
 	static setControlTransfer(value, type) {
 		this.controlTransfer = {
 			value: value,
@@ -1486,20 +1512,22 @@ class Interpreter {
 		return part;
 	}
 
-	static getTypeInheritedAddress(inheritingType) {
-		if(!inheritingType?.[0].inheritedTypes) {
+	static getTypeInheritedAddress(type) {
+		let index = type.findIndex(v => v.inheritedTypes);
+
+		if(index === -1) {
 			return;
 		}
 
-		return inheritingType.find(v => v.super === 0)?.reference;
+		return type.find(v => v.super === index)?.reference;
 	}
 
-	static getTypeFunctionParameters(functionType) {
-		let parameters = this.getSubtype(functionType, functionType.find(v => v.parameters && v.super === 0));
+	static getTypeGenericParameters(type) {
+		return this.getSubtype(type, type.find(v => v.genericParameters)).slice(1);
+	}
 
-		parameters.shift();
-
-		return parameters;
+	static getTypeFunctionParameters(type) {
+		return this.getSubtype(type, type.find(v => v.parameters)).slice(1);
 	}
 
 	static getSubtype(type, part, offset) {

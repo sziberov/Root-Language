@@ -1,3 +1,25 @@
+var ns = namespace {
+    func a() {}
+
+    var b = struct {
+        static func b() {}
+    }
+
+    //var b
+}
+
+return
+
+class String {}
+
+class Dictionary<K: String, V> {
+	init() {}
+}
+
+var a = Dictionary<String, _?>()
+
+return
+
 struct Integer {
     private var value: int
 
