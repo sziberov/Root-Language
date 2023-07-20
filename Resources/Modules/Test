@@ -13,10 +13,20 @@ return
 class String {}
 
 class Dictionary<K: String, V> {
-	init() {}
+	private var entries
+
+//	static func init...
+	init(entries: dict | Dictionary) {
+		if entries.entries == nil {
+			self.entries = entries
+		} else {
+			self.entries = entries.entries
+		}
+	}
 }
 
-var a = Dictionary<String, _?>()
+var a = Dictionary<String, _?>(['0': 1]),
+    b = [2: 4]
 
 return
 

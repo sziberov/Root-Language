@@ -11,7 +11,7 @@ class Interpreter {
 		argument: (node, scope) => {
 			return {
 				label: node.label?.value,
-				value: this.rules[node.value?.type]?.(node.value, scope)
+				value: this.executeStatement(node.value, scope)
 			}
 		},
 		arrayLiteral: (node, scope) => {
@@ -19,7 +19,7 @@ class Interpreter {
 				values = []
 
 			for(let value of node.values) {
-				value = this.rules[value.type]?.(value, scope);
+				value = this.executeStatement(value, scope);
 
 				if(value != null) {
 					values.push(value);
@@ -55,7 +55,7 @@ class Interpreter {
 				gargs.push(type);
 			}
 			for(let arg of node.arguments) {
-				arg = this.rules[arg.type]?.(arg, scope);
+				arg = this.executeStatement(arg, scope);
 
 				if(arg != null) {
 					args.push(arg);
@@ -66,97 +66,27 @@ class Interpreter {
 				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee, scope);
 
 			if(calleeMOSP == null) {
-				callee = this.rules[callee?.type]?.(callee, scope);
-			} else
-			if(calleeMOSP.composite == null || calleeMOSP.identifier == null) {
-				this.report(1, node, 'Cannot call anything but a valid identifier or chain expression if no other expression is used.');
+				callee = this.executeStatement(callee, scope);
+			}
+
+			if((calleeMOSP?.composite == null || calleeMOSP?.identifier == null) && callee == null) {
+				this.report(1, node, 'Cannot call anything but a valid (in particular, chain) expression.');
 
 				return;
 			}
 
-			for(let i = 0; i < 2; i++) {
-				let function_ = calleeMOSP == null ? this.findValueFunction(callee, args) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, args), calleeMOSP.internal)?.matchingValue,
-					FSC = this.getComposite(function_?.addresses.Self) ?? calleeMOSP.composite,  // Function self composite
-					initializer = (function_?.title === 'init' || calleeMOSP?.identifier === 'init') && (this.typeIsComposite(FSC?.type, 'Class') || this.typeIsComposite(FSC?.type, 'Structure'));
+			let calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, callee, args, gargs);
 
-				if(function_ == null) {
-					if(i === 0 && !initializer) {  // Fallback to search of an initializer
-						calleeMOSP = {
-							composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
-							identifier: 'init',
-							internal: true
-						}
+			if(calleeFCP.function == null) {
+				this.report(2, node, (!calleeFCP.initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
 
-						if(this.typeIsComposite(calleeMOSP.composite?.type, 'Object')) {
-							calleeMOSP.composite = this.getComposite(calleeMOSP.composite.addresses.Self);
-						}
-
-						continue;
-					}
-
-					this.report(2, node, (!initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
-
-					return;
-				}
-
-			//	this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
-				let FSO;  // Function self object
-
-				if(initializer) {
-					let SSO = this.getComposite(scope.addresses.self);  // Scope self (super) object
-
-					if(this.typeIsComposite(SSO?.type, 'Object')) {  // Find initializer's object in scope
-						while(SSO != null) {
-							if(FSC === this.getComposite(SSO.addresses.Self)) {  // TODO: Ignore object if it is not in the initialization state
-								FSO = SSO;
-
-								break;
-							}
-
-							SSO = this.getComposite(SSO.addresses.super);
-						}
-					}
-
-					if(FSO == null) {  // Or create new object chain
-						let objects = []
-
-						while(FSC != null) {
-							let object = this.createObject(undefined, FSC, objects[0]);
-
-							objects.unshift(object);
-
-							if(objects.length === 1) {
-								let gparams = this.getTypeGenericParameters(FSC.type);  // Generic parameters
-
-								for(let i = 0; i < gparams.length; i++) {
-									if(gargs.length-1 < i) {
-										break;
-									}
-
-									this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], gargs[i], []);
-								}
-							}
-							if(objects.length > 1) {
-								this.setSuperAddress(objects[1], objects[0]);
-							}
-
-							FSC = this.getComposite(this.getTypeInheritedAddress(FSC.type));
-						}
-
-						FSO = objects.at(-1);
-					}
-				}
-
-				let SSC = this.getComposite(scope.addresses.Self),  // Scope self composite
-					location = this.tokens[node.range.start]?.location,
-					value = this.callFunction(function_, args, FSO, undefined, SSC, location);
-			//	this.report(0, node, 'ke: '+JSON.stringify(value));
-
-				return value;
+				return;
 			}
+
+			return this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 		},
 		chainExpression: (node, scope) => {
-			let composite = this.getValueComposite(this.rules[node.composite?.type](node.composite, scope));
+			let composite = this.getValueComposite(this.executeStatement(node.composite, scope));
 
 			if(composite == null) {
 				this.report(2, node, 'Composite wasn\'t found.');
@@ -263,15 +193,13 @@ class Interpreter {
 
 			if(!anonymous) {
 				this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
-			} else {
-				this.addScope(composite);
 			}
 
+			this.addScope(composite);
 			this.executeStatements(statements, composite);
+			this.removeScope(false);
 
 			if(anonymous) {
-				this.removeScope(false);
-
 				return value;
 			}
 		},
@@ -298,23 +226,23 @@ class Interpreter {
 			this.setMemberOverload(scope, identifier, [], type, value, observers, () => {});
 		},
 		dictionaryLiteral: (node, scope) => {
-			let result,
-				entries = new Map();
+			let result = this.createValue('dictionary', new Map());
 
 			for(let entry of node.entries) {
 				entry = this.rules.entry(entry, scope);
 
 				if(entry != null) {
-					entries.set(entry.key, entry.value);
+					result.primitiveValue.set(entry.key, entry.value);
 				}
 			}
 
-			let composite = this.getValueComposite(this.findMemberOverload(scope, 'Dictionary')?.value);
+			let calleeMOSP = { composite: scope, identifier: 'Dictionary', internal: false },
+				args = [{ label: undefined, value: result }],
+				gargs = [],
+				calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, undefined, args, gargs);
 
-			if(composite != null) {
-				// TODO: Instantinate Dictionary()
-			} else {
-				result = this.createValue('dictionary', entries);
+			if(calleeFCP.function != null) {
+				result = this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 			}
 
 			return result;
@@ -324,8 +252,8 @@ class Interpreter {
 		},
 		entry: (node, scope) => {
 			return {
-				key: this.rules[node.key.type]?.(node.key, scope),
-				value: this.rules[node.value?.type]?.(node.value, scope)
+				key: this.executeStatement(node.key, scope),
+				value: this.executeStatement(node.value, scope)
 			}
 		},
 		enumerationDeclaration: (node, scope) => {
@@ -353,15 +281,15 @@ class Interpreter {
 					return;
 				}
 
-				let rhs = this.rules[node.values[2].type]?.(node.values[2], scope);
+				let rhs = this.executeStatement(node.values[2], scope);
 
 				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
 
 				return rhs;
 			}
 			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '==') {
-				let lhs = this.rules[node.values[0].type]?.(node.values[0], scope),
-					rhs = this.rules[node.values[2].type]?.(node.values[2], scope),
+				let lhs = this.executeStatement(node.values[0], scope),
+					rhs = this.executeStatement(node.values[2], scope),
 					value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
 
 				if(!value) {
@@ -446,7 +374,7 @@ class Interpreter {
 					let typePart_ = this.createTypePart(type, typePart, { [v]: true });
 
 					for(let node_ of node[v]) {
-						this.rules[node_.type]?.(node_, scope, type, typePart_);
+						this.executeStatement(node_, scope, type, typePart_);
 					}
 				}
 			}
@@ -485,12 +413,12 @@ class Interpreter {
 				return;
 			}
 
-			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.addresses.ID)+', If>', scope),
+			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.addresses.ID)+', If>', scope, undefined),
 				condition;
 
 			this.addScope(namespace);
 
-			condition = this.rules[node.condition.type]?.(node.condition, namespace);
+			condition = this.executeStatement(node.condition, namespace);
 			condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
 			if(condition || node.else?.type !== 'ifStatement') {
@@ -499,7 +427,7 @@ class Interpreter {
 				if(branch?.type === 'functionBody') {
 					this.executeStatements(branch.statements, namespace);
 				} else {
-					this.setControlTransfer(this.rules[branch?.type]?.(branch, namespace));
+					this.setControlTransfer(this.executeStatement(branch, namespace));
 				}
 			}
 
@@ -564,7 +492,7 @@ class Interpreter {
 			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
 		},
 		inoutExpression: (node, scope) => {
-			let value = this.rules[node.value?.type]?.(node.value, scope);
+			let value = this.executeStatement(node.value, scope);
 
 			if(value?.primitiveType === 'pointer') {
 				return value;
@@ -648,7 +576,7 @@ class Interpreter {
 			let value;
 
 			try {
-				value = this.rules[node?.type]?.(node, scope);
+				value = this.executeStatement(node, scope);
 			} catch(error) {
 				/*
 				if(error !== 0) {
@@ -696,7 +624,7 @@ class Interpreter {
 				typePart[titles[mainTitle ?? 0]] = true;
 			}
 
-			this.rules[node.value?.type]?.(node.value, scope, type, typePart);
+			this.executeStatement(node.value, scope, type, typePart);
 		},
 		parameter: (node, scope, type, typePart) => {
 			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
@@ -712,13 +640,13 @@ class Interpreter {
 			}
 		},
 		parenthesizedExpression: (node, scope) => {
-			return this.rules[node.value?.type]?.(node.value, scope);
+			return this.executeStatement(node.value, scope);
 		},
 		parenthesizedType: (node, scope, type, typePart) => {
-			this.rules[node.value?.type]?.(node.value, scope, type, typePart);
+			this.executeStatement(node.value, scope, type, typePart);
 		},
 		postfixExpression: (node, scope) => {
-			let value = this.rules[node.value?.type]?.(node.value, scope);
+			let value = this.executeStatement(node.value, scope);
 
 			if(value == null) {
 				return;
@@ -745,7 +673,7 @@ class Interpreter {
 			typePart.predefined = node.value;
 		},
 		prefixExpression: (node, scope) => {
-			let value = this.rules[node.value?.type]?.(node.value, scope);
+			let value = this.executeStatement(node.value, scope);
 
 			if(value == null) {
 				return;
@@ -784,7 +712,7 @@ class Interpreter {
 			// TODO: This
 		},
 		returnStatement: (node, scope) => {
-			return this.rules[node.value?.type]?.(node.value, scope);
+			return this.executeStatement(node.value, scope);
 		},
 		stringLiteral: (node, scope, primitive) => {
 			let string = '';
@@ -793,7 +721,7 @@ class Interpreter {
 				if(segment.type === 'stringSegment') {
 					string += segment.value;
 				} else {
-					string += this.getValueString(this.rules[segment.value?.type]?.(segment.value, scope));
+					string += this.getValueString(this.executeStatement(segment.value, scope));
 				}
 			}
 
@@ -844,7 +772,7 @@ class Interpreter {
 				let identifier = declarator.identifier.value,
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_, scope),
-					value = this.rules[declarator.value?.type]?.(declarator.value, scope),
+					value = this.executeStatement(declarator.value, scope),
 					observers = []
 
 				// Type-related checks
@@ -864,6 +792,67 @@ class Interpreter {
 	}
 
 	static helpers = {
+		callFunction: (node, scope, function_, args, gargs, FSC, initializer) => {
+		//	this.report(0, node, 'ca: '+function_.title+', '+function_.addresses.ID);
+
+			let FSO,  // Function self object
+				SSC = this.getComposite(scope.addresses.Self),  // Scope self composite
+				location = this.tokens[node.range.start]?.location;
+
+			if(initializer) {
+				if(gargs.length === 0) {  // Find initializer's object in scope's object chain
+					let SSO = this.getComposite(scope.addresses.self);  // Scope self (super) object
+
+					if(this.typeIsComposite(SSO?.type, 'Object')) {
+						while(SSO != null) {
+							if(FSC === this.getComposite(SSO.addresses.Self)) {
+								if(/*TODO: Ignore object if it is not in the initialization state*/ true) {
+									FSO = SSO;
+								}
+
+								break;
+							}
+
+							SSO = this.getComposite(SSO.addresses.super);
+						}
+					}
+				}
+
+				if(FSO == null) {  // Or create new object chain
+					let objects = []
+
+					while(FSC != null) {
+						let object = this.createObject(undefined, FSC, objects[0]);
+
+						objects.unshift(object);
+
+						if(objects.length === 1) {
+							let gparams = this.getTypeGenericParameters(FSC.type);  // Generic parameters
+
+							for(let i = 0; i < gparams.length; i++) {
+								if(gargs.length-1 < i) {
+									break;
+								}
+
+								this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], gargs[i], []);
+							}
+						}
+						if(objects.length > 1) {
+							this.setSuperAddress(objects[1], objects[0]);
+						}
+
+						FSC = this.getComposite(this.getTypeInheritedAddress(FSC.type));
+					}
+
+					FSO = objects.at(-1);
+				}
+			}
+
+			let value = this.callFunction(function_, args, FSO, undefined, SSC, location);
+		//	this.report(0, node, 'ke: '+JSON.stringify(value));
+
+			return value;
+		},
 		createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
 			let collectionFlags = {
 				array: true,
@@ -890,7 +879,7 @@ class Interpreter {
 		createTypePart: (type, typePart, node, scope, fallback = true) => {
 			typePart = this.createTypePart(type, typePart);
 
-			this.rules[node?.type]?.(node, scope, type, typePart);
+			this.executeStatement(node, scope, type, typePart);
 
 			if(fallback) {
 				for(let flag in typePart) {
@@ -933,6 +922,33 @@ class Interpreter {
 
 			return this.findMemberOverload(composite, identifier, matching, internal);
 		},
+		getFunctionCallParameters: (node, scope, calleeMOSP, callee, args, gargs) => {
+			for(let i = 0; i < 2; i++) {
+				let function_ = calleeMOSP == null ? this.findValueFunction(callee, args) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, args), calleeMOSP.internal)?.matchingValue,
+					FSC = this.getComposite(function_?.addresses.Self) ?? calleeMOSP.composite,  // Function self composite
+					initializer = (function_?.title === 'init' || calleeMOSP?.identifier === 'init') && (this.typeIsComposite(FSC?.type, 'Class') || this.typeIsComposite(FSC?.type, 'Structure'));
+
+				if(function_ == null && i === 0 && !initializer) {  // Fallback to search of an initializer
+					calleeMOSP = {
+						composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
+						identifier: 'init',
+						internal: true
+					}
+
+					if(this.typeIsComposite(calleeMOSP.composite?.type, 'Object')) {
+						calleeMOSP.composite = this.getComposite(calleeMOSP.composite.addresses.Self);
+					}
+
+					continue;
+				}
+
+				return {
+					function: function_,
+					FSC: FSC,
+					initializer: initializer
+				}
+			}
+		},
 		getMemberOverloadSearchParameters: (node, scope) => {
 			if(node.type === 'identifier') {
 				return {
@@ -943,7 +959,7 @@ class Interpreter {
 			} else
 			if(node.type === 'chainExpression') {
 				return {
-					composite: this.getValueComposite(this.rules[node.composite.type]?.(node.composite, scope)),
+					composite: this.getValueComposite(this.executeStatement(node.composite, scope)),
 					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, scope, true).primitiveValue,
 					internal: true
 				}
@@ -1192,10 +1208,19 @@ class Interpreter {
 		return function_;
 	}
 
-	static createNamespace(title, scope) {
+	/*
+	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
+	 * If levels is missed, Scope will prevail over Object and Inheritance chains at member overload search.
+	 */
+	static createNamespace(title, scope, levels) {
 		let namespace = this.createComposite(title, [{ predefined: 'Namespace' }], scope);
 
-		this.setSelfAddress(namespace, namespace);
+		if(levels != null) {
+			this.setInheritedLevelAddresses(namespace, levels);
+		} else
+		if(levels !== undefined) {
+			this.setSelfAddress(namespace, namespace);
+		}
 
 		return namespace;
 	}
@@ -1318,6 +1343,10 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
+	static executeStatement(node, scope, ...arguments_) {
+		return this.rules[node?.type]?.(node, scope, ...arguments_);
+	}
+
 	/*
 	 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
 	 * Manual control transfer and additional control transfer types is supported but should be also implemented by rules.
@@ -1335,7 +1364,7 @@ class Interpreter {
 
 		for(let node of nodes ?? []) {
 			let start = this.composites.length,
-				value = this.rules[node.type]?.(node, scope),
+				value = this.executeStatement(node, scope),
 				end = this.composites.length,
 				CTed = this.controlTransfer != null,
 				explicitlyCTed = CTed && CTT.includes(this.controlTransfer.type),
@@ -1371,10 +1400,8 @@ class Interpreter {
 		}
 
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+function_.addresses.ID)+'>',
-			namespace = scope ?? this.createNamespace(namespaceTitle, function_),
+			namespace = scope ?? this.createNamespace(namespaceTitle, function_, levels ?? function_),
 			parameters = this.getTypeFunctionParameters(function_.type);
-
-		this.setInheritedLevelAddresses(namespace, levels ?? function_);
 
 		if(caller != null) {
 			this.setMemberOverload(namespace, 'caller', [], [{ predefined: 'Any', nillable: true }], this.createValue('reference', caller.addresses.ID), []);
@@ -1982,8 +2009,8 @@ class Interpreter {
 	/*
 	 * Looking for member overload in a function or namespace.
 	 *
-	 * This types are slightly different from other. They inherit levels and eventually aren't
-	 * instantiable nor inheritable themself. But they are still used as members storage
+	 * This types are slightly different from other. They can inherit or miss levels and eventually aren't
+	 * inheritable nor instantiable themself. But they are still used as members storage
 	 * and can participate in plain scope chains.
 	 */
 	static findMemberOverloadInComposite(composite, identifier, matching) {
