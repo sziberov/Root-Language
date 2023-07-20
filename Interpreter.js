@@ -413,7 +413,7 @@ class Interpreter {
 				return;
 			}
 
-			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.addresses.ID)+', If>', scope, undefined),
+			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+scope.addresses.ID)+', If>', scope, null),
 				condition;
 
 			this.addScope(namespace);
@@ -1218,7 +1218,7 @@ class Interpreter {
 		if(levels != null) {
 			this.setInheritedLevelAddresses(namespace, levels);
 		} else
-		if(levels !== undefined) {
+		if(levels !== null) {
 			this.setSelfAddress(namespace, namespace);
 		}
 
@@ -1388,11 +1388,10 @@ class Interpreter {
 
 	/*
 	 * Levels such as super, self or sub, can be inherited from another composite.
-	 * If that composite is an object, it will be initialized with statements stored by its Self.
+	 * If that composite is an unitialized object, it will be initialized with statements stored by its Self.
 	 *
-	 * Specifying a scope means intent to execute function's statements directly into that one fellow composite.
-	 *
-	 * If no levels or scope is specified, original function ones is used.
+	 * Scope, that statements will be executed within, can be set explicitly or created automatically.
+	 * Existing scope will prevail over levels, so it will not inherit them nor an object will be tried to initialize.
 	 */
 	static callFunction(function_, arguments_ = [], levels, scope, caller, location) {
 		if(typeof function_.statements === 'function') {
@@ -1404,7 +1403,10 @@ class Interpreter {
 			parameters = this.getTypeFunctionParameters(function_.type);
 
 		if(caller != null) {
-			this.setMemberOverload(namespace, 'caller', [], [{ predefined: 'Any', nillable: true }], this.createValue('reference', caller.addresses.ID), []);
+			let type = [{ predefined: 'Any', nillable: true }],
+				value = this.createValue('reference', caller.addresses.ID);
+
+			this.setMemberOverload(namespace, 'caller', [], type, value, []);
 		}
 
 		for(let i = 0; i < arguments_.length; i++) {
@@ -1417,7 +1419,7 @@ class Interpreter {
 
 		this.addScope(namespace, function_, location);
 
-		if(this.typeIsComposite(levels?.type, 'Object')) {
+		if(scope == null && this.typeIsComposite(levels?.type, 'Object') /*TODO: Ignore initialized objects*/) {
 			let selfComposite = this.getComposite(levels.addresses.Self);
 
 			this.executeStatements(selfComposite?.statements, levels);
