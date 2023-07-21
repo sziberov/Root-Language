@@ -15,8 +15,9 @@ class String {}
 class Dictionary<K: String, V> {
 	private var entries
 
-//	static func init...
+//	static func init
 	init(entries: dict | Dictionary) {
+	//	if entries is dict
 		if entries.entries == nil {
 			self.entries = entries
 		} else {
@@ -24,6 +25,8 @@ class Dictionary<K: String, V> {
 		}
 	}
 }
+
+//func Dictionary(a) { return a }
 
 var a = Dictionary<String, _?>(['0': 1]),
     b = [2: 4]
