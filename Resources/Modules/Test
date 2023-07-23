@@ -1,3 +1,20 @@
+var b, c
+
+class A {
+	init {
+		if c == nil {
+			c = 0
+			c = Self()
+		}
+	}
+
+	var a = c
+}
+
+b = A()
+
+return
+
 var ns = namespace {
     func a() {}
 

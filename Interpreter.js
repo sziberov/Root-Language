@@ -522,7 +522,12 @@ class Interpreter {
 			let print = this.createFunction('print', (arguments_) => {
 					this.print(this.getValueString(arguments_[0].value));
 				}, namespace),
-				getCallsString = this.createFunction('getCallsString', () => this.createValue('string', this.getCallsString()), namespace);
+				getComposite = this.createFunction('getComposite', (arguments_) => {
+					return this.createValue('reference', arguments_[0].value.primitiveValue);
+				}, namespace),
+				getCallsString = this.createFunction('getCallsString', () => {
+					return this.createValue('string', this.getCallsString());
+				}, namespace);
 
 			print.type = [
 				{
@@ -546,6 +551,27 @@ class Interpreter {
 					nillable: true
 				}
 			]
+			getComposite.type = [
+				{
+					predefined: 'Function',
+					awaits: -1,
+					throws: -1
+				},
+				{
+					parameters: true,
+					super: 0
+				},
+				{
+					super: 1,
+					predefined: 'integer',
+					identifier: 'value'
+				},
+				{
+					super: 0,
+					predefined: 'Any',
+					nillable: true
+				}
+			]
 			getCallsString.type = [
 				{
 					predefined: 'Function',
@@ -559,6 +585,7 @@ class Interpreter {
 			]
 
 			this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(print)), []);
+			this.setMemberOverload(namespace, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)), []);
 			this.setMemberOverload(namespace, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
 
 			this.addScope(namespace);
@@ -806,7 +833,7 @@ class Interpreter {
 					if(this.compositeIsObject(SSO)) {
 						while(SSO != null) {
 							if(FSC === this.getComposite(SSO.IDs.Self)) {
-								if(/*TODO: Ignore object if it is not in the initialization state*/ true) {
+								if(SSO.life === 0) {
 									FSO = SSO;
 								}
 
@@ -1025,8 +1052,7 @@ class Interpreter {
 				scope: undefined,
 				retainers: []
 			},
-			alive: true,
-		//	state: 0  // (0 - Create, 1 - Initialize), 2 - Idle, (3 - Deinitialize, 4 - Destroy)
+			life: 1,  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 			type: type,
 			statements: [],
 			imports: {},
@@ -1046,13 +1072,13 @@ class Interpreter {
 	}
 
 	static destroyComposite(composite) {
-		if(!composite.alive) {
+		if(composite.life === 2) {
 			return;
 		}
 
 	//	this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
-		composite.alive = false;
+		composite.life = 2;
 
 		if(this.compositeIsObject(composite)) {
 			let function_ = this.findMemberOverload(composite, 'deinit', (v) => this.findValueFunction(v.value, []), true)?.matchingValue;
@@ -1075,7 +1101,7 @@ class Interpreter {
 		if(this.getRetainersIDs(composite) > 0) {
 		// TODO: Notify all retainers about destroying
 
-			this.report(1, undefined, 'Composite #'+this.getOwnID(composite)+' was destroyed with a non-empty retainer list.');
+			this.report(1, undefined, 'Composite #'+this.getOwnID(composite)+' was destroyed with a non-empty retainer list (either it was retained by on its own non-significantly-retained composite(s) or something destroyed it forcibly).');
 		}
 
 	//	this.print('de: '+JSON.stringify(composite));
@@ -1140,7 +1166,7 @@ class Interpreter {
 	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
 	 */
 	static compositeRetains(retainingComposite, retainedComposite) {
-		if(retainingComposite?.alive) return (
+		if(retainingComposite?.life < 2) return (
 			this.IDsRetain(retainingComposite, retainedComposite) ||
 			this.typeRetains(retainingComposite.type, retainedComposite) ||
 			this.importsRetain(retainingComposite, retainedComposite) ||
@@ -1159,6 +1185,18 @@ class Interpreter {
 	 * from the lookup and meant to be set internally only.
 	 */
 	static compositeRetainsDistant(retainingComposite, retainedComposite, retainersIDs = []) {
+		/*
+		if(Array.isArray(retainingComposite)) {
+			for(let retainingComposite_ of retainingComposite) {
+				if(this.compositeRetainsDistant(retainingComposite_, retainedComposite)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+		*/
+
 		if(retainedComposite == null || retainingComposite == null) {
 			return;
 		}
@@ -1189,6 +1227,7 @@ class Interpreter {
 		return (
 			this.compositeRetainsDistant(this.getComposite(0), composite) ||
 			this.compositeRetainsDistant(this.getScope()?.namespace, composite) ||
+		//	this.compositeRetainsDistant(this.scopes.map(v => v.namespace), composite) ||  // May be useful when "with" syntax construct will be added
 			this.compositeRetainsDistant(this.getValueComposite(this.controlTransfer?.value), composite)
 		);
 	}
@@ -1239,6 +1278,8 @@ class Interpreter {
 		let title = 'Object<'+(selfComposite.title ?? '#'+this.getOwnID(selfComposite))+'>',
 			type = [{ predefined: 'Object', inheritedTypes: true }, { super: 0, reference: this.getOwnID(selfComposite) }],
 			object = this.createComposite(title, type, selfComposite);
+
+		object.life = 0;
 
 		if(superObject != null) {
 			this.setSuperID(object, superObject);
@@ -1324,6 +1365,10 @@ class Interpreter {
 		if(destroy) {
 			this.destroyReleasedComposite(namespace);
 		}
+	}
+
+	static getCalls() {
+		return this.scopes.filter(v => v.function != null);
 	}
 
 	static getCallsString() {
@@ -1430,6 +1475,12 @@ class Interpreter {
 	 * Existing scope will prevail over levels, so it will not inherit them nor an object will be tried to initialize.
 	 */
 	static callFunction(function_, arguments_ = [], levels, scope, caller, location) {
+		if(this.getCalls().length === this.preferences.callStackSize) {
+			this.report(2, undefined, 'Maximum call stack size exceeded.\n'+this.getCallsString());
+
+			return;
+		}
+
 		if(typeof function_.statements === 'function') {
 			return function_.statements(arguments_);
 		}
@@ -1453,15 +1504,24 @@ class Interpreter {
 			this.setMemberOverload(namespace, identifier, [], parameterType, argument.value, []);
 		}
 
+		let initializing = scope == null && this.compositeIsObject(levels) && levels.life === 0;
+
 		this.addScope(namespace, function_, location);
 
-		if(scope == null && this.compositeIsObject(levels) /*TODO: Ignore initialized objects*/) {
+		if(initializing) {
 			let selfComposite = this.getComposite(levels.IDs.Self);
 
+			this.addScope(levels);
 			this.executeStatements(selfComposite?.statements, levels);
+			this.removeScope(false);
 		}
 
 		this.executeStatements(function_.statements, namespace);
+
+		if(initializing) {
+			levels.life = 1;
+		}
+
 		this.removeScope();
 
 		let returnValue = this.controlTransfer?.value;
@@ -2249,6 +2309,7 @@ class Interpreter {
 		this.scopes = []
 		this.controlTransfer = undefined;
 		this.preferences = {
+			callStackSize: 128,
 			allowedReportLevel: 2,
 			metaprogrammingLevel: 3,
 			arbitaryPrecisionArithmetics: true,
