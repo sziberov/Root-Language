@@ -277,6 +277,38 @@ class Parser {
 
 			return node;
 		},
+		catchClause: () => {
+			let node = {
+				type: 'catchClause',
+				range: {},
+				typeIdentifiers: [],
+				body: undefined,
+				catch: undefined
+			}
+
+			if(this.token.type !== 'keywordCatch') {
+				return;
+			}
+
+			node.range.start = this.position++;
+			node.typeIdentifiers = this.helpers.sequentialNodes(
+				['typeIdentifier'],
+				() => this.token.type.startsWith('operator') && this.token.value === ','
+			);
+			node.body = this.rules.functionBody();
+			node.catch = this.rules.catchClause();
+
+			if(node.typeIdentifiers.length === 0) {
+				this.report(0, node.range.start, node.type, 'No type identifiers.');
+			}
+			if(node.body == null) {
+				this.report(1, node.range.start, node.type, 'No body.');
+			}
+
+			node.range.end = this.position-1;
+
+			return node;
+		},
 		chainBody: (strict) => {
 			let node = this.rules.body('chain');
 
@@ -727,6 +759,33 @@ class Parser {
 
 			return node;
 		},
+		doStatement: () => {
+			let node = {
+				type: 'doStatement',
+				range: {},
+				body: undefined,
+				catch: undefined
+			}
+
+			if(this.token.type !== 'keywordDo') {
+				return;
+			}
+
+			node.range.start = this.position++;
+			node.body = this.rules.functionBody();
+			node.catch = this.rules.catchClause();
+
+			if(node.body == null) {
+				this.report(2, node.range.start, node.type, 'No body.');
+			}
+			if(node.catch == null) {
+				this.report(1, node.range.start, node.type, 'No catch.');
+			}
+
+			node.range.end = this.position-1;
+
+			return node;
+		},
 		elseClause: () => {
 			let node,
 				start = this.position;
@@ -1069,6 +1128,7 @@ class Parser {
 				'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 				'declaration',
 				'controlTransferStatement',
+				'doStatement',
 				'forStatement',
 				'ifStatement',
 				'whileStatement'

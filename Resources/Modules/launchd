@@ -1,0 +1,124 @@
+class Main {
+	var process = _call('info'),
+		daemonsPaths = [
+			'/Library/Launch Daemons',
+			'/Environment/Library/Launch Daemons'
+		],
+		agentsPaths = [
+		//	'~/Library/Launch Agents',
+			'/Library/Launch Agents',
+			'/Environment/Library/Launch Agents'
+		],
+		services = []
+
+	init() awaits {
+		do {
+			if process.ID != 1 && process.parentID != 1 {
+				print('launchd: This program is not meant to be run directly')
+				_call('exit')
+			}
+
+			await load()
+			await _call('catcherCreate', 'processListChanged'/*, observe*/) { observe($0) }
+			await _call('catcherCreate', 'userListChanged') { $0.event == 'added' ? load(nil, $0.value) : nil }
+			await _call('catcherCreate', 'launchLoad') { load($0.label, $0.user) }
+		} catch {
+			_call('exit')
+		}
+	}
+
+	func load(label, user) awaits {
+		if label != nil && services.find { $0.properties.Label == label } {
+			return start(label)
+		}
+
+		for directoryPath in [...daemonsPaths, ...(user != nil ? agentsPaths : [])] {
+			for filePath in (await _call('readDir', directoryPath)).filter { $0.isFile() }.map { directoryPath+'/'+$0.name } {
+				var properties = JSON.parse(await _call('read', filePath))
+
+				if
+					!properties ||
+					typeof properties.Label != 'string' ||
+					typeof properties.Program != 'string' ||
+					properties.Label.length == 0 ||
+					properties.Program.length == 0 ||
+					label != nil && properties.Label != label ||
+					services.find { $0.properties.Label == properties.Label && ($0.type == 'daemon' || $0.user == user && $0.type == 'agent') }
+				{
+					continue
+				}
+
+				services.push([
+					'processID': nil,
+					'user': user ?? process.user,
+					'type': daemonsPaths.includes(directoryPath) ? 'daemon' : 'agent',
+					'status': 'stopped',
+					'properties': properties
+				])
+
+				if label == nil {
+					start(properties.Label)
+				}
+			}
+		}
+
+		if label != nil {
+			start(label)
+		}
+	}
+
+	func start(label) {
+		for service in services.filter { $0.properties.Label == label } {
+			if service.status == 'failed' {
+				_call('throw', nil, 'launchStatus', [ 'event': 'failed', 'value': label ])
+			}
+			if ['launching', 'launched'].includes(service.status) {
+				_call('throw', nil, 'launchStatus', [ 'event': service.status, 'value': label ])
+			}
+			if service.status != 'stopped' {
+				continue
+			}
+
+			service.status = 'launching'
+
+			if value = await _call('exec', service.user, nil, service.properties.Program ?? service.properties.ProgramArguments[0], service.properties.ProgramArguments.slice(1)) {
+				service.processID = value.ID
+				service.status = 'launched'
+			} else {
+				service.processID = nil
+				service.status = 'failed'
+			}
+
+			_call('throw', nil, 'launchStatus', [ 'event': service.status, 'value': label ])
+		}
+	}
+
+	func stop(label) {
+		var service = services.find { $0.properties.Label == label }
+
+		if service || service.status != 'launched' {
+			return
+		}
+
+		_call('kill', service.processID)
+	}
+
+	func observe(a) {
+		if a?.event != 'removed' {
+			return
+		}
+
+		var service = services.find { $0.processID == a.value && $0.status == 'launched' }
+
+		if !service {
+			return
+		}
+
+		service.processID = nil
+		service.status = 'stopped'
+
+		for service in services.filter { $0.status == 'stopped' && $0.properties.KeepAlive } {
+			start(service.properties.Label)
+		}
+	}
+}

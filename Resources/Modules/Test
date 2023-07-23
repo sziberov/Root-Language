@@ -1,3 +1,23 @@
+struct A { init {} }
+struct B<T> { init {} }
+struct C { init {} }
+
+do {
+	throw A()
+} catch A {
+	print(error)
+
+	throw B<C>()
+} catch B<C>, C {
+	print(error)
+
+	throw struct { init {} }()
+} catch {  // _?
+	print(error)
+}
+
+return
+
 var b, c
 
 class A {
