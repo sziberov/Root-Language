@@ -433,10 +433,6 @@ class Interpreter {
 
 			this.removeScope();
 
-			if(this.controlTransfer?.type === 'returnStatement') {
-				return this.controlTransfer.value;
-			}
-
 			if(!condition && node.else?.type === 'ifStatement') {
 				this.rules.ifStatement(node.else, scope);
 			}
@@ -739,7 +735,11 @@ class Interpreter {
 			// TODO: This
 		},
 		returnStatement: (node, scope) => {
-			return this.executeStatement(node.value, scope);
+			let value = this.executeStatement(node.value, scope);
+
+			this.setControlTransfer(value, 'return');
+
+			return value;
 		},
 		stringLiteral: (node, scope, primitive) => {
 			let string = '';
@@ -761,6 +761,13 @@ class Interpreter {
 		},
 		structureExpression: (node, scope) => {
 			return this.rules.compositeDeclaration(node, scope, true);
+		},
+		throwStatement: (node, scope) => {
+			let value = this.executeStatement(node.value, scope);
+
+			this.setControlTransfer(value, 'throw');
+
+			return value;
 		},
 		typeExpression: (node, scope) => {
 			let type = [],
@@ -1435,11 +1442,11 @@ class Interpreter {
 	static executeStatements(nodes, scope, additionalCTT = []) {
 		let globalScope = this.getScope(-1) == null,
 			CTT = [  // Control transfer types
-			//	'breakStatement',
-			//	'continueStatement',
-			//	'fallthroughStatement',
-				'returnStatement',
-				'throwStatement',
+			//	'break',
+			//	'continue',
+			//	'fallthrough',
+				'return',
+				'throw',
 				...additionalCTT
 			]
 
@@ -1447,21 +1454,21 @@ class Interpreter {
 			let start = this.composites.length,
 				value = this.executeStatement(node, scope),
 				end = this.composites.length,
-				CTed = this.controlTransfer != null,
-				explicitlyCTed = CTed && CTT.includes(this.controlTransfer.type),
+				CTed = this.controlTransfer != null,  // Control transferred
+				expectedlyCTed = CTed && CTT.includes(this.controlTransfer.type),
 				valueCTed = CTed && this.controlTransfer.value === value,
-				CTing = CTT.includes(node.type) || node === nodes.at(-1),
-				valueCTing = !explicitlyCTed && !valueCTed && CTing;
+				ICTing = node === nodes.at(-1),  // Implicitly control-transferring
+				valueCTing = !expectedlyCTed && !valueCTed && ICTing;
 
 			if(valueCTing) {
-				this.setControlTransfer(!globalScope ? value : undefined, node.type);
+				this.setControlTransfer(!globalScope ? value : undefined);
 			}
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
 			}
 
-			if(explicitlyCTed || CTing) {
+			if(expectedlyCTed) {
 				break;
 			}
 		}
