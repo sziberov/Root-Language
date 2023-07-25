@@ -1,3 +1,24 @@
+var i = 0
+
+while i < 4 {
+	print(i)
+
+	i++
+
+//	break;
+
+	if true {
+	//	continue;
+	//	return;
+
+		print('.\(i)')
+	}
+
+	print('..\(i)')
+}
+
+return
+
 struct A { init {} }
 struct B<T> { init {} }
 struct C { init {} }
@@ -377,8 +398,10 @@ func a() {
 
 return a()
 
-var primitiveArray = [1, 2, 3, 4],
+var primitiveArray = [1, 2, 3, 4, func (v) { print(v) }],
 	primitiveDictionary = [1: 2, 3: 4]
+
+return primitiveArray(1234)
 
 class Animal {
 	init {}

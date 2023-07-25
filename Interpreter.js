@@ -35,6 +35,13 @@ class Interpreter {
 
 			return this.helpers.wrapValue(node, scope, 'Boolean', value);
 		},
+		breakStatement: (node, scope) => {
+			let value = node.label != null ? this.createValue('string', node.label.value) : undefined;
+
+			this.setControlTransfer(value, 'break');
+
+			return value;
+		},
 		callExpression: (node, scope) => {
 			let gargs = [],  // (Generic) arguments
 				args = []
@@ -194,6 +201,13 @@ class Interpreter {
 				return value;
 			}
 		},
+		continueStatement: (node, scope) => {
+			let value = node.label != null ? this.createValue('string', node.label.value) : undefined;
+
+			this.setControlTransfer(value, 'continue');
+
+			return value;
+		},
 		defaultType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
 		},
@@ -277,6 +291,13 @@ class Interpreter {
 				if(!value) {
 				//	debugger;
 				}
+
+				return this.createValue('boolean', value);
+			}
+			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '<') {
+				let lhs = this.executeStatement(node.values[0], scope),
+					rhs = this.executeStatement(node.values[2], scope),
+					value = lhs?.primitiveValue < rhs?.primitiveValue;
 
 				return this.createValue('boolean', value);
 			}
@@ -806,7 +827,44 @@ class Interpreter {
 			this.rules.optionalType(n, s, t, tp, ['variadic']);
 		},
 		whileStatement: (node, scope) => {
+			if(node.condition == null) {
+				return;
+			}
 
+			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+this.getOwnID(scope))+', While>', scope, null),
+				condition;
+
+			this.addScope(namespace);
+
+			while(true) {
+				this.removeMembers(namespace);
+
+				condition = this.executeStatement(node.condition, namespace);
+				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
+
+				if(!condition) {
+					break;
+				}
+
+				if(node.value?.type === 'functionBody') {
+					this.executeStatements(node.value.statements, namespace);
+				} else {
+					this.setControlTransfer(this.executeStatement(node.value, namespace));
+				}
+
+				let CTT = this.controlTransfer?.type;
+
+				if(['break', 'continue'].includes(CTT)) {
+					this.resetControlTransfer();
+				}
+				if(['break', 'return'].includes(CTT)) {
+					break;
+				}
+			}
+
+			this.removeScope();
+
+			return this.controlTransfer?.value;
 		}
 	}
 
@@ -1348,10 +1406,8 @@ class Interpreter {
 	}
 
 	/*
-	 * Should be used for a bodies before executing its contents.
-	 *
-	 * ARC utilize a current scope to be aware of retainments by the execution state
-	 * along with a control transfer value.
+	 * Should be used for a bodies before executing its contents,
+	 * as ARC utilizes a current scope at the moment.
 	 *
 	 * Additionally function and its call location can be specified for debugging purposes.
 	 */
@@ -1415,10 +1471,10 @@ class Interpreter {
 	}
 
 	/*
-	 * Should be used for a return values before releasing its scopes.
+	 * Should be used for a return values before releasing its scopes,
+	 * as ARC utilizes a control trasfer value at the moment.
 	 *
-	 * ARC utilize a control trasfer value to be aware of retainments by the execution state
-	 * along with a current scope.
+	 * Specifying a type means explicit control transfer.
 	 */
 	static setControlTransfer(value, type) {
 		this.controlTransfer = {
@@ -1436,28 +1492,23 @@ class Interpreter {
 	}
 
 	/*
-	 * Last statement in a body will be treated like an implicit return (overwritable by subsequent
-	 * outer statements) if it's not a manual control transfer.
+	 * Last statement in a body will be treated like a local return (overwritable by subsequent
+	 * outer statements) if there was no explicit control transfer previously.
 	 *
-	 * Manual control transfer and its local types should be implemented by rules.
+	 * Explicit control transfer should be implemented by rules.
 	 */
-	static executeStatements(nodes, scope, localCTT = []) {
-		let globalScope = this.getScope(-1) == null,
-			CTT = [  // Control transfer types
-				'return',
-				'throw',
-				...localCTT  // 'break', 'continue', 'fallthrough'
-			]
+	static executeStatements(nodes, scope) {
+		let globalScope = this.getScope(-1) == null;
 
 		for(let node of nodes ?? []) {
 			let start = this.composites.length,
 				value = this.executeStatement(node, scope),
 				end = this.composites.length,
 				CTed = this.controlTransfer != null,  // Control transferred
-				expectedlyCTed = CTed && CTT.includes(this.controlTransfer.type),
+				explicitlyCTed = CTed && this.controlTransfer.type != null,
 				valueCTed = CTed && this.controlTransfer.value === value,
-				ICTing = node === nodes.at(-1),  // Implicitly control-transferring
-				valueCTing = !expectedlyCTed && !valueCTed && ICTing;
+				CTing = node === nodes.at(-1),  // Control-transferring (implicitly)
+				valueCTing = !explicitlyCTed && !valueCTed && CTing;
 
 			if(valueCTing) {
 				this.setControlTransfer(!globalScope ? value : undefined);
@@ -1467,7 +1518,7 @@ class Interpreter {
 				this.destroyReleasedComposite(this.getComposite(start));
 			}
 
-			if(expectedlyCTed) {
+			if(explicitlyCTed) {
 				break;
 			}
 		}
@@ -1493,6 +1544,7 @@ class Interpreter {
 
 		let namespaceTitle = 'Call<'+(function_.title ?? '#'+this.getOwnID(function_))+'>',
 			namespace = scope ?? this.createNamespace(namespaceTitle, function_, levels ?? function_),
+			properties = this.getTypeFunctionProperties(function_.type),
 			parameters = this.getTypeFunctionParameters(function_.type);
 
 		if(caller != null) {
@@ -1530,13 +1582,26 @@ class Interpreter {
 
 		this.removeScope();
 
-		let returnValue = this.controlTransfer?.value;
+		let CTT = this.controlTransfer?.type,
+			CTV;
 
-		// TODO: Return value type checking
+		if([undefined, 'return', 'throw'].includes(CTT)) {
+			CTV = this.controlTransfer?.value;
 
-		this.resetControlTransfer();
+			if(CTT !== 'throw') {
+				this.resetControlTransfer();
+			} else {
+				if(properties.throws === 1) {
+					return;
+				}
 
-		return returnValue;
+				this.report(2, undefined, this.getValueString(CTV));
+			}
+		}
+
+		// TODO: CTV type checking
+
+		return CTV;
 	}
 
 	static setCompositeType(composite, type) {
@@ -1671,6 +1736,13 @@ class Interpreter {
 
 	static getTypeGenericParameters(type) {
 		return this.getSubtype(type, type.find(v => v.genericParameters)).slice(1);
+	}
+
+	static getTypeFunctionProperties(type) {
+		return {
+			awaits: type[0]?.awaits,
+			throws: type[0]?.throws
+		}
 	}
 
 	static getTypeFunctionParameters(type) {
@@ -2030,6 +2102,12 @@ class Interpreter {
 
 		for(let overload of member) {
 			this.retainOrReleaseValueComposites(composite, overload.value);
+		}
+	}
+
+	static removeMembers(composite) {
+		for(let identifier in composite.members) {
+			this.removeMember(composite, identifier);
 		}
 	}
 
