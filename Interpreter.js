@@ -15,34 +15,25 @@ class Interpreter {
 			}
 		},
 		arrayLiteral: (node, scope) => {
-			let result,
-				values = []
+			let value = this.createValue('dictionary', new Map());
 
-			for(let value of node.values) {
-				value = this.executeStatement(value, scope);
+			for(let i = 0; i < node.values.length; i++) {
+				let value_ = this.executeStatement(node.values[i], scope);
 
-				if(value != null) {
-					values.push(value);
+				if(value_ != null) {
+					value.primitiveValue.set(i, value_);
 				}
 			}
 
-			let composite = this.getValueComposite(this.findMemberOverload(scope, 'Array')?.value);
-
-			if(composite != null) {
-				// TODO: Instantinate Array()
-			} else {
-				result = this.createValue('dictionary', values);
-			}
-
-			return result;
+			return this.helpers.wrapValue(node, scope, 'Array', value);
 		},
 		arrayType: (n, s, t, tp) => {
 			this.rules.collectionType(n, s, t, tp, 'array');
 		},
-		booleanLiteral: (node) => {
-			// TODO: Instantinate Boolean()
+		booleanLiteral: (node, scope) => {
+			let value = this.createValue('boolean', node.value === 'true');
 
-			return this.createValue('boolean', node.value === 'true');
+			return this.helpers.wrapValue(node, scope, 'Boolean', value);
 		},
 		callExpression: (node, scope) => {
 			let gargs = [],  // (Generic) arguments
@@ -226,26 +217,17 @@ class Interpreter {
 			this.setMemberOverload(scope, identifier, [], type, value, observers, () => {});
 		},
 		dictionaryLiteral: (node, scope) => {
-			let result = this.createValue('dictionary', new Map());
+			let value = this.createValue('dictionary', new Map());
 
 			for(let entry of node.entries) {
 				entry = this.rules.entry(entry, scope);
 
 				if(entry != null) {
-					result.primitiveValue.set(entry.key, entry.value);
+					value.primitiveValue.set(entry.key, entry.value);
 				}
 			}
 
-			let calleeMOSP = { composite: scope, identifier: 'Dictionary', internal: false },
-				args = [{ label: undefined, value: result }],
-				gargs = [],
-				calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, undefined, args, gargs);
-
-			if(calleeFCP.function != null) {
-				result = this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
-			}
-
-			return result;
+			return this.helpers.wrapValue(node, scope, 'Dictionary', value);
 		},
 		dictionaryType: (n, s, t, tp) => {
 			this.rules.collectionType(n, s, t, tp, 'dictionary');
@@ -299,10 +281,10 @@ class Interpreter {
 				return this.createValue('boolean', value);
 			}
 		},
-		floatLiteral: (node) => {
-			// TODO: Instantinate Float()
+		floatLiteral: (node, scope) => {
+			let value = this.createValue('float', node.value*1);
 
-			return this.createValue('float', node.value*1);
+			return this.helpers.wrapValue(node, scope, 'Float', value);
 		},
 		functionDeclaration: (node, scope) => {
 			let modifiers = node.modifiers,
@@ -504,10 +486,10 @@ class Interpreter {
 		inoutType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['inout']);
 		},
-		integerLiteral: (node) => {
-			// TODO: Instantinate Integer()
+		integerLiteral: (node, scope) => {
+			let value = this.createValue('integer', node.value*1);
 
-			return this.createValue('integer', node.value*1);
+			return this.helpers.wrapValue(node, scope, 'Integer', value);
 		},
 		intersectionType: (n, s, t, tp) => {
 			this.rules.combiningType(n, s, t, tp, 'intersection');
@@ -752,9 +734,9 @@ class Interpreter {
 				}
 			}
 
-			// TODO: Instantinate String()
+			let value = this.createValue('string', string);
 
-			return this.createValue('string', string);
+			return this.helpers.wrapValue(node, scope, 'String', value);
 		},
 		structureDeclaration: (node, scope) => {
 			this.rules.compositeDeclaration(node, scope);
@@ -822,6 +804,9 @@ class Interpreter {
 		},
 		variadicType: (n, s, t, tp) => {
 			this.rules.optionalType(n, s, t, tp, ['variadic']);
+		},
+		whileStatement: (node, scope) => {
+
 		}
 	}
 
@@ -1000,6 +985,18 @@ class Interpreter {
 					internal: true
 				}
 			}
+		},
+		wrapValue: (node, scope, wrapperIdentifier, value) => {
+			let calleeMOSP = { composite: scope, identifier: wrapperIdentifier, internal: false },
+				args = [{ label: undefined, value: value }],
+				gargs = [],
+				calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, undefined, args, gargs);
+
+			if(calleeFCP.function != null) {
+				return this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+			}
+
+			return value;
 		}
 	}
 
@@ -1073,6 +1070,7 @@ class Interpreter {
 		if(scope != null) {
 			this.setScopeID(composite, scope);
 		}
+
 	//	this.print('cr: '+composite.title+', '+this.getOwnID(composite));
 
 		return composite;
@@ -1083,7 +1081,7 @@ class Interpreter {
 			return;
 		}
 
-	//	this.print('ds: '+composite.title+', '+this.getOwnID(composite));
+//		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
 		composite.life = 2;
 
@@ -1142,7 +1140,9 @@ class Interpreter {
 			retainingID = this.getOwnID(retainingComposite);
 
 		if(retainersIDs.includes(retainingID)) {
-			retainersIDs.splice(retainersIDs.indexOf(retainingID));
+//			this.print('rl: '+this.getOwnID(retainingComposite)+', '+this.getOwnID(retainedComposite)+', '+this.getRetainersIDs(retainedComposite));
+
+			retainersIDs.splice(retainersIDs.indexOf(retainingID), 1);
 
 			this.destroyReleasedComposite(retainedComposite);
 		}
@@ -1436,18 +1436,17 @@ class Interpreter {
 	}
 
 	/*
-	 * Last statement in a body will be treated like a returning one even if it's not an explicit return.
-	 * Manual control transfer and additional control transfer types is supported but should be also implemented by rules.
+	 * Last statement in a body will be treated like an implicit return (overwritable by subsequent
+	 * outer statements) if it's not a manual control transfer.
+	 *
+	 * Manual control transfer and its local types should be implemented by rules.
 	 */
-	static executeStatements(nodes, scope, additionalCTT = []) {
+	static executeStatements(nodes, scope, localCTT = []) {
 		let globalScope = this.getScope(-1) == null,
 			CTT = [  // Control transfer types
-			//	'break',
-			//	'continue',
-			//	'fallthrough',
 				'return',
 				'throw',
-				...additionalCTT
+				...localCTT  // 'break', 'continue', 'fallthrough'
 			]
 
 		for(let node of nodes ?? []) {
@@ -1813,7 +1812,23 @@ class Interpreter {
 			return JSON.stringify(composite);
 		}
 
-		return value != null ? JSON.stringify(value) : 'nil';
+		if(value != null) {
+			return JSON.stringify(value, (k, v) => {
+				if(v instanceof Map) {
+					return {
+						__TYPE__: 'Map',
+						__VALUE__: Array.from(v.entries())
+					}
+				} else
+				if(v == null) {
+					return null;
+				} else {
+					return v;
+				}
+			});
+		}
+
+		return 'nil';
 	}
 
 	static getValueFunction(value, arguments_) {
@@ -1850,8 +1865,8 @@ class Interpreter {
 		let function_;
 
 		if(value?.primitiveType === 'dictionary') {
-			for(let key in value.primitiveValue) {
-				if((function_ = this./*find*/getValueFunction(value.primitiveValue[key], arguments_)) != null) {
+			for(let [key, value_] of value.primitiveValue) {
+				if((function_ = this./*find*/getValueFunction(value_, arguments_)) != null) {
 					break;
 				}
 			}
@@ -1864,8 +1879,9 @@ class Interpreter {
 
 	static retainOrReleaseValueComposites(retainingComposite, retainingValue) {
 		if(retainingValue?.primitiveType === 'dictionary') {
-			for(let key in retainingValue.primitiveValue) {
-				this.retainOrReleaseValueComposites(retainingComposite, retainingValue.primitiveValue[key]);
+			for(let [retainingKey, retainingValue_] of retainingValue.primitiveValue) {
+				this.retainOrReleaseValueComposites(retainingComposite, retainingKey);
+				this.retainOrReleaseValueComposites(retainingComposite, retainingValue_);
 			}
 		} else {
 			this.retainOrReleaseComposite(retainingComposite, this.getValueComposite(retainingValue));
@@ -1874,10 +1890,11 @@ class Interpreter {
 
 	static valueRetains(retainingValue, retainedComposite) {
 		if(retainingValue?.primitiveType === 'dictionary') {
-			for(let key in retainingValue.primitiveValue) {
-				let retainingValue_ = retainingValue.primitiveValue[key]
-
-				if(this.valueRetains(retainingValue_, retainedComposite)) {
+			for(let [retainingKey, retainingValue_] of retainingValue.primitiveValue) {
+				if(
+					this.valueRetains(retainingKey, retainedComposite) ||
+					this.valueRetains(retainingValue_, retainedComposite)
+				) {
 					return true;
 				}
 			}

@@ -47,12 +47,23 @@ var ns = namespace {
 
 return
 
-class String {}
-
-class Dictionary<K: String, V> {
-	private var entries
+class String {
+	private var value
 
 //	static func init
+	init(value: string | String) {
+	//	if value is dict
+		if value.value == nil {
+			self.value = value
+		} else {
+			self.value = value.value
+		}
+	}
+}
+
+class Dictionary<K: string | String, V> {
+	private var entries
+
 	init(entries: dict | Dictionary) {
 	//	if entries is dict
 		if entries.entries == nil {
@@ -63,7 +74,8 @@ class Dictionary<K: String, V> {
 	}
 }
 
-//func Dictionary(a) { return a }
+//func String(a) { print(a); a }
+//func Dictionary(a) { print(a); a }
 
 var a = Dictionary<String, _?>(['0': 1]),
     b = [2: 4]
