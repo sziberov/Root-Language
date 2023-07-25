@@ -8,109 +8,109 @@ class Interpreter {
 	static reports;
 
 	static rules = {
-		argument: (node, scope) => {
+		argument: (n) => {
 			return {
-				label: node.label?.value,
-				value: this.executeStatement(node.value, scope)
+				label: n.label?.value,
+				value: this.executeStatement(n.value)
 			}
 		},
-		arrayLiteral: (node, scope) => {
+		arrayLiteral: (n) => {
 			let value = this.createValue('dictionary', new Map());
 
-			for(let i = 0; i < node.values.length; i++) {
-				let value_ = this.executeStatement(node.values[i], scope);
+			for(let i = 0; i < n.values.length; i++) {
+				let value_ = this.executeStatement(n.values[i]);
 
 				if(value_ != null) {
 					value.primitiveValue.set(i, value_);
 				}
 			}
 
-			return this.helpers.wrapValue(node, scope, 'Array', value);
+			return this.helpers.wrapValue(n, 'Array', value);
 		},
-		arrayType: (n, s, t, tp) => {
-			this.rules.collectionType(n, s, t, tp, 'array');
+		arrayType: (n, t, tp) => {
+			this.rules.collectionType(n, t, tp, 'array');
 		},
-		booleanLiteral: (node, scope) => {
-			let value = this.createValue('boolean', node.value === 'true');
+		booleanLiteral: (n) => {
+			let value = this.createValue('boolean', n.value === 'true');
 
-			return this.helpers.wrapValue(node, scope, 'Boolean', value);
+			return this.helpers.wrapValue(n, 'Boolean', value);
 		},
-		breakStatement: (node, scope) => {
-			let value = node.label != null ? this.createValue('string', node.label.value) : undefined;
+		breakStatement: (n) => {
+			let value = n.label != null ? this.createValue('string', n.label.value) : undefined;
 
 			this.setControlTransfer(value, 'break');
 
 			return value;
 		},
-		callExpression: (node, scope) => {
+		callExpression: (n) => {
 			let gargs = [],  // (Generic) arguments
 				args = []
 
-			for(let garg of node.genericArguments) {
+			for(let garg of n.genericArguments) {
 				let type = [],
-					typePart = this.helpers.createTypePart(type, undefined, garg, scope);
+					typePart = this.helpers.createTypePart(type, undefined, garg);
 
 				gargs.push(type);
 			}
-			for(let arg of node.arguments) {
-				arg = this.executeStatement(arg, scope);
+			for(let arg of n.arguments) {
+				arg = this.executeStatement(arg);
 
 				if(arg != null) {
 					args.push(arg);
 				}
 			}
 
-			let callee = node.callee,
-				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee, scope);
+			let callee = n.callee,
+				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee);
 
 			if(calleeMOSP == null) {
-				callee = this.executeStatement(callee, scope);
+				callee = this.executeStatement(callee);
 			}
 
 			if((calleeMOSP?.composite == null || calleeMOSP?.identifier == null) && callee == null) {
-				this.report(1, node, 'Cannot call anything but a valid (in particular, chain) expression.');
+				this.report(1, n, 'Cannot call anything but a valid (in particular, chain) expression.');
 
 				return;
 			}
 
-			let calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, callee, args, gargs);
+			let calleeFCP = this.helpers.getFunctionCallParameters(n, calleeMOSP, callee, args, gargs);
 
 			if(calleeFCP.function == null) {
-				this.report(2, node, (!calleeFCP.initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
+				this.report(2, n, (!calleeFCP.initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
 
 				return;
 			}
 
-			return this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+			return this.helpers.callFunction(n, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 		},
-		chainExpression: (node, scope) => {
-			let composite = this.getValueComposite(this.executeStatement(node.composite, scope));
+		chainExpression: (n) => {
+			let composite = this.getValueComposite(this.executeStatement(n.composite));
 
 			if(composite == null) {
-				this.report(2, node, 'Composite wasn\'t found.');
+				this.report(2, n, 'Composite wasn\'t found.');
 
 				return;
 			}
 
-			let identifier = node.member;
+			let identifier = n.member;
 
 			if(identifier.type === 'stringLiteral') {
-				identifier = this.rules.stringLiteral(node.member, scope);
+				identifier = this.rules.stringLiteral(n.member);
 			} else {
 				identifier = identifier.value;
 			}
 
-			return this.helpers.findMemberOverload(scope, composite, identifier, undefined, true)?.value;
+			return this.helpers.findMemberOverload(this.scope, composite, identifier, undefined, true)?.value;
 		},
-		classDeclaration: (node, scope) => {
-			this.rules.compositeDeclaration(node, scope);
+		classDeclaration: (n) => {
+			this.rules.compositeDeclaration(n);
 		},
-		classExpression: (node, scope) => {
-			return this.rules.compositeDeclaration(node, scope, true);
+		classExpression: (n) => {
+			return this.rules.compositeDeclaration(n, true);
 		},
-		collectionType: (node, scope, type, typePart, title) => {
+		collectionType: (n, type, typePart, title) => {
 			let capitalizedTitle = title[0].toUpperCase()+title.slice(1),
-				composite = this.getValueComposite(this.findMemberOverload(scope, capitalizedTitle)?.value);
+				composite = this.getValueComposite(this.findMemberOverload(this.scope, capitalizedTitle)?.value);
 
 			if(composite != null) {
 				typePart.reference = this.getOwnID(composite);
@@ -119,49 +119,49 @@ class Interpreter {
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
 
 			if(title === 'dictionary') {
-				this.helpers.createTypePart(type, typePart, node.key, scope);
+				this.helpers.createTypePart(type, typePart, n.key);
 			}
 
-			this.helpers.createTypePart(type, typePart, node.value, scope);
+			this.helpers.createTypePart(type, typePart, n.value);
 		},
-		combiningType: (node, scope, type, typePart, title) => {
-			if(node.subtypes.length === 0) {
+		combiningType: (n, type, typePart, title) => {
+			if(n.subtypes.length === 0) {
 				return;
 			}
 
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [title]: true });
 
-			for(let subtype of node.subtypes) {
-				this.helpers.createTypePart(type, typePart, subtype, scope);
+			for(let subtype of n.subtypes) {
+				this.helpers.createTypePart(type, typePart, subtype);
 			}
 		},
-		compositeDeclaration: (node, scope, anonymous) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier?.value;
+		compositeDeclaration: (n, anonymous) => {
+			let modifiers = n.modifiers,
+				identifier = n.identifier?.value;
 
 			if(!anonymous && identifier == null) {
 				return;
 			}
 
-			let title = node.type.replace('Declaration', '')
-								 .replace('Expression', ''),
+			let title = n.type.replace('Declaration', '')
+							  .replace('Expression', ''),
 				capitalizedTitle = title[0].toUpperCase()+title.slice(1),
-				genericParameters = node.genericParameters,
-				inheritedTypes = node.inheritedTypes,
-				composite = this['create'+capitalizedTitle](identifier, scope);
+				genericParameters = n.genericParameters,
+				inheritedTypes = n.inheritedTypes,
+				composite = this['create'+capitalizedTitle](identifier, this.scope);
 
 			if(genericParameters?.length > 0) {
 				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { genericParameters: true });
 
 				for(let genericParameter of genericParameters) {
-					this.rules.genericParameter(genericParameter, scope, composite.type, typePart);
+					this.rules.genericParameter(genericParameter, composite.type, typePart);
 				}
 			}
 			if(inheritedTypes?.length > 0) {
 				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { inheritedTypes: true });
 
 				for(let inheritedType of inheritedTypes) {
-					this.helpers.createTypePart(composite.type, typePart, inheritedType, scope, false);
+					this.helpers.createTypePart(composite.type, typePart, inheritedType, false);
 
 					// TODO: Protocol conformance checking (if not conforms, remove from type and report)
 				}
@@ -181,7 +181,7 @@ class Interpreter {
 			let type = [this.createTypePart(undefined, undefined, { predefined: capitalizedTitle, self: true })],
 				value = this.createValue('reference', this.getOwnID(composite)),
 				observers = [],
-				statements = node.body?.statements ?? [],
+				statements = n.body?.statements ?? [],
 				objectStatements = []
 
 			if(['class', 'structure'].includes(title)) {
@@ -190,30 +190,30 @@ class Interpreter {
 			}
 
 			if(!anonymous) {
-				this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
+				this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers);
 			}
 
 			this.addScope(composite);
-			this.executeStatements(statements, composite);
+			this.executeStatements(statements);
 			this.removeScope(false);
 
 			if(anonymous) {
 				return value;
 			}
 		},
-		continueStatement: (node, scope) => {
-			let value = node.label != null ? this.createValue('string', node.label.value) : undefined;
+		continueStatement: (n) => {
+			let value = n.label != null ? this.createValue('string', n.label.value) : undefined;
 
 			this.setControlTransfer(value, 'continue');
 
 			return value;
 		},
-		defaultType: (n, s, t, tp) => {
-			this.rules.optionalType(n, s, t, tp, ['default', 'nillable']);
+		defaultType: (n, t, tp) => {
+			this.rules.optionalType(n, t, tp, ['default', 'nillable']);
 		},
-		deinitializerDeclaration: (node, scope) => {
+		deinitializerDeclaration: (n) => {
 			let identifier = 'deinit',
-				function_ = this.createFunction(identifier, node.body?.statements, scope),
+				function_ = this.createFunction(identifier, n.body?.statements, this.scope),
 				signature = this.rules.functionSignature({
 					type: 'functionSignature',
 					genericParameters: [],
@@ -221,47 +221,47 @@ class Interpreter {
 					awaits: -1,  // 1?
 					throws: -1,  // 1?
 					returnType: undefined
-				}, scope),
+				}),
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value = this.createValue('reference', this.getOwnID(function_)),
 				observers = []
 
 			function_.type = signature;
 
-			this.setMemberOverload(scope, identifier, [], type, value, observers, () => {});
+			this.setMemberOverload(this.scope, identifier, [], type, value, observers, () => {});
 		},
-		dictionaryLiteral: (node, scope) => {
+		dictionaryLiteral: (n) => {
 			let value = this.createValue('dictionary', new Map());
 
-			for(let entry of node.entries) {
-				entry = this.rules.entry(entry, scope);
+			for(let entry of n.entries) {
+				entry = this.rules.entry(entry);
 
 				if(entry != null) {
 					value.primitiveValue.set(entry.key, entry.value);
 				}
 			}
 
-			return this.helpers.wrapValue(node, scope, 'Dictionary', value);
+			return this.helpers.wrapValue(n, 'Dictionary', value);
 		},
-		dictionaryType: (n, s, t, tp) => {
-			this.rules.collectionType(n, s, t, tp, 'dictionary');
+		dictionaryType: (n, t, tp) => {
+			this.rules.collectionType(n, t, tp, 'dictionary');
 		},
-		entry: (node, scope) => {
+		entry: (n) => {
 			return {
-				key: this.executeStatement(node.key, scope),
-				value: this.executeStatement(node.value, scope)
+				key: this.executeStatement(n.key),
+				value: this.executeStatement(n.value)
 			}
 		},
-		enumerationDeclaration: (node, scope) => {
-			this.rules.compositeDeclaration(node, scope);
+		enumerationDeclaration: (n) => {
+			this.rules.compositeDeclaration(n);
 		},
-		enumerationExpression: (node, scope) => {
-			return this.rules.compositeDeclaration(node, scope, true);
+		enumerationExpression: (n) => {
+			return this.rules.compositeDeclaration(n, true);
 		},
-		expressionsSequence: (node, scope) => {
-			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '=') {
-				let lhs = node.values[0],
-					lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs, scope);
+		expressionsSequence: (n) => {
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '=') {
+				let lhs = n.values[0],
+					lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs);
 
 				if(lhsMOSP != null && lhsMOSP.composite != null && lhsMOSP.identifier != null) {
 					lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
@@ -272,20 +272,20 @@ class Interpreter {
 				// TODO: Create member with default type if not exists
 
 				if(lhs == null) {
-					this.report(1, node, 'Cannot assign to anything but a valid identifier or chain expression.');
+					this.report(1, n, 'Cannot assign to anything but a valid identifier or chain expression.');
 
 					return;
 				}
 
-				let rhs = this.executeStatement(node.values[2], scope);
+				let rhs = this.executeStatement(n.values[2]);
 
 				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
 
 				return rhs;
 			}
-			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '==') {
-				let lhs = this.executeStatement(node.values[0], scope),
-					rhs = this.executeStatement(node.values[2], scope),
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '==') {
+				let lhs = this.executeStatement(n.values[0]),
+					rhs = this.executeStatement(n.values[2]),
 					value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
 
 				if(!value) {
@@ -294,159 +294,161 @@ class Interpreter {
 
 				return this.createValue('boolean', value);
 			}
-			if(node.values.length === 3 && node.values[1].type === 'infixOperator' && node.values[1].value === '<') {
-				let lhs = this.executeStatement(node.values[0], scope),
-					rhs = this.executeStatement(node.values[2], scope),
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<') {
+				let lhs = this.executeStatement(n.values[0]),
+					rhs = this.executeStatement(n.values[2]),
 					value = lhs?.primitiveValue < rhs?.primitiveValue;
 
 				return this.createValue('boolean', value);
 			}
 		},
-		floatLiteral: (node, scope) => {
-			let value = this.createValue('float', node.value*1);
+		floatLiteral: (n) => {
+			let value = this.createValue('float', n.value*1);
 
-			return this.helpers.wrapValue(node, scope, 'Float', value);
+			return this.helpers.wrapValue(n, 'Float', value);
 		},
-		functionDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
-				identifier = node.identifier?.value;
+		functionDeclaration: (n) => {
+			let modifiers = n.modifiers,
+				identifier = n.identifier?.value;
 
 			if(identifier == null) {
 				return;
 			}
 
 			let function_,
-				statements = Array.from(node.body?.statements ?? []),
+				statements = Array.from(n.body?.statements ?? []),
 				objectStatements = [],
 				signature,
 				functionScope,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value,
 				observers = [],
-				object = this.compositeIsObject(scope),
-				staticDeclaration = modifiers.includes('static') || !object && !this.compositeIsInstantiable(scope);
+				object = this.compositeIsObject(this.scope),
+				staticDeclaration = modifiers.includes('static') || !object && !this.compositeIsInstantiable(this.scope);
 
 			this.helpers.separateStatements(statements, objectStatements);
 
 			if(staticDeclaration) {
 				if(!object) {  // Static in non-object
-					signature = node.signature;
-					functionScope = scope;
+					signature = n.signature;
+					functionScope = this.scope;
 				} else {  // Static in object
 					return;
 				}
 			} else {
 				if(object) {  // Non-static in object
 					statements = []
-					signature = node.signature;
-					functionScope = this.findMemberOverload(scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? scope;
+					signature = n.signature;
+					functionScope = this.findMemberOverload(this.scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? this.scope;
 				} else {  // Non-static in non-object
 					if(statements.length === 0) {
 						return;
 					}
 
 					objectStatements = []
-					functionScope = scope;
+					functionScope = this.scope;
 				}
 			}
 
 			function_ = this.createFunction(identifier, objectStatements, functionScope);
-			function_.type = this.rules.functionSignature(signature, scope);
+			function_.type = this.rules.functionSignature(signature);
 			value = this.createValue('reference', this.getOwnID(function_));
 
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
-			this.executeStatements(statements, function_);
+			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
+			this.addScope(function_);
+			this.executeStatements(statements);
+			this.removeScope(false);
 		},
-		functionExpression: (node, scope) => {
-			let signature = this.rules.functionSignature(node.signature, scope),
-				function_ = this.createFunction(undefined, node.body?.statements, scope);
+		functionExpression: (n) => {
+			let signature = this.rules.functionSignature(n.signature),
+				function_ = this.createFunction(undefined, n.body?.statements, this.scope);
 
 			function_.type = signature;
 
 			return this.createValue('reference', this.getOwnID(function_));
 		},
-		functionSignature: (node, scope) => {
+		functionSignature: (n) => {
 			let type = [],
 				typePart = this.createTypePart(type, undefined, { predefined: 'Function' });
 
-			typePart.awaits = node?.awaits ?? -1;
-			typePart.throws = node?.throws ?? -1;
+			typePart.awaits = n?.awaits ?? -1;
+			typePart.throws = n?.throws ?? -1;
 
 			for(let v of ['genericParameters', 'parameters']) {
-				if(node?.[v].length > 0) {
+				if(n?.[v].length > 0) {
 					let typePart_ = this.createTypePart(type, typePart, { [v]: true });
 
-					for(let node_ of node[v]) {
-						this.executeStatement(node_, scope, type, typePart_);
+					for(let n_ of n[v]) {
+						this.executeStatement(n_, type, typePart_);
 					}
 				}
 			}
 
-			this.helpers.createTypePart(type, typePart, node?.returnType, scope);
+			this.helpers.createTypePart(type, typePart, n?.returnType);
 
 			return type;
 		},
-		functionType: (node, scope, type, typePart) => {
+		functionType: (n, type, typePart) => {
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { predefined: 'Function' });
 
-			typePart.awaits = node.awaits ?? 0;
-			typePart.throws = node.throws ?? 0;
+			typePart.awaits = n.awaits ?? 0;
+			typePart.throws = n.throws ?? 0;
 
 			for(let v of ['genericParameter', 'parameter']) {
-				if(node[v+'Types'].length > 0) {
+				if(n[v+'Types'].length > 0) {
 					let typePart_ = this.createTypePart(type, typePart, { [v+'s']: true });
 
-					for(let node_ of node[v+'Types']) {
-						this.helpers.createTypePart(type, typePart_, node_, scope);
+					for(let node_ of n[v+'Types']) {
+						this.helpers.createTypePart(type, typePart_, node_);
 					}
 				}
 			}
 
-			this.helpers.createTypePart(type, typePart, node.returnType, scope);
+			this.helpers.createTypePart(type, typePart, n.returnType);
 		},
-		genericParameter: (node, scope, type, typePart) => {
-			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
-			typePart.identifier = node.identifier.value;
+		genericParameter: (n, type, typePart) => {
+			typePart = this.helpers.createTypePart(type, typePart, n.type_);
+			typePart.identifier = n.identifier.value;
 		},
-		identifier: (node, scope) => {
-			return this.helpers.findMemberOverload(scope, scope, node.value)?.value;
+		identifier: (n) => {
+			return this.helpers.findMemberOverload(this.scope, this.scope, n.value)?.value;
 		},
-		ifStatement: (node, scope) => {
-			if(node.condition == null) {
+		ifStatement: (n) => {
+			if(n.condition == null) {
 				return;
 			}
 
-			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+this.getOwnID(scope))+', If>', scope, null),
+			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
 				condition;
 
 			this.addScope(namespace);
 
-			condition = this.executeStatement(node.condition, namespace);
+			condition = this.executeStatement(n.condition);
 			condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
-			if(condition || node.else?.type !== 'ifStatement') {
-				let branch = node[condition ? 'then' : 'else']
+			if(condition || n.else?.type !== 'ifStatement') {
+				let branch = n[condition ? 'then' : 'else']
 
 				if(branch?.type === 'functionBody') {
-					this.executeStatements(branch.statements, namespace);
+					this.executeStatements(branch.statements);
 				} else {
-					this.setControlTransfer(this.executeStatement(branch, namespace));
+					this.setControlTransfer(this.executeStatement(branch));
 				}
 			}
 
 			this.removeScope();
 
-			if(!condition && node.else?.type === 'ifStatement') {
-				this.rules.ifStatement(node.else, scope);
+			if(!condition && n.else?.type === 'ifStatement') {
+				this.rules.ifStatement(n.else);
 			}
 
 			return this.controlTransfer?.value;
 		},
-		initializerDeclaration: (node, scope) => {
-			let modifiers = node.modifiers,
+		initializerDeclaration: (n) => {
+			let modifiers = n.modifiers,
 				identifier = 'init',
-				function_ = this.createFunction(identifier, node.body?.statements, scope),
-				signature = node.signature,
+				function_ = this.createFunction(identifier, n.body?.statements, this.scope),
+				signature = n.signature,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value = this.createValue('reference', this.getOwnID(function_)),
 				observers = []
@@ -468,14 +470,14 @@ class Interpreter {
 				genericArguments: []
 			}
 
-			if(node.nillable) {
+			if(n.nillable) {
 				signature.returnType = {
 					type: 'nillableType',
 					value: signature.returnType
 				}
 			}
 
-			signature = this.rules.functionSignature(signature, scope);
+			signature = this.rules.functionSignature(signature);
 			function_.type = signature;
 
 			if(function_.statements.at(-1)?.type !== 'returnStatement') {
@@ -488,32 +490,32 @@ class Interpreter {
 				});
 			}
 
-			this.setMemberOverload(scope, identifier, modifiers, type, value, observers, () => {});
+			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
 		},
-		inoutExpression: (node, scope) => {
-			let value = this.executeStatement(node.value, scope);
+		inoutExpression: (n) => {
+			let value = this.executeStatement(n.value);
 
 			if(value?.primitiveType === 'pointer') {
 				return value;
 			}
 			if(value?.primitiveType !== 'reference') {
-				this.report(2, node, 'Non-reference value ("'+(value?.primitiveType ?? 'nil')+'") can\'t be used as a pointer.');
+				this.report(2, n, 'Non-reference value ("'+(value?.primitiveType ?? 'nil')+'") can\'t be used as a pointer.');
 
 				return;
 			}
 
 			return this.createValue('pointer', value.primitiveValue);
 		},
-		inoutType: (n, s, t, tp) => {
-			this.rules.optionalType(n, s, t, tp, ['inout']);
+		inoutType: (n, t, tp) => {
+			this.rules.optionalType(n, t, tp, ['inout']);
 		},
-		integerLiteral: (node, scope) => {
-			let value = this.createValue('integer', node.value*1);
+		integerLiteral: (n) => {
+			let value = this.createValue('integer', n.value*1);
 
-			return this.helpers.wrapValue(node, scope, 'Integer', value);
+			return this.helpers.wrapValue(n, 'Integer', value);
 		},
-		intersectionType: (n, s, t, tp) => {
-			this.rules.combiningType(n, s, t, tp, 'intersection');
+		intersectionType: (n, t, tp) => {
+			this.rules.combiningType(n, t, tp, 'intersection');
 		},
 		module: () => {
 			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
@@ -588,21 +590,21 @@ class Interpreter {
 			this.setMemberOverload(namespace, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
 
 			this.addScope(namespace);
-			this.executeStatements(this.tree?.statements, namespace);
+			this.executeStatements(this.tree?.statements);
 			this.removeScope();
 			this.resetControlTransfer();
 		},
-		namespaceDeclaration: (node, scope) => {
-			this.rules.compositeDeclaration(node, scope);
+		namespaceDeclaration: (n) => {
+			this.rules.compositeDeclaration(n);
 		},
-		namespaceExpression: (node, scope) => {
-			return this.rules.compositeDeclaration(node, scope, true);
+		namespaceExpression: (n) => {
+			return this.rules.compositeDeclaration(n, true);
 		},
-		nillableExpression: (node, scope) => {
+		nillableExpression: (n) => {
 			let value;
 
 			try {
-				value = this.executeStatement(node, scope);
+				value = this.executeStatement(n);
 			} catch(error) {
 				/*
 				if(error !== 0) {
@@ -613,12 +615,12 @@ class Interpreter {
 
 			return value;
 		},
-		nillableType: (n, s, t, tp) => {
-			this.rules.optionalType(n, s, t, tp, ['default', 'nillable'], 1);
+		nillableType: (n, t, tp) => {
+			this.rules.optionalType(n, t, tp, ['default', 'nillable'], 1);
 		},
 		nilLiteral: () => {},
-		operatorDeclaration: (node, scope) => {
-			let operator = node.operator?.value,
+		operatorDeclaration: (n) => {
+			let operator = n.operator?.value,
 				precedence,
 				associativity;
 
@@ -626,7 +628,7 @@ class Interpreter {
 				return;
 			}
 
-			for(let entry of node.body?.statements ?? []) {
+			for(let entry of n.body?.statements ?? []) {
 				if(entry.type === 'entry') {
 					if(entry.key.type === 'identifier') {
 						if(entry.key.value === 'precedence' && entry.value.type === 'integerLiteral') {
@@ -643,48 +645,48 @@ class Interpreter {
 				return;
 			}
 
-			this.setOperatorOverload(scope, node.operator.value, node.modifiers, precedence, associativity);
+			this.setOperatorOverload(this.scope, n.operator.value, n.modifiers, precedence, associativity);
 		},
-		optionalType: (node, scope, type, typePart, titles, mainTitle) => {
+		optionalType: (n, type, typePart, titles, mainTitle) => {
 			if(!titles.some(v => v in typePart)) {
 				typePart[titles[mainTitle ?? 0]] = true;
 			}
 
-			this.executeStatement(node.value, scope, type, typePart);
+			this.executeStatement(n.value, type, typePart);
 		},
-		parameter: (node, scope, type, typePart) => {
-			typePart = this.helpers.createTypePart(type, typePart, node.type_, scope);
+		parameter: (n, type, typePart) => {
+			typePart = this.helpers.createTypePart(type, typePart, n.type_);
 
-			if(node.label != null) {
-				typePart.label = node.label.value;
+			if(n.label != null) {
+				typePart.label = n.label.value;
 			}
 
-			typePart.identifier = node.identifier.value;
+			typePart.identifier = n.identifier.value;
 
-			if(node.value != null) {
-				typePart.value = node.value;
+			if(n.value != null) {
+				typePart.value = n.value;
 			}
 		},
-		parenthesizedExpression: (node, scope) => {
-			return this.executeStatement(node.value, scope);
+		parenthesizedExpression: (n) => {
+			return this.executeStatement(n.value);
 		},
-		parenthesizedType: (node, scope, type, typePart) => {
-			this.executeStatement(node.value, scope, type, typePart);
+		parenthesizedType: (n, type, typePart) => {
+			this.executeStatement(n.value, type, typePart);
 		},
-		postfixExpression: (node, scope) => {
-			let value = this.executeStatement(node.value, scope);
+		postfixExpression: (n) => {
+			let value = this.executeStatement(n.value);
 
 			if(value == null) {
 				return;
 			}
 
 			if(['float', 'integer'].includes(value.primitiveType)) {
-				if(node.operator?.value === '++') {
+				if(n.operator?.value === '++') {
 					value.primitiveValue = value.primitiveValue*1+1;
 
 					return this.createValue(value.primitiveType, value.primitiveValue-1);
 				}
-				if(node.operator?.value === '--') {
+				if(n.operator?.value === '--') {
 					value.primitiveValue = value.primitiveValue*1-1;
 
 					return this.createValue(value.primitiveType, value.primitiveValue+1);
@@ -695,29 +697,29 @@ class Interpreter {
 
 			return value;
 		},
-		predefinedType: (node, scope, type, typePart) => {
-			typePart.predefined = node.value;
+		predefinedType: (n, type, typePart) => {
+			typePart.predefined = n.value;
 		},
-		prefixExpression: (node, scope) => {
-			let value = this.executeStatement(node.value, scope);
+		prefixExpression: (n) => {
+			let value = this.executeStatement(n.value);
 
 			if(value == null) {
 				return;
 			}
 
-			if(node.operator?.value === '!' && value.primitiveType === 'boolean') {
+			if(n.operator?.value === '!' && value.primitiveType === 'boolean') {
 				return this.createValue('boolean', !value.primitiveValue);
 			}
 			if(['float', 'integer'].includes(value.primitiveType)) {
-				if(node.operator?.value === '-') {
+				if(n.operator?.value === '-') {
 					return this.createValue(value.primitiveType, -value.primitiveValue);
 				}
-				if(node.operator?.value === '++') {
+				if(n.operator?.value === '++') {
 					value.primitiveValue = value.primitiveValue*1+1;
 
 					return this.createValue(value.primitiveType, value.primitiveValue);
 				}
-				if(node.operator?.value === '--') {
+				if(n.operator?.value === '--') {
 					value.primitiveValue = value.primitiveValue*1-1;
 
 					return this.createValue(value.primitiveType, value.primitiveValue);
@@ -728,110 +730,110 @@ class Interpreter {
 
 			return value;
 		},
-		protocolDeclaration: (node, scope) => {
-			this.rules.compositeDeclaration(node, scope);
+		protocolDeclaration: (n) => {
+			this.rules.compositeDeclaration(n);
 		},
-		protocolExpression: (node, scope) => {
-			return this.rules.compositeDeclaration(node, scope, true);
+		protocolExpression: (n) => {
+			return this.rules.compositeDeclaration(n, true);
 		},
-		protocolType: (node, scope, type, typePart) => {
+		protocolType: (n, type, typePart) => {
 			// TODO: This
 		},
-		returnStatement: (node, scope) => {
-			let value = this.executeStatement(node.value, scope);
+		returnStatement: (n) => {
+			let value = this.executeStatement(n.value);
 
 			this.setControlTransfer(value, 'return');
 
 			return value;
 		},
-		stringLiteral: (node, scope, primitive) => {
+		stringLiteral: (n, primitive) => {
 			let string = '';
 
-			for(let segment of node.segments) {
+			for(let segment of n.segments) {
 				if(segment.type === 'stringSegment') {
 					string += segment.value;
 				} else {
-					string += this.getValueString(this.executeStatement(segment.value, scope));
+					string += this.getValueString(this.executeStatement(segment.value));
 				}
 			}
 
 			let value = this.createValue('string', string);
 
-			return this.helpers.wrapValue(node, scope, 'String', value);
+			return this.helpers.wrapValue(n, 'String', value);
 		},
-		structureDeclaration: (node, scope) => {
-			this.rules.compositeDeclaration(node, scope);
+		structureDeclaration: (n) => {
+			this.rules.compositeDeclaration(n);
 		},
-		structureExpression: (node, scope) => {
-			return this.rules.compositeDeclaration(node, scope, true);
+		structureExpression: (n) => {
+			return this.rules.compositeDeclaration(n, true);
 		},
-		throwStatement: (node, scope) => {
-			let value = this.executeStatement(node.value, scope);
+		throwStatement: (n) => {
+			let value = this.executeStatement(n.value);
 
 			this.setControlTransfer(value, 'throw');
 
 			return value;
 		},
-		typeExpression: (node, scope) => {
+		typeExpression: (n) => {
 			let type = [],
-				typePart = this.helpers.createTypePart(type, undefined, node.type_, scope);
+				typePart = this.helpers.createTypePart(type, undefined, n.type_);
 
 			return this.createValue('type', type);
 		},
-		typeIdentifier: (node, scope, type, typePart) => {
-			let composite = this.getValueComposite(this.rules.identifier(node.identifier, scope));
+		typeIdentifier: (n, type, typePart) => {
+			let composite = this.getValueComposite(this.rules.identifier(n.identifier));
 
 			if(composite == null || this.compositeIsObject(composite)) {
 				typePart.predefined = 'Any';
 
-				this.report(2, node, 'Composite is an object or wasn\'t found.');
+				this.report(2, n, 'Composite is an object or wasn\'t found.');
 			} else {
 				typePart.reference = this.getOwnID(composite, true);
 			}
 
-			if(node.genericArguments.length === 0) {
+			if(n.genericArguments.length === 0) {
 				return;
 			}
 
 			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { genericArguments: true });
 
-			for(let genericArgument of node.genericArguments) {
-				this.helpers.createTypePart(type, typePart, genericArgument, scope);
+			for(let genericArgument of n.genericArguments) {
+				this.helpers.createTypePart(type, typePart, genericArgument);
 			}
 		},
-		unionType: (n, s, t, tp) => {
-			this.rules.combiningType(n, s, t, tp, 'union');
+		unionType: (n, t, tp) => {
+			this.rules.combiningType(n, t, tp, 'union');
 		},
-		variableDeclaration: (node, scope) => {
-			let modifiers = node.modifiers;
+		variableDeclaration: (n) => {
+			let modifiers = n.modifiers;
 
-			for(let declarator of node.declarators) {
+			for(let declarator of n.declarators) {
 				let identifier = declarator.identifier.value,
 					type = [],
-					typePart = this.helpers.createTypePart(type, undefined, declarator.type_, scope),
-					value = this.executeStatement(declarator.value, scope),
+					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
+					value = this.executeStatement(declarator.value),
 					observers = []
 
 				// Type-related checks
 
-				this.setMemberOverload(scope, identifier, modifiers, type, value, observers);
+				this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers);
 			}
 		},
-		variadicGenericParameter: (node, scope) => {
+		variadicGenericParameter: () => {
 			return {
 				identifier: undefined,
 				type: [this.createTypePart(undefined, undefined, { variadic: true })]
 			}
 		},
-		variadicType: (n, s, t, tp) => {
-			this.rules.optionalType(n, s, t, tp, ['variadic']);
+		variadicType: (n, t, tp) => {
+			this.rules.optionalType(n, t, tp, ['variadic']);
 		},
-		whileStatement: (node, scope) => {
-			if(node.condition == null) {
+		whileStatement: (n) => {
+			if(n.condition == null) {
 				return;
 			}
 
-			let namespace = this.createNamespace('Local<'+(scope.title ?? '#'+this.getOwnID(scope))+', While>', scope, null),
+			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
 				condition;
 
 			this.addScope(namespace);
@@ -839,17 +841,17 @@ class Interpreter {
 			while(true) {
 				this.removeMembers(namespace);
 
-				condition = this.executeStatement(node.condition, namespace);
+				condition = this.executeStatement(n.condition);
 				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
 				if(!condition) {
 					break;
 				}
 
-				if(node.value?.type === 'functionBody') {
-					this.executeStatements(node.value.statements, namespace);
+				if(n.value?.type === 'functionBody') {
+					this.executeStatements(n.value.statements);
 				} else {
-					this.setControlTransfer(this.executeStatement(node.value, namespace));
+					this.setControlTransfer(this.executeStatement(n.value));
 				}
 
 				let CTT = this.controlTransfer?.type;
@@ -869,16 +871,16 @@ class Interpreter {
 	}
 
 	static helpers = {
-		callFunction: (node, scope, function_, args, gargs, FSC, initializer) => {
+		callFunction: (node, function_, args, gargs, FSC, initializer) => {
 		//	this.report(0, node, 'ca: '+function_.title+', '+this.getOwnID(function_));
 
 			let FSO,  // Function self object
-				SSC = this.getComposite(scope.IDs.Self),  // Scope self composite
+				SSC = this.getComposite(this.scope.IDs.Self),  // Scope self composite
 				location = this.tokens[node.range.start]?.location;
 
 			if(initializer) {
 				if(gargs.length === 0) {  // Find initializer's object in scope's object chain
-					let SSO = this.getComposite(scope.IDs.self);  // Scope self (super) object
+					let SSO = this.getComposite(this.scope.IDs.self);  // Scope self (super) object
 
 					if(this.compositeIsObject(SSO)) {
 						while(SSO != null) {
@@ -953,10 +955,10 @@ class Interpreter {
 
 			return Object.assign(typePart, collectionFlag);
 		},
-		createTypePart: (type, typePart, node, scope, fallback = true) => {
+		createTypePart: (type, typePart, node, fallback = true) => {
 			typePart = this.createTypePart(type, typePart);
 
-			this.executeStatement(node, scope, type, typePart);
+			this.executeStatement(node, type, typePart);
 
 			if(fallback) {
 				for(let flag in typePart) {
@@ -999,7 +1001,7 @@ class Interpreter {
 
 			return this.findMemberOverload(composite, identifier, matching, internal);
 		},
-		getFunctionCallParameters: (node, scope, calleeMOSP, callee, args, gargs) => {
+		getFunctionCallParameters: (node, calleeMOSP, callee, args, gargs) => {
 			for(let i = 0; i < 2; i++) {
 				let function_ = calleeMOSP == null ? this.findValueFunction(callee, args) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, args), calleeMOSP.internal)?.matchingValue,
 					FSC = this.getComposite(function_?.IDs.Self) ?? calleeMOSP.composite,  // Function self composite
@@ -1028,34 +1030,38 @@ class Interpreter {
 				}
 			}
 		},
-		getMemberOverloadSearchParameters: (node, scope) => {
+		getMemberOverloadSearchParameters: (node) => {
 			if(node.type === 'identifier') {
 				return {
-					composite: scope,
+					composite: this.scope,
 					identifier: node.value,
 					internal: false
 				}
 			} else
 			if(node.type === 'chainExpression') {
 				return {
-					composite: this.getValueComposite(this.executeStatement(node.composite, scope)),
-					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, scope, true).primitiveValue,
+					composite: this.getValueComposite(this.executeStatement(node.composite)),
+					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, true).primitiveValue,
 					internal: true
 				}
 			}
 		},
-		wrapValue: (node, scope, wrapperIdentifier, value) => {
-			let calleeMOSP = { composite: scope, identifier: wrapperIdentifier, internal: false },
+		wrapValue: (node, wrapperIdentifier, value) => {
+			let calleeMOSP = { composite: this.scope, identifier: wrapperIdentifier, internal: false },
 				args = [{ label: undefined, value: value }],
 				gargs = [],
-				calleeFCP = this.helpers.getFunctionCallParameters(node, scope, calleeMOSP, undefined, args, gargs);
+				calleeFCP = this.helpers.getFunctionCallParameters(node, calleeMOSP, undefined, args, gargs);
 
 			if(calleeFCP.function != null) {
-				return this.helpers.callFunction(node, scope, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+				return this.helpers.callFunction(node, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 			}
 
 			return value;
 		}
+	}
+
+	static get scope() {
+		return this.getScope()?.value;
 	}
 
 	static getSave() {
@@ -1291,8 +1297,8 @@ class Interpreter {
 	static compositeRetained(composite) {
 		return (
 			this.compositeRetainsDistant(this.getComposite(0), composite) ||
-			this.compositeRetainsDistant(this.getScope()?.namespace, composite) ||
-		//	this.compositeRetainsDistant(this.scopes.map(v => v.namespace), composite) ||  // May be useful when "with" syntax construct will be added
+			this.compositeRetainsDistant(this.getScope()?.value, composite) ||
+		//	this.compositeRetainsDistant(this.scopes.map(v => v.value), composite) ||  // May be useful when "with" syntax construct will be added
 			this.compositeRetainsDistant(this.getValueComposite(this.controlTransfer?.value), composite)
 		);
 	}
@@ -1411,9 +1417,9 @@ class Interpreter {
 	 *
 	 * Additionally function and its call location can be specified for debugging purposes.
 	 */
-	static addScope(namespace, function_, location) {
+	static addScope(value, function_, location) {
 		this.scopes.push({
-			namespace: namespace,
+			value: value,
 			function: function_,
 			location: location
 		});
@@ -1423,10 +1429,10 @@ class Interpreter {
 	 * Removes from the stack and optionally automatically destroys its last scope.
 	 */
 	static removeScope(destroy = true) {
-		let namespace = this.scopes.pop()?.namespace;
+		let value = this.scopes.pop()?.value;
 
 		if(destroy) {
-			this.destroyReleasedComposite(namespace);
+			this.destroyReleasedComposite(value);
 		}
 	}
 
@@ -1487,8 +1493,8 @@ class Interpreter {
 		this.controlTransfer = undefined;
 	}
 
-	static executeStatement(node, scope, ...arguments_) {
-		return this.rules[node?.type]?.(node, scope, ...arguments_);
+	static executeStatement(node, ...arguments_) {
+		return this.rules[node?.type]?.(node, ...arguments_);
 	}
 
 	/*
@@ -1497,12 +1503,12 @@ class Interpreter {
 	 *
 	 * Explicit control transfer should be implemented by rules.
 	 */
-	static executeStatements(nodes, scope) {
+	static executeStatements(nodes) {
 		let globalScope = this.getScope(-1) == null;
 
 		for(let node of nodes ?? []) {
 			let start = this.composites.length,
-				value = this.executeStatement(node, scope),
+				value = this.executeStatement(node),
 				end = this.composites.length,
 				CTed = this.controlTransfer != null,  // Control transferred
 				explicitlyCTed = CTed && this.controlTransfer.type != null,
@@ -1570,11 +1576,11 @@ class Interpreter {
 			let selfComposite = this.getComposite(levels.IDs.Self);
 
 			this.addScope(levels);
-			this.executeStatements(selfComposite?.statements, levels);
+			this.executeStatements(selfComposite?.statements);
 			this.removeScope(false);
 		}
 
-		this.executeStatements(function_.statements, namespace);
+		this.executeStatements(function_.statements);
 
 		if(initializing) {
 			levels.life = 1;
