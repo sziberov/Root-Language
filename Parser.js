@@ -1074,6 +1074,8 @@ class Parser {
 				},
 				genericParameters: this.rules.genericParametersClause(),
 				parameters: [],
+				inits: -1,
+				deinits: -1,
 				awaits: -1,
 				throws: -1,
 				returnType: undefined

@@ -71,31 +71,34 @@ class Interpreter {
 			}
 
 			let callee = n.callee,
+				calleeValue,
 				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee);
 
 			if(calleeMOSP == null) {
-				callee = this.executeNode(callee);
+				calleeValue = this.executeNode(callee);
 
 				if(this.threw) {
 					return;
 				}
 			}
 
-			if((calleeMOSP?.composite == null || calleeMOSP?.identifier == null) && callee == null) {
-				this.report(1, n, 'Cannot call anything but a valid (in particular, chain) expression.');
+			if((calleeMOSP?.composite == null || calleeMOSP?.identifier == null) && calleeValue == null) {
+				this.report(1, n, 'Cannot search for function using anything but a valid (in particular, chain) expression.');
 
 				return;
 			}
 
-			let calleeFCP = this.helpers.getFunctionCallParameters(n, calleeMOSP, callee, args, gargs);
+			let function_ = this.helpers.findFunction(calleeMOSP, calleeValue, args);
 
-			if(calleeFCP.function == null) {
-				this.report(2, n, (!calleeFCP.initializer ? 'Function' : 'Initializer')+' with specified signature wasn\'t found.');
+			if(function_ == null) {
+				this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
 
 				return;
 			}
 
-			return this.helpers.callFunction(calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+		//	this.report(0, node, 'ca: '+function_.title+', '+this.getOwnID(function_));
+			return this.helpers.callFunction(function_, args, gargs);
+		//	this.report(0, node, 'ke: '+JSON.stringify(value));
 		},
 		chainExpression: (n) => {
 			let composite = this.getValueComposite(this.executeNode(n.composite));
@@ -232,6 +235,7 @@ class Interpreter {
 					type: 'functionSignature',
 					genericParameters: [],
 					parameters: [],
+					deinits: 1,
 					awaits: -1,  // 1?
 					throws: -1,  // 1?
 					returnType: undefined
@@ -385,6 +389,8 @@ class Interpreter {
 			let type = [],
 				typePart = this.createTypePart(type, undefined, { predefined: 'Function' });
 
+			typePart.inits = n?.inits ?? -1;
+			typePart.deinits = n?.deinits ?? -1;
 			typePart.awaits = n?.awaits ?? -1;
 			typePart.throws = n?.throws ?? -1;
 
@@ -472,10 +478,12 @@ class Interpreter {
 				type: 'functionSignature',
 				genericParameters: [],
 				parameters: [],
+				inits: undefined,
 				awaits: -1,
 				throws: -1,
 				returnType: undefined
 			}
+			signature.inits = 1;
 			signature.returnType = {
 				type: 'typeIdentifier',
 				identifier: {
@@ -825,12 +833,12 @@ class Interpreter {
 	}
 
 	static helpers = {
-		callFunction: (function_, args, gargs, FSC, initializer) => {
-		//	this.report(0, node, 'ca: '+function_.title+', '+this.getOwnID(function_));
+		callFunction: (function_, args, gargs) => {
+			let FSC = this.getComposite(function_.IDs.Self),  // Function self composite/object
+				FSO,
+				inits = this.getTypeFunctionProperties(function_.type).inits === 1;
 
-			let FSO;  // Function self object
-
-			if(initializer) {
+			if(inits) {
 				if(gargs.length === 0) {  // Find initializer's object in scope's object chain
 					let SSO = this.getComposite(this.scope.IDs.self);  // Scope self (super) object
 
@@ -884,7 +892,6 @@ class Interpreter {
 			if(this.threw) {
 				return;
 			}
-		//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 			return value;
 		},
@@ -964,19 +971,19 @@ class Interpreter {
 				}, this.scope);
 
 			print.type = [
-				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ predefined: 'Function', inits: -1, deinits: -1, awaits: -1, throws: -1 },
 				{ super: 0, parameters: true },
 				{ super: 1, predefined: '_', nillable: true, identifier: 'value' },
 				{ super: 0, predefined: '_', nillable: true }
 			]
 			getComposite.type = [
-				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ predefined: 'Function', inits: -1, deinits: -1, awaits: -1, throws: -1 },
 				{ super: 0, parameters: true },
 				{ super: 1, predefined: 'integer', identifier: 'value' },
 				{ super: 0, predefined: 'Any', nillable: true }
 			]
 			getCallsString.type = [
-				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ predefined: 'Function', inits: -1, deinits: -1, awaits: -1, throws: -1 },
 				{ super: 0, predefined: 'string' }
 			]
 
@@ -984,39 +991,34 @@ class Interpreter {
 			this.setMemberOverload(this.scope, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)), []);
 			this.setMemberOverload(this.scope, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
 		},
+		findFunction: (MOSP, value, args) => {
+			let function_ = MOSP == null
+						  ? this.findValueFunction(value, args)
+						  : this.findMemberOverload(MOSP.composite, MOSP.identifier, (v) => this.findValueFunction(v.value, args), MOSP.internal)?.matchingValue;
+
+			if(function_ != null) {
+				return function_;
+			}
+
+			// Fallback to search of an initializer
+
+			let composite = MOSP == null
+						  ? this.getValueComposite(value)
+						  : this.findMemberOverload(MOSP.composite, MOSP.identifier, (v) => this.getValueComposite(v.value), MOSP.internal)?.matchingValue;
+
+			if(this.compositeIsObject(composite) && composite === this.scope) {
+				composite = this.getComposite(composite.IDs.Self);
+			}
+			if(this.compositeIsInstantiable(composite)) {
+				function_ = this.getMemberOverload(composite, 'init', (v) => this.findValueFunction(v.value, args))?.matchingValue;
+			}
+
+			return function_;
+		},
 		findMemberOverload: (scope, composite, identifier, matching, internal) => {
 			// TODO: Access-related checks
 
 			return this.findMemberOverload(composite, identifier, matching, internal);
-		},
-		getFunctionCallParameters: (node, calleeMOSP, callee, args, gargs) => {
-			for(let i = 0; i < 2; i++) {
-				let function_ = calleeMOSP == null ? this.findValueFunction(callee, args) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.findValueFunction(v.value, args), calleeMOSP.internal)?.matchingValue,
-					FSC = this.getComposite(function_?.IDs.Self) ?? calleeMOSP.composite,  // Function self composite
-					initializing = function_?.title === 'init' || calleeMOSP?.identifier === 'init',
-					instantiable = this.compositeIsInstantiable(FSC),
-					initializer = initializing && instantiable;
-
-				if(function_ == null && i === 0 && !initializer) {  // Fallback to search of an initializer
-					calleeMOSP = {
-						composite: calleeMOSP == null ? this.getValueComposite(callee) : this.findMemberOverload(calleeMOSP.composite, calleeMOSP.identifier, (v) => this.getValueComposite(v.value), calleeMOSP.internal)?.matchingValue,
-						identifier: 'init',
-						internal: true
-					}
-
-					if(this.compositeIsObject(calleeMOSP.composite)) {
-						calleeMOSP.composite = this.getComposite(calleeMOSP.composite.IDs.Self);
-					}
-
-					continue;
-				}
-
-				return {
-					function: function_,
-					FSC: FSC,
-					initializer: initializer
-				}
-			}
 		},
 		getMemberOverloadSearchParameters: (node) => {
 			if(node.type === 'identifier') {
@@ -1038,10 +1040,10 @@ class Interpreter {
 			let calleeMOSP = { composite: this.scope, identifier: wrapperIdentifier, internal: false },
 				args = [{ label: undefined, value: value }],
 				gargs = [],
-				calleeFCP = this.helpers.getFunctionCallParameters(node, calleeMOSP, undefined, args, gargs);
+				function_ = this.helpers.findFunction(calleeMOSP, undefined, args);
 
-			if(calleeFCP.function != null) {
-				return this.helpers.callFunction(calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+			if(function_ != null) {
+				return this.helpers.callFunction(function_, args, gargs);
 			}
 
 			return value;
@@ -1127,7 +1129,7 @@ class Interpreter {
 			this.setScopeID(composite, scope);
 		}
 
-	//	this.print('cr: '+composite.title+', '+this.getOwnID(composite));
+		this.print('cr: '+composite.title+', '+this.getOwnID(composite));
 
 		return composite;
 	}
@@ -1137,7 +1139,7 @@ class Interpreter {
 			return;
 		}
 
-//		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
+		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
 		composite.life = 2;
 
@@ -1173,7 +1175,7 @@ class Interpreter {
 			this.report(1, undefined, 'Composite #'+this.getOwnID(composite)+' was destroyed with a non-empty retainer list (either it was retained by on its own non-significantly-retained composite(s) or something destroyed it forcibly).');
 		}
 
-	//	this.print('de: '+JSON.stringify(composite));
+		this.print('de: '+JSON.stringify(composite));
 	}
 
 	static destroyReleasedComposite(composite) {
@@ -1551,13 +1553,13 @@ class Interpreter {
 	}
 
 	/*
-	 * Levels such as super, self or sub, can be inherited from another composite.
+	 * Levels such as super, self or sub, can be inherited from another composite (function self object).
 	 * If that composite is an unitialized object, it will be initialized with statements stored by its Self.
 	 *
 	 * Scope, that statements will be executed within, can be set explicitly or created automatically.
 	 * Existing scope will prevail over levels, so it will not inherit them nor an object will be tried to initialize.
 	 */
-	static callFunction(function_, arguments_ = [], levels, scope) {
+	static callFunction(function_, arguments_ = [], FSO, scope) {
 		if(this.calls.length === this.preferences.callStackSize) {
 			this.report(2, undefined, 'Maximum call stack size exceeded.\n'+this.getCallsString());
 
@@ -1570,11 +1572,11 @@ class Interpreter {
 
 		let SSC = this.getComposite(this.scope?.IDs.Self),  // Scope self composite
 			namespaceTitle = 'Call<'+(function_.title ?? '#'+this.getOwnID(function_))+'>',
-			namespace = scope ?? this.createNamespace(namespaceTitle, function_, levels ?? function_),
+			namespace = scope ?? this.createNamespace(namespaceTitle, function_, FSO ?? function_),
 			parameters = this.getTypeFunctionParameters(function_.type),
 			properties = this.getTypeFunctionProperties(function_.type),
-			initializing = scope == null && this.compositeIsObject(levels) && levels.life === 0,
-			LSC = initializing ? this.getComposite(levels.IDs.Self) : undefined;  // Levels self composite
+			initializing = scope == null && this.compositeIsObject(FSO) && FSO.life === 0,
+			LSC = initializing ? this.getComposite(FSO.IDs.Self) : undefined;  // Levels self composite
 
 		this.addCall(function_);
 		this.addScope(namespace);
@@ -1595,7 +1597,7 @@ class Interpreter {
 		}
 
 		if(LSC != null) {
-			this.addScope(levels);
+			this.addScope(FSO);
 			this.executeNodes(LSC.statements);
 			this.removeScope(false);
 		}
@@ -1606,7 +1608,7 @@ class Interpreter {
 		);
 
 		if(initializing) {
-			levels.life = 1;
+			FSO.life = 1;
 		}
 
 		this.removeScope();
@@ -1762,6 +1764,8 @@ class Interpreter {
 
 	static getTypeFunctionProperties(type) {
 		return {
+			inits: type[0]?.inits,
+			deinits: type[0]?.deinits,
 			awaits: type[0]?.awaits,
 			throws: type[0]?.throws
 		}

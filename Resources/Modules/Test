@@ -1,4 +1,18 @@
 class A {
+	static var init = func() {
+		print(1)
+
+		return self
+	}
+}
+
+var b = A.init,
+	c = b(),  // No object
+	d = A()
+
+return
+
+class A {
 	init {
 		print(1)
 	}
@@ -123,6 +137,8 @@ class String {
 		} else {
 			self.value = value.value
 		}
+
+	//	return self
 	}
 }
 
