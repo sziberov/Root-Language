@@ -1,7 +1,9 @@
 class Interpreter {
 	static tokens;
 	static tree;
+	static position;
 	static composites;
+	static calls;
 	static scopes;
 	static controlTransfer;
 	static preferences;
@@ -9,16 +11,20 @@ class Interpreter {
 
 	static rules = {
 		argument: (n) => {
-			return {
-				label: n.label?.value,
-				value: this.executeStatement(n.value)
+			let value = this.executeNode(n.value);
+
+			if(!this.threw) {
+				return {
+					label: n.label?.value,
+					value: value
+				}
 			}
 		},
 		arrayLiteral: (n) => {
 			let value = this.createValue('dictionary', new Map());
 
 			for(let i = 0; i < n.values.length; i++) {
-				let value_ = this.executeStatement(n.values[i]);
+				let value_ = this.executeNode(n.values[i]);
 
 				if(value_ != null) {
 					value.primitiveValue.set(i, value_);
@@ -53,7 +59,11 @@ class Interpreter {
 				gargs.push(type);
 			}
 			for(let arg of n.arguments) {
-				arg = this.executeStatement(arg);
+				arg = this.executeNode(arg);
+
+				if(this.threw) {
+					return;
+				}
 
 				if(arg != null) {
 					args.push(arg);
@@ -64,7 +74,11 @@ class Interpreter {
 				calleeMOSP = this.helpers.getMemberOverloadSearchParameters(callee);
 
 			if(calleeMOSP == null) {
-				callee = this.executeStatement(callee);
+				callee = this.executeNode(callee);
+
+				if(this.threw) {
+					return;
+				}
 			}
 
 			if((calleeMOSP?.composite == null || calleeMOSP?.identifier == null) && callee == null) {
@@ -81,10 +95,10 @@ class Interpreter {
 				return;
 			}
 
-			return this.helpers.callFunction(n, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+			return this.helpers.callFunction(calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 		},
 		chainExpression: (n) => {
-			let composite = this.getValueComposite(this.executeStatement(n.composite));
+			let composite = this.getValueComposite(this.executeNode(n.composite));
 
 			if(composite == null) {
 				this.report(2, n, 'Composite wasn\'t found.');
@@ -194,7 +208,7 @@ class Interpreter {
 			}
 
 			this.addScope(composite);
-			this.executeStatements(statements);
+			this.executeNodes(statements);
 			this.removeScope(false);
 
 			if(anonymous) {
@@ -248,8 +262,8 @@ class Interpreter {
 		},
 		entry: (n) => {
 			return {
-				key: this.executeStatement(n.key),
-				value: this.executeStatement(n.value)
+				key: this.executeNode(n.key),
+				value: this.executeNode(n.value)
 			}
 		},
 		enumerationDeclaration: (n) => {
@@ -277,15 +291,15 @@ class Interpreter {
 					return;
 				}
 
-				let rhs = this.executeStatement(n.values[2]);
+				let rhs = this.executeNode(n.values[2]);
 
 				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
 
 				return rhs;
 			}
 			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '==') {
-				let lhs = this.executeStatement(n.values[0]),
-					rhs = this.executeStatement(n.values[2]),
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]),
 					value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
 
 				if(!value) {
@@ -295,8 +309,8 @@ class Interpreter {
 				return this.createValue('boolean', value);
 			}
 			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<') {
-				let lhs = this.executeStatement(n.values[0]),
-					rhs = this.executeStatement(n.values[2]),
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]),
 					value = lhs?.primitiveValue < rhs?.primitiveValue;
 
 				return this.createValue('boolean', value);
@@ -356,7 +370,7 @@ class Interpreter {
 
 			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
 			this.addScope(function_);
-			this.executeStatements(statements);
+			this.executeNodes(statements);
 			this.removeScope(false);
 		},
 		functionExpression: (n) => {
@@ -379,7 +393,7 @@ class Interpreter {
 					let typePart_ = this.createTypePart(type, typePart, { [v]: true });
 
 					for(let n_ of n[v]) {
-						this.executeStatement(n_, type, typePart_);
+						this.executeNode(n_, type, typePart_);
 					}
 				}
 			}
@@ -419,26 +433,27 @@ class Interpreter {
 			}
 
 			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
-				condition;
+				condition,
+				elseif = n.else?.type === 'ifStatement';
 
 			this.addScope(namespace);
 
-			condition = this.executeStatement(n.condition);
+			condition = this.executeNode(n.condition);
 			condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
-			if(condition || n.else?.type !== 'ifStatement') {
+			if(condition || !elseif) {
 				let branch = n[condition ? 'then' : 'else']
 
 				if(branch?.type === 'functionBody') {
-					this.executeStatements(branch.statements);
+					this.executeNodes(branch.statements);
 				} else {
-					this.setControlTransfer(this.executeStatement(branch));
+					this.setControlTransfer(this.executeNode(branch));
 				}
 			}
 
 			this.removeScope();
 
-			if(!condition && n.else?.type === 'ifStatement') {
+			if(!condition && elseif) {
 				this.rules.ifStatement(n.else);
 			}
 
@@ -493,7 +508,7 @@ class Interpreter {
 			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
 		},
 		inoutExpression: (n) => {
-			let value = this.executeStatement(n.value);
+			let value = this.executeNode(n.value);
 
 			if(value?.primitiveType === 'pointer') {
 				return value;
@@ -518,79 +533,14 @@ class Interpreter {
 			this.rules.combiningType(n, t, tp, 'intersection');
 		},
 		module: () => {
-			let namespace = this.getComposite(0) ?? this.createNamespace('Global');
+			this.addScope(this.getComposite(0) ?? this.createNamespace('Global'));
+			this.helpers.setDefaultMembers();
+			this.executeNodes(this.tree?.statements, (t) => t !== 'throw');
 
-			let print = this.createFunction('print', (arguments_) => {
-					this.print(this.getValueString(arguments_[0].value));
-				}, namespace),
-				getComposite = this.createFunction('getComposite', (arguments_) => {
-					return this.createValue('reference', arguments_[0].value.primitiveValue);
-				}, namespace),
-				getCallsString = this.createFunction('getCallsString', () => {
-					return this.createValue('string', this.getCallsString());
-				}, namespace);
+			if(this.threw) {
+				this.report(2, undefined, this.getValueString(this.controlTransfer.value));
+			}
 
-			print.type = [
-				{
-					predefined: 'Function',
-					awaits: -1,
-					throws: -1
-				},
-				{
-					parameters: true,
-					super: 0
-				},
-				{
-					super: 1,
-					predefined: '_',
-					nillable: true,
-					identifier: 'value'
-				},
-				{
-					super: 0,
-					predefined: '_',
-					nillable: true
-				}
-			]
-			getComposite.type = [
-				{
-					predefined: 'Function',
-					awaits: -1,
-					throws: -1
-				},
-				{
-					parameters: true,
-					super: 0
-				},
-				{
-					super: 1,
-					predefined: 'integer',
-					identifier: 'value'
-				},
-				{
-					super: 0,
-					predefined: 'Any',
-					nillable: true
-				}
-			]
-			getCallsString.type = [
-				{
-					predefined: 'Function',
-					awaits: -1,
-					throws: -1
-				},
-				{
-					super: 0,
-					predefined: 'string'
-				}
-			]
-
-			this.setMemberOverload(namespace, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(print)), []);
-			this.setMemberOverload(namespace, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)), []);
-			this.setMemberOverload(namespace, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
-
-			this.addScope(namespace);
-			this.executeStatements(this.tree?.statements);
 			this.removeScope();
 			this.resetControlTransfer();
 		},
@@ -604,7 +554,7 @@ class Interpreter {
 			let value;
 
 			try {
-				value = this.executeStatement(n);
+				value = this.executeNode(n);
 			} catch(error) {
 				/*
 				if(error !== 0) {
@@ -652,7 +602,7 @@ class Interpreter {
 				typePart[titles[mainTitle ?? 0]] = true;
 			}
 
-			this.executeStatement(n.value, type, typePart);
+			this.executeNode(n.value, type, typePart);
 		},
 		parameter: (n, type, typePart) => {
 			typePart = this.helpers.createTypePart(type, typePart, n.type_);
@@ -668,13 +618,13 @@ class Interpreter {
 			}
 		},
 		parenthesizedExpression: (n) => {
-			return this.executeStatement(n.value);
+			return this.executeNode(n.value);
 		},
 		parenthesizedType: (n, type, typePart) => {
-			this.executeStatement(n.value, type, typePart);
+			this.executeNode(n.value, type, typePart);
 		},
 		postfixExpression: (n) => {
-			let value = this.executeStatement(n.value);
+			let value = this.executeNode(n.value);
 
 			if(value == null) {
 				return;
@@ -701,7 +651,7 @@ class Interpreter {
 			typePart.predefined = n.value;
 		},
 		prefixExpression: (n) => {
-			let value = this.executeStatement(n.value);
+			let value = this.executeNode(n.value);
 
 			if(value == null) {
 				return;
@@ -740,7 +690,11 @@ class Interpreter {
 			// TODO: This
 		},
 		returnStatement: (n) => {
-			let value = this.executeStatement(n.value);
+			let value = this.executeNode(n.value);
+
+			if(this.threw) {
+				return;
+			}
 
 			this.setControlTransfer(value, 'return');
 
@@ -753,7 +707,7 @@ class Interpreter {
 				if(segment.type === 'stringSegment') {
 					string += segment.value;
 				} else {
-					string += this.getValueString(this.executeStatement(segment.value));
+					string += this.getValueString(this.executeNode(segment.value));
 				}
 			}
 
@@ -768,7 +722,7 @@ class Interpreter {
 			return this.rules.compositeDeclaration(n, true);
 		},
 		throwStatement: (n) => {
-			let value = this.executeStatement(n.value);
+			let value = this.executeNode(n.value);
 
 			this.setControlTransfer(value, 'throw');
 
@@ -811,7 +765,7 @@ class Interpreter {
 				let identifier = declarator.identifier.value,
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
-					value = this.executeStatement(declarator.value),
+					value = this.executeNode(declarator.value),
 					observers = []
 
 				// Type-related checks
@@ -841,7 +795,7 @@ class Interpreter {
 			while(true) {
 				this.removeMembers(namespace);
 
-				condition = this.executeStatement(n.condition);
+				condition = this.executeNode(n.condition);
 				condition = condition?.primitiveType === 'boolean' ? condition.primitiveValue : condition != null;
 
 				if(!condition) {
@@ -849,9 +803,9 @@ class Interpreter {
 				}
 
 				if(n.value?.type === 'functionBody') {
-					this.executeStatements(n.value.statements);
+					this.executeNodes(n.value.statements);
 				} else {
-					this.setControlTransfer(this.executeStatement(n.value));
+					this.setControlTransfer(this.executeNode(n.value));
 				}
 
 				let CTT = this.controlTransfer?.type;
@@ -871,12 +825,10 @@ class Interpreter {
 	}
 
 	static helpers = {
-		callFunction: (node, function_, args, gargs, FSC, initializer) => {
+		callFunction: (function_, args, gargs, FSC, initializer) => {
 		//	this.report(0, node, 'ca: '+function_.title+', '+this.getOwnID(function_));
 
-			let FSO,  // Function self object
-				SSC = this.getComposite(this.scope.IDs.Self),  // Scope self composite
-				location = this.tokens[node.range.start]?.location;
+			let FSO;  // Function self object
 
 			if(initializer) {
 				if(gargs.length === 0) {  // Find initializer's object in scope's object chain
@@ -927,7 +879,11 @@ class Interpreter {
 				}
 			}
 
-			let value = this.callFunction(function_, args, FSO, undefined, SSC, location);
+			let value = this.callFunction(function_, args, FSO);
+
+			if(this.threw) {
+				return;
+			}
 		//	this.report(0, node, 'ke: '+JSON.stringify(value));
 
 			return value;
@@ -958,7 +914,7 @@ class Interpreter {
 		createTypePart: (type, typePart, node, fallback = true) => {
 			typePart = this.createTypePart(type, typePart);
 
-			this.executeStatement(node, type, typePart);
+			this.executeNode(node, type, typePart);
 
 			if(fallback) {
 				for(let flag in typePart) {
@@ -995,6 +951,38 @@ class Interpreter {
 					i--;
 				}
 			}
+		},
+		setDefaultMembers: () => {
+			let print = this.createFunction('print', (arguments_) => {
+					this.print(this.getValueString(arguments_[0].value));
+				}, this.scope),
+				getComposite = this.createFunction('getComposite', (arguments_) => {
+					return this.createValue('reference', arguments_[0].value.primitiveValue);
+				}, this.scope),
+				getCallsString = this.createFunction('getCallsString', () => {
+					return this.createValue('string', this.getCallsString());
+				}, this.scope);
+
+			print.type = [
+				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ super: 0, parameters: true },
+				{ super: 1, predefined: '_', nillable: true, identifier: 'value' },
+				{ super: 0, predefined: '_', nillable: true }
+			]
+			getComposite.type = [
+				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ super: 0, parameters: true },
+				{ super: 1, predefined: 'integer', identifier: 'value' },
+				{ super: 0, predefined: 'Any', nillable: true }
+			]
+			getCallsString.type = [
+				{ predefined: 'Function', awaits: -1, throws: -1 },
+				{ super: 0, predefined: 'string' }
+			]
+
+			this.setMemberOverload(this.scope, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(print)), []);
+			this.setMemberOverload(this.scope, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)), []);
+			this.setMemberOverload(this.scope, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
 		},
 		findMemberOverload: (scope, composite, identifier, matching, internal) => {
 			// TODO: Access-related checks
@@ -1040,7 +1028,7 @@ class Interpreter {
 			} else
 			if(node.type === 'chainExpression') {
 				return {
-					composite: this.getValueComposite(this.executeStatement(node.composite)),
+					composite: this.getValueComposite(this.executeNode(node.composite)),
 					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, true).primitiveValue,
 					internal: true
 				}
@@ -1053,7 +1041,7 @@ class Interpreter {
 				calleeFCP = this.helpers.getFunctionCallParameters(node, calleeMOSP, undefined, args, gargs);
 
 			if(calleeFCP.function != null) {
-				return this.helpers.callFunction(node, calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
+				return this.helpers.callFunction(calleeFCP.function, args, gargs, calleeFCP.FSC, calleeFCP.initializer);
 			}
 
 			return value;
@@ -1061,7 +1049,11 @@ class Interpreter {
 	}
 
 	static get scope() {
-		return this.getScope()?.value;
+		return this.getScope();
+	}
+
+	static get threw() {
+		return this.controlTransfer?.type === 'throw';
 	}
 
 	static getSave() {
@@ -1154,6 +1146,10 @@ class Interpreter {
 
 			if(function_ != null) {
 				this.callFunction(function_, [], composite);
+
+				if(this.threw) {
+				//	return;  Let the objects destroy no matter of errors
+				}
 			}
 		}
 
@@ -1162,6 +1158,10 @@ class Interpreter {
 		for(let composite_ of this.composites) {
 			if(this.getRetainersIDs(composite_, true)?.includes(ID)) {
 				this.releaseComposite(composite, composite_);
+
+				if(this.threw) {
+				//	return;  Let the objects destroy no matter of errors
+				}
 			}
 		}
 
@@ -1297,8 +1297,8 @@ class Interpreter {
 	static compositeRetained(composite) {
 		return (
 			this.compositeRetainsDistant(this.getComposite(0), composite) ||
-			this.compositeRetainsDistant(this.getScope()?.value, composite) ||
-		//	this.compositeRetainsDistant(this.scopes.map(v => v.value), composite) ||  // May be useful when "with" syntax construct will be added
+			this.compositeRetainsDistant(this.getScope(), composite) ||
+		//	this.compositeRetainsDistant(this.scopes, composite) ||  // May be useful when "with" syntax construct will be added
 			this.compositeRetainsDistant(this.getValueComposite(this.controlTransfer?.value), composite)
 		);
 	}
@@ -1407,50 +1407,24 @@ class Interpreter {
 		);
 	}
 
-	static getScope(offset = 0) {
-		return this.scopes[this.scopes.length-1+offset]
-	}
-
-	/*
-	 * Should be used for a bodies before executing its contents,
-	 * as ARC utilizes a current scope at the moment.
-	 *
-	 * Additionally function and its call location can be specified for debugging purposes.
-	 */
-	static addScope(value, function_, location) {
-		this.scopes.push({
-			value: value,
+	static addCall(function_) {
+		this.calls.push({
 			function: function_,
-			location: location
+			location: this.tokens[this.position]?.location
 		});
 	}
 
-	/*
-	 * Removes from the stack and optionally automatically destroys its last scope.
-	 */
-	static removeScope(destroy = true) {
-		let value = this.scopes.pop()?.value;
-
-		if(destroy) {
-			this.destroyReleasedComposite(value);
-		}
-	}
-
-	static getCalls() {
-		return this.scopes.filter(v => v.function != null);
+	static removeCall() {
+		this.calls.pop();
 	}
 
 	static getCallsString() {
 		let result = '';
 
-		for(let i = this.scopes.length-1, j = 0; i >= 0 && j < 8; i--) {
-			let scope = this.scopes[i],
-				function_ = scope.function,
-				location = scope.location;
-
-			if(function_ == null) {
-				continue;
-			}
+		for(let i = this.calls.length-1, j = 0; i >= 0 && j < 8; i--) {
+			let call = this.calls[i],
+				function_ = call.function,
+				location = call.location;
 
 			if(j > 0) {
 				result += '\n';
@@ -1476,6 +1450,29 @@ class Interpreter {
 		return result;
 	}
 
+	static getScope(offset = 0) {
+		return this.scopes[this.scopes.length-1+offset]
+	}
+
+	/*
+	 * Should be used for a bodies before executing its contents,
+	 * as ARC utilizes a current scope at the moment.
+	 */
+	static addScope(composite) {
+		this.scopes.push(composite);
+	}
+
+	/*
+	 * Removes from the stack and optionally automatically destroys a last scope.
+	 */
+	static removeScope(destroy = true) {
+		let composite = this.scopes.pop();
+
+		if(destroy) {
+			this.destroyReleasedComposite(composite);
+		}
+	}
+
 	/*
 	 * Should be used for a return values before releasing its scopes,
 	 * as ARC utilizes a control trasfer value at the moment.
@@ -1483,18 +1480,26 @@ class Interpreter {
 	 * Specifying a type means explicit control transfer.
 	 */
 	static setControlTransfer(value, type) {
-		this.controlTransfer = {
+		return this.controlTransfer = {
 			value: value,
 			type: type
 		}
 	}
 
 	static resetControlTransfer() {
-		this.controlTransfer = undefined;
+		return this.controlTransfer = undefined;
 	}
 
-	static executeStatement(node, ...arguments_) {
-		return this.rules[node?.type]?.(node, ...arguments_);
+	static executeNode(node, ...arguments_) {
+		let OP = this.position,  // Old/new position
+			NP = node?.range?.start,
+			value;
+
+		this.position = NP;
+		value = this.rules[node?.type]?.(node, ...arguments_);
+		this.position = OP;
+
+		return value;
 	}
 
 	/*
@@ -1503,31 +1508,46 @@ class Interpreter {
 	 *
 	 * Explicit control transfer should be implemented by rules.
 	 */
-	static executeStatements(nodes) {
-		let globalScope = this.getScope(-1) == null;
+	static executeNodes(nodes, CTDiscared) {
+		let OP = this.position;  // Old position
 
 		for(let node of nodes ?? []) {
-			let start = this.composites.length,
-				value = this.executeStatement(node),
+			let NP = node.range?.start,  // New position
+				start = this.composites.length,
+				value = this.executeNode(node),
 				end = this.composites.length,
-				CTed = this.controlTransfer != null,  // Control transferred
-				explicitlyCTed = CTed && this.controlTransfer.type != null,
-				valueCTed = CTed && this.controlTransfer.value === value,
+				CT = this.controlTransfer,
+				CTed = CT != null,  // Control transferred
+				explicitlyCTed = CTed && CT.type != null,
+				valueCTed = CTed && CT.value === value,
 				CTing = node === nodes.at(-1),  // Control-transferring (implicitly)
 				valueCTing = !explicitlyCTed && !valueCTed && CTing;
 
 			if(valueCTing) {
-				this.setControlTransfer(!globalScope ? value : undefined);
+				CT = this.setControlTransfer(value);
 			}
+			if(CTDiscared?.(CT?.type, CT?.value)) {
+				explicitlyCTed = this.resetControlTransfer();
+			}
+
+			this.position = NP;  // Consider deinitializers
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
+
+				if(this.threw) {
+					explicitlyCTed = true;
+
+					break;
+				}
 			}
 
 			if(explicitlyCTed) {
 				break;
 			}
 		}
+
+		this.position = OP;
 	}
 
 	/*
@@ -1537,8 +1557,8 @@ class Interpreter {
 	 * Scope, that statements will be executed within, can be set explicitly or created automatically.
 	 * Existing scope will prevail over levels, so it will not inherit them nor an object will be tried to initialize.
 	 */
-	static callFunction(function_, arguments_ = [], levels, scope, caller, location) {
-		if(this.getCalls().length === this.preferences.callStackSize) {
+	static callFunction(function_, arguments_ = [], levels, scope) {
+		if(this.calls.length === this.preferences.callStackSize) {
 			this.report(2, undefined, 'Maximum call stack size exceeded.\n'+this.getCallsString());
 
 			return;
@@ -1548,16 +1568,22 @@ class Interpreter {
 			return function_.statements(arguments_);
 		}
 
-		let namespaceTitle = 'Call<'+(function_.title ?? '#'+this.getOwnID(function_))+'>',
+		let SSC = this.getComposite(this.scope?.IDs.Self),  // Scope self composite
+			namespaceTitle = 'Call<'+(function_.title ?? '#'+this.getOwnID(function_))+'>',
 			namespace = scope ?? this.createNamespace(namespaceTitle, function_, levels ?? function_),
+			parameters = this.getTypeFunctionParameters(function_.type),
 			properties = this.getTypeFunctionProperties(function_.type),
-			parameters = this.getTypeFunctionParameters(function_.type);
+			initializing = scope == null && this.compositeIsObject(levels) && levels.life === 0,
+			LSC = initializing ? this.getComposite(levels.IDs.Self) : undefined;  // Levels self composite
 
-		if(caller != null) {
+		this.addCall(function_);
+		this.addScope(namespace);
+
+		if(SSC != null) {
 			let type = [{ predefined: 'Any', nillable: true }],
-				value = this.createValue('reference', this.getOwnID(caller));
+				value = this.createValue('reference', this.getOwnID(SSC));
 
-			this.setMemberOverload(namespace, 'caller', [], type, value, []);
+			this.setMemberOverload(this.scope, 'caller', [], type, value, []);
 		}
 
 		for(let i = 0; i < arguments_.length; i++) {
@@ -1565,49 +1591,39 @@ class Interpreter {
 				parameterType = this.getSubtype(parameters, parameters[i]),
 				identifier = parameterType[0]?.identifier ?? '$'+i;
 
-			this.setMemberOverload(namespace, identifier, [], parameterType, argument.value, []);
+			this.setMemberOverload(this.scope, identifier, [], parameterType, argument.value, []);
 		}
 
-		let initializing = scope == null && this.compositeIsObject(levels) && levels.life === 0;
-
-		this.addScope(namespace, function_, location);
-
-		if(initializing) {
-			let selfComposite = this.getComposite(levels.IDs.Self);
-
+		if(LSC != null) {
 			this.addScope(levels);
-			this.executeStatements(selfComposite?.statements);
+			this.executeNodes(LSC.statements);
 			this.removeScope(false);
 		}
 
-		this.executeStatements(function_.statements);
+		this.executeNodes(function_.statements, (t) =>
+			![undefined, 'return', 'throw'].includes(t) ||
+			function_.title === 'deinit' && t !== 'throw'
+		);
 
 		if(initializing) {
 			levels.life = 1;
 		}
 
 		this.removeScope();
+		this.removeCall();
 
-		let CTT = this.controlTransfer?.type,
-			CTV;
+		let CT = this.controlTransfer;
 
-		if([undefined, 'return', 'throw'].includes(CTT)) {
-			CTV = this.controlTransfer?.value;
-
-			if(CTT !== 'throw') {
-				this.resetControlTransfer();
-			} else {
-				if(properties.throws === 1) {
-					return;
-				}
-
-				this.report(2, undefined, this.getValueString(CTV));
-			}
+		if(CT?.type !== 'throw') {
+			this.resetControlTransfer();
+		} else
+		if(properties.throws === 1) {
+			return;
+		} else {
+			this.report(1, undefined, 'Throw from non-throwing function.');
 		}
 
-		// TODO: CTV type checking
-
-		return CTV;
+		return CT?.value;
 	}
 
 	static setCompositeType(composite, type) {
@@ -2117,10 +2133,10 @@ class Interpreter {
 		}
 	}
 
-	static getMemberOverload(composite, identifier, matching) {
+	static getMemberOverload(composite, identifier, matching, default_ = true) {
 		let member = this.getMember(composite, identifier);
 
-		if(member == null) {  // Try to substitute pseudovariables
+		if(member == null && default_) {
 			let ID = {
 			//	global: () => undefined,			  Global-object is no thing
 				Global: () => 0,				   // Global-type
@@ -2312,7 +2328,7 @@ class Interpreter {
 	 * Not specifying "internal" means use of direct declaration without search.
 	 */
 	static setMemberOverload(composite, identifier, modifiers, type, value, observers, matching, internal) {
-		let overload = internal == null ? this.getMemberOverload(composite, identifier, matching) : this.findMemberOverload(composite, identifier, matching, internal);
+		let overload = internal == null ? this.getMemberOverload(composite, identifier, matching, false) : this.findMemberOverload(composite, identifier, matching, internal);
 
 		if(overload == null) {
 			/*
@@ -2387,7 +2403,7 @@ class Interpreter {
 	}
 
 	static report(level, node, string) {
-		let position = node?.range?.start ?? 0,
+		let position = this.position,
 			location = this.tokens[position]?.location ?? {
 				line: 0,
 				column: 0
@@ -2413,7 +2429,9 @@ class Interpreter {
 	static reset(composites, preferences) {
 		this.tokens = []
 		this.tree = undefined;
+		this.position = undefined;
 		this.composites = composites ?? []
+		this.calls = []
 		this.scopes = []
 		this.controlTransfer = undefined;
 		this.preferences = {

@@ -1,3 +1,47 @@
+class A {
+	init {
+		print(1)
+	}
+
+    deinit {
+		print('1.')
+        print(getCallsString())
+		print('-')
+    	B()
+		1
+		throw 6
+    }
+}
+
+class B {
+	init {
+		print(2)
+	}
+
+    deinit {
+		print('2.')
+        print(getCallsString())
+		print('--')
+
+		struct C {}
+
+		throw 5
+		throw 1
+    }
+}
+
+return A().deinit()
+
+func a() {
+    throw 1
+}
+
+func b(c) {
+    print(c)
+}
+
+return c(a())
+
 var i = 0
 
 while i < 4 {
