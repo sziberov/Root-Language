@@ -1,4 +1,16 @@
 class A {
+	init {
+		print('1 \(self)')
+	}
+
+    deinit {
+		print('1. \(self)')
+    }
+}
+
+return A()
+
+class A {
 	static var init = func() {
 		print(1)
 
