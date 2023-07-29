@@ -1222,7 +1222,7 @@ class Interpreter {
 
 	/*
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
-	 * If levels is missed, Scope will prevail over Object and Inheritance chains at member overload search.
+	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
 	static createNamespace(title, scope, levels) {
 		let namespace = this.createComposite(title, [{ predefined: 'Namespace' }], scope);
@@ -1231,12 +1231,7 @@ class Interpreter {
 			this.setInheritedLevelIDs(namespace, levels);
 		} else
 		if(levels === null) {
-			namespace.IDs.self = null;
-			namespace.IDs.Self = null;
-			namespace.IDs.Super = null;
-			namespace.IDs.super = null;
-			namespace.IDs.Sub = null;
-			namespace.IDs.sub = null;
+			this.setMissedLevelIDs(namespace);
 		} else {
 			this.setSelfID(namespace, namespace);
 		}
@@ -1604,24 +1599,24 @@ class Interpreter {
 		OV = composite.IDs[key]
 		NV = composite.IDs[key] = value;
 
-		if(key.toLowerCase() !== 'self') {  // ID chains should not be cyclic
-			let composites = [],
-				composite_ = composite;
-
-			while(composite_ != null) {
-				if(composites.includes(composite_)) {
-					composite.IDs[key] = OV;
-
-					return;
-				}
-
-				composites.push(composite_);
-
-				composite_ = this.getComposite(composite_.IDs[key]);
-			}
-		}
-
 		if(OV !== NV) {
+			if(key.toLowerCase() !== 'self' && NV !== -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+				let composites = [],
+					composite_ = composite;
+
+				while(composite_ != null) {
+					if(composites.includes(composite_)) {
+						composite.IDs[key] = OV;
+
+						return;
+					}
+
+					composites.push(composite_);
+
+					composite_ = this.getComposite(composite_.IDs[key]);
+				}
+			}
+
 			this.retainOrReleaseComposite(composite, this.getComposite(OV));
 			this.retainComposite(composite, this.getComposite(NV));
 		}
@@ -1674,6 +1669,16 @@ class Interpreter {
 		for(let key in inheritingComposite.IDs) {
 			if(!excluded.includes(key)) {
 				this.setID(inheritingComposite, key, inheritedComposite?.IDs[key]);
+			}
+		}
+	}
+
+	static setMissedLevelIDs(missingComposite) {
+		let excluded = ['own', 'scope', 'retainers']
+
+		for(let key in missingComposite.IDs) {
+			if(!excluded.includes(key)) {
+				this.setID(missingComposite, key, -1);
 			}
 		}
 	}
@@ -2148,7 +2153,7 @@ class Interpreter {
 			if(identifier in IDs) {
 				let ID = IDs[identifier]();
 
-				if(ID !== null) {
+				if(ID !== -1) {  // Intentionally missed IDs should be treated like non-existent
 					member = [{
 						modifiers: ['final'],
 						type: [{ predefined: 'Any', nillable: true }],
