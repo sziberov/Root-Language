@@ -1230,7 +1230,14 @@ class Interpreter {
 		if(levels != null) {
 			this.setInheritedLevelIDs(namespace, levels);
 		} else
-		if(levels !== null) {
+		if(levels === null) {
+			namespace.IDs.self = null;
+			namespace.IDs.Self = null;
+			namespace.IDs.Super = null;
+			namespace.IDs.super = null;
+			namespace.IDs.Sub = null;
+			namespace.IDs.sub = null;
+		} else {
 			this.setSelfID(namespace, namespace);
 		}
 
@@ -2125,7 +2132,7 @@ class Interpreter {
 		let member = this.getMember(composite, identifier);
 
 		if(member == null && default_) {
-			let ID = {
+			let IDs = {
 			//	global: () => undefined,			  Global-object is no thing
 				Global: () => 0,				   // Global-type
 				super: () => composite.IDs.super,  // Super-object or a type
@@ -2135,41 +2142,21 @@ class Interpreter {
 				sub: () => composite.IDs.sub,	   // Sub-object
 				Sub: () => composite.IDs.Sub	   // Sub-type
 			//	metaSelf: () => undefined,			  Self-object or a type (descriptor)
-			//	arguments: () => undefined			  Function arguments array (needed?)
-			}[identifier]?.();
-
-			if(ID == null) {
-				return;
+			//	arguments: () => undefined			  Function arguments array (should be in callFunction() if needed)
 			}
 
-			member = [
-				{
-					modifiers: [],
-					type: [{ predefined: 'Any' }],
-					value: this.createValue('reference', ID),
-					observers: []
+			if(identifier in IDs) {
+				let ID = IDs[identifier]();
+
+				if(ID !== null) {
+					member = [{
+						modifiers: ['final'],
+						type: [{ predefined: 'Any', nillable: true }],
+						value: ID != null ? this.createValue('reference', ID) : undefined,
+						observers: []
+					}]
 				}
-			]
-
-			/* TODO: Fix (or not?) search of "sub" in derived objects
-			let type = [{ predefined: 'Any' }],
-				value;
-
-			if(ID != null) {
-				value = this.createValue('reference', ID);
-			} else {
-				type[0].nillable = true;
 			}
-
-			member = [
-				{
-					modifiers: [],
-					type: type,
-					value: value,
-					observers: []
-				}
-			]
-			*/
 		}
 
 		if(member != null) {

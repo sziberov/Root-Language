@@ -3,9 +3,9 @@ class A {
 		print('1 \(self)')
 	}
 
-    deinit {
+	deinit {
 		print('1. \(self)')
-    }
+	}
 }
 
 return A()
@@ -29,14 +29,14 @@ class A {
 		print(1)
 	}
 
-    deinit {
+	deinit {
 		print('1.')
-        print(getCallsString())
+		print(getCallsString())
 		print('-')
-    	B()
+		B()
 		1
 		throw 6
-    }
+	}
 }
 
 class B {
@@ -44,26 +44,26 @@ class B {
 		print(2)
 	}
 
-    deinit {
+	deinit {
 		print('2.')
-        print(getCallsString())
+		print(getCallsString())
 		print('--')
 
 		struct C {}
 
 		throw 5
 		throw 1
-    }
+	}
 }
 
 return A().deinit()
 
 func a() {
-    throw 1
+	throw 1
 }
 
 func b(c) {
-    print(c)
+	print(c)
 }
 
 return c(a())
@@ -127,13 +127,13 @@ b = A()
 return
 
 var ns = namespace {
-    func a() {}
+	func a() {}
 
-    var b = struct {
-        static func b() {}
-    }
+	var b = struct {
+		static func b() {}
+	}
 
-    //var b
+	//var b
 }
 
 return
@@ -171,24 +171,29 @@ class Dictionary<K: string | String, V> {
 //func Dictionary(a) { print(a); a }
 
 var a = Dictionary<String, _?>(['0': 1]),
-    b = [2: 4]
+	b = [2: 4]
 
 return
 
 struct Integer {
-    private var value: int
+	private var value: int
 
-    init(v: int) {
-        value = v
-    }
+	init(v: int | Self) {
+	//	if v is int
+		if v.value == nil {
+			value = v
+		} else {
+			value = v.value
+		}
+	}
 
-    static func ==(lhs: Self, rhs: Self) {
-        return lhs.value == rhs.value
-    }
+	static func ==(lhs: Self, rhs: Self) {
+		return lhs.value == rhs.value
+	}
 }
 
-print(Integer.'=='(Integer(1), Integer(1))) // true
-print(Integer.'=='(Integer(1), Integer(0))) // false
+print(Integer.'=='(Integer(1), 1)) // true
+print(Integer.'=='(Integer(1), 0)) // false
 
 return
 
@@ -384,6 +389,9 @@ return A()
 class Base {
 	init {
 		f()
+		print(super)
+		print(self)
+		print(sub)
 	}
 
 	/*virtual*/ func f() {
@@ -395,6 +403,9 @@ class Derived: Base {
 	init {
 		super()
 		f()
+		print(super)
+		print(self)
+		print(sub)
 	}
 
 	func f() {
