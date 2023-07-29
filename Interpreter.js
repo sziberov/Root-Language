@@ -1002,7 +1002,7 @@ class Interpreter {
 			this.setScopeID(composite, scope);
 		}
 
-	//	this.print('cr: '+composite.title+', '+this.getOwnID(composite));
+		this.print('cr: '+composite.title+', '+this.getOwnID(composite));
 
 		return composite;
 	}
@@ -1012,7 +1012,7 @@ class Interpreter {
 			return;
 		}
 
-	//	this.print('ds: '+composite.title+', '+this.getOwnID(composite));
+		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
 		composite.life = 2;
 
@@ -1065,7 +1065,7 @@ class Interpreter {
 			this.report(1, undefined, 'Composite #'+this.getOwnID(composite)+' was destroyed with a non-empty retainer list.');
 		}
 
-	//	this.print('de: '+JSON.stringify(composite));
+		this.print('de: '+JSON.stringify(composite));
 	}
 
 	static destroyReleasedComposite(composite) {
@@ -1374,14 +1374,18 @@ class Interpreter {
 	 * Specifying a type means explicit control transfer.
 	 */
 	static setControlTransfer(value, type) {
-		return this.controlTransfer = {
+		this.controlTransfer = {
 			value: value,
 			type: type
 		}
+		this.print('cts: '+JSON.stringify(this.controlTransfer));
+		// TODO: Store return values in call/scope stack or anything to separate
+		// returns by deinitializers (or any other nested calls) and common ones
 	}
 
 	static resetControlTransfer() {
-		return this.controlTransfer = undefined;
+		this.controlTransfer = undefined;
+		this.print('ctr');
 	}
 
 	static executeNode(node, ...arguments_) {
