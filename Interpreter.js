@@ -541,7 +541,7 @@ class Interpreter {
 		module: () => {
 			this.addScope(this.getComposite(0) ?? this.createNamespace('Global'));
 			this.addDefaultMembers(this.scope);
-			this.executeNodes(this.tree?.statements, (t) => t !== 'throw');
+			this.executeNodes(this.tree?.statements, (t) => t !== 'throw' ? 0 : -1);
 
 			if(this.threw) {
 				this.report(2, undefined, this.getValueString(this.controlTransfer.value));
@@ -1398,45 +1398,44 @@ class Interpreter {
 
 	/*
 	 * Last statement in a body will be treated like a local return (overwritable by subsequent
-	 * outer statements) if there was no explicit control transfer previously.
+	 * outer statements) if there was no explicit control transfer previously. ECT should
+	 * be implemented by rules.
 	 *
-	 * Explicit control transfer should be implemented by rules.
+	 * Control transfer result can be discarded (fully - 1, value only - 0).
 	 */
-	static executeNodes(nodes, CTDiscared) {
+	static executeNodes(nodes, CTDiscarded) {
 		let OP = this.position;  // Old position
 
 		for(let node of nodes ?? []) {
 			let NP = node.range?.start,  // New position
 				start = this.composites.length,
 				value = this.executeNode(node),
-				end = this.composites.length,
-				CT = this.controlTransfer,
-				CTed = CT != null,  // Control transferred
-				explicitlyCTed = CTed && CT.type != null,
-				valueCTed = CTed && CT.value === value,
-				CTing = node === nodes.at(-1),  // Control-transferring (implicitly)
-				valueCTing = !explicitlyCTed && !valueCTed && CTing;
+				end = this.composites.length;
 
-			if(valueCTing) {
-				CT = this.setControlTransfer(value);
-			}
-			if(CTDiscared?.(CT?.type, CT?.value)) {
-				explicitlyCTed = this.resetControlTransfer();
+			if(node === nodes.at(-1) && this.controlTransfer?.type == null) {  // Implicit control transfer
+				this.setControlTransfer(value);
 			}
 
-			this.position = NP;  // Consider deinitializers
+			switch(CTDiscarded?.(this.controlTransfer?.type, this.controlTransfer?.value)) {
+				case 0: this.setControlTransfer(undefined, this.controlTransfer?.type); break;
+				case 1: this.resetControlTransfer();									break;
+			}
+
+			this.position = NP;								 // Consider deinitializers
+															 //
+			let CT = structuredClone(this.controlTransfer);  // Can be mutated
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
 
 				if(this.threw) {
-					explicitlyCTed = true;
-
 					break;
 				}
+
+				this.controlTransfer = CT;
 			}
 
-			if(explicitlyCTed) {
+			if(this.controlTransfer?.type != null) { // Explicit control transfer is done
 				break;
 			}
 		}
@@ -1557,7 +1556,7 @@ class Interpreter {
 			this.removeScope(false);
 		}
 
-		this.executeNodes(function_.statements, (t) => ![undefined, 'return', 'throw'].includes(t) || deinits && t !== 'throw');
+		this.executeNodes(function_.statements, (t) => (![undefined, 'return', 'throw'].includes(t) || deinits && t !== 'throw') ? 1 : -1);
 
 		if(FSO?.life === 0) {
 			FSO.life = 1;

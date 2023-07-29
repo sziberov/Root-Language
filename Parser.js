@@ -1517,13 +1517,13 @@ class Parser {
 				range: {
 					start: this.position
 				},
-				negatiated: false,
+				inverted: false,
 				composite: undefined
 			}
 
 			if(this.token.type === 'operatorPrefix' && this.token.value === '!') {
 				this.position++;
-				node.negatiated = true;
+				node.inverted = true;
 			}
 
 			if(this.token.type !== 'keywordIn') {
@@ -1633,12 +1633,12 @@ class Parser {
 					start: this.position
 				},
 				type_: undefined,
-				negatiated: false
+				inverted: false
 			}
 
 			if(this.token.type === 'operatorPrefix' && this.token.value === '!') {
 				this.position++;
-				node.negatiated = true;
+				node.inverted = true;
 			}
 
 			if(this.token.type !== 'keywordIs') {

@@ -1,3 +1,26 @@
+var a = 0
+
+class A {
+	var la = a
+
+	init {
+		a++
+		print('1 \(self)')
+	}
+
+	deinit {
+		print('1. \(self)')
+	}
+}
+
+func b(c, d) {
+	return c
+}
+
+var bb = b(A(), A())
+
+return
+
 class A {
 	init {
 		print('1 \(self)')
@@ -19,8 +42,8 @@ class A {
 }
 
 var b = A.init,
-	c = b(),  // No object
-	d = A()
+	c = b(),  // Composite
+	d = A()   // No initializer - no object
 
 return
 
