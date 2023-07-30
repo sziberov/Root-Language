@@ -2768,7 +2768,7 @@ class Parser {
 				() => this.token.type.startsWith('operator') && this.token.value === ','
 			);
 
-			if(node.modifiers.some(v => !['private', 'protected', 'public', 'static', 'lazy', 'final'].includes(v))) {
+			if(node.modifiers.some(v => !['private', 'protected', 'public', 'final', 'lazy', 'static', 'virtual'].includes(v))) {
 				this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
 			}
 			if(node.declarators.length === 0) {

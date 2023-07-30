@@ -407,6 +407,8 @@ class A {
 return A()
 
 class Base {
+	/*virtual*/ var a = 'Base'
+
 	init {
 		f()
 		print(super)
@@ -415,11 +417,13 @@ class Base {
 	}
 
 	/*virtual*/ func f() {
-		print('Base')
+		print(a)
 	}
 }
 
 class Derived: Base {
+	var a = 'Derived'
+
 	init {
 		super()
 		f()
@@ -429,7 +433,7 @@ class Derived: Base {
 	}
 
 	func f() {
-		print('Derived')
+		print(a)
 	}
 }
 
