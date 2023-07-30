@@ -1180,7 +1180,7 @@ class Interpreter {
 	 * Returns a significant state of general retainment.
 	 *
 	 * Composite considered significantly retained if it is formally retained by
-	 * the global namespace, a current scope namespace or a control trasfer value.
+	 * the global namespace, a current scope composite or a current control trasfer value.
 	 */
 	static compositeRetained(composite) {
 		return (
@@ -1601,14 +1601,15 @@ class Interpreter {
 		let CTV = this.controlTransfer?.value;
 
 	//	this.report(0, undefined, 'ke: '+JSON.stringify(CTV));
-		if(!this.threw) {
-			this.resetControlTransfer();
-		} else
-		if(throws) {
+		if(this.threw) {
+			if(!throws) {
+				this.report(1, undefined, 'Throw from non-throwing function.');
+			}
+
 			return;
-		} else {
-			this.report(1, undefined, 'Throw from non-throwing function.');
 		}
+
+		this.resetControlTransfer();
 
 		return CTV;
 	}
