@@ -22,18 +22,6 @@ var bb = b(A(), A())
 return
 
 class A {
-	init {
-		print('1 \(self)')
-	}
-
-	deinit {
-		print('1. \(self)')
-	}
-}
-
-return A()
-
-class A {
 	static var init = func() {
 		print(1)
 
@@ -47,13 +35,19 @@ var b = A.init,
 
 return
 
+var a = 10,
+	b = 20
+
 class A {
 	init {
-		print(1)
+		print('1 init')
+		print(caller)
 	}
 
 	deinit {
-		print('1.')
+		print('1 deinit')
+		a++
+		print(a)
 		print(getCallsString())
 		print('-')
 		B()
@@ -64,11 +58,14 @@ class A {
 
 class B {
 	init {
-		print(2)
+		print('2 init')
+		print(caller)
 	}
 
 	deinit {
-		print('2.')
+		print('2 deinit')
+		b++
+		print(b)
 		print(getCallsString())
 		print('--')
 

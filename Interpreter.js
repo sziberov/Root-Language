@@ -539,6 +539,7 @@ class Interpreter {
 			this.rules.combiningType(n, t, tp, 'intersection');
 		},
 		module: () => {
+			this.addControlTransfer();
 			this.addScope(this.getComposite(0) ?? this.createNamespace('Global'));
 			this.addDefaultMembers(this.scope);
 			this.executeNodes(this.tree?.statements, (t) => t !== 'throw' ? 0 : -1);
@@ -548,7 +549,7 @@ class Interpreter {
 			}
 
 			this.removeScope();
-			this.resetControlTransfer();
+			this.removeControlTransfer();
 		},
 		namespaceDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
@@ -923,22 +924,6 @@ class Interpreter {
 		}
 	}
 
-	static get scope() {
-		return this.getScope();
-	}
-
-	static get controlTransfer() {
-		return this.getControlTransfer();
-	}
-
-	static get controlTransferFrom() {
-		return this.getControlTransfer(true);
-	}
-
-	static get threw() {
-		return this.controlTransfer?.type === 'throw';
-	}
-
 	static getSave() {
 		// https://isocpp.org/wiki/faq/serialization
 
@@ -1010,7 +995,7 @@ class Interpreter {
 			this.setScopeID(composite, scope);
 		}
 
-		this.print('cr: '+composite.title+', '+this.getOwnID(composite));
+	//	this.print('cr: '+composite.title+', '+this.getOwnID(composite));
 
 		return composite;
 	}
@@ -1020,10 +1005,7 @@ class Interpreter {
 			return;
 		}
 
-		if(composite.IDs.own === 7) {
-			debugger;
-		}
-		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
+	//	this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
 		composite.life = 2;
 
@@ -1037,11 +1019,14 @@ class Interpreter {
 			})?.matchingValue;
 
 			if(function_ != null) {
+				this.addControlTransfer();
 				this.callFunction(function_);
 
 				if(this.threw) {
 				//	return;  Let the objects destroy no matter of errors
 				}
+
+				this.removeControlTransfer();
 			}
 		}
 
@@ -1076,7 +1061,7 @@ class Interpreter {
 			this.report(1, undefined, 'Composite #'+this.getOwnID(composite)+' was destroyed with a non-empty retainer list.');
 		}
 
-		this.print('de: '+JSON.stringify(composite));
+	//	this.print('de: '+JSON.stringify(composite));
 	}
 
 	static destroyReleasedComposite(composite) {
@@ -1200,7 +1185,7 @@ class Interpreter {
 	static compositeRetained(composite) {
 		return (
 			this.compositeRetainsDistant(this.getComposite(0), composite) ||
-			this.compositeRetainsDistant(this.getScope(), composite) ||
+			this.compositeRetainsDistant(this.scope, composite) ||
 		//	this.compositeRetainsDistant(this.scopes, composite) ||  // May be useful when "with" syntax construct will be added
 			this.compositeRetainsDistant(this.getValueComposite(this.controlTransfer?.value), composite)
 		);
@@ -1355,6 +1340,10 @@ class Interpreter {
 		return result;
 	}
 
+	static get scope() {
+		return this.getScope();
+	}
+
 	static getScope(offset = 0) {
 		return this.scopes[this.scopes.length-1+offset]
 	}
@@ -1365,28 +1354,43 @@ class Interpreter {
 	 */
 	static addScope(composite) {
 		this.scopes.push(composite);
-		this.print('crs: '+composite.title+', '+this.getOwnID(composite));
+	//	this.print('crs: '+composite.title+', '+this.getOwnID(composite));
 	}
 
 	/*
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	static removeScope(destroy = true) {
-		this.print('dss: '+this.scope.title+', '+this.getOwnID(this.scope));
+	//	this.print('dss: '+this.scope.title+', '+this.getOwnID(this.scope));
 		let composite = this.scopes.pop();
 
 		if(destroy) {
 			this.destroyReleasedComposite(composite);
 		}
-		this.print('des: '+composite.title+', '+this.getOwnID(composite));
+	//	this.print('des: '+composite.title+', '+this.getOwnID(composite));
 	}
 
-	static getControlTransfer(from) {
-		let controlTransfer = this.controlTransfers.at(-1);
+	static get controlTransfer() {
+		return this.controlTransfers.at(-1);
+	}
 
-		if(controlTransfer != null && controlTransfer[!from ? 'to' : 'from'] === this.scope) {
-			return controlTransfer;
-		}
+	static get threw() {
+		return this.controlTransfer?.type === 'throw';
+	}
+
+	static addControlTransfer() {
+		this.controlTransfers.push({
+			value: undefined,
+			type: undefined
+		});
+
+	//	this.print('act');
+	}
+
+	static removeControlTransfer() {
+		this.controlTransfers.pop();
+
+	//	this.print('rct: '+JSON.stringify(this.controlTransfer?.value)+', '+JSON.stringify(this.controlTransfer?.type));
 	}
 
 	/*
@@ -1396,33 +1400,25 @@ class Interpreter {
 	 * Specifying a type means explicit control transfer.
 	 */
 	static setControlTransfer(value, type) {
-		if(this.getValueComposite(value)?.IDs.own === 7 && type == null) {
-			debugger;
+		let CT = this.controlTransfers.at(-1);
+
+		if(CT != null) {
+			CT.value = value;
+			CT.type = type;
 		}
 
-		let controlTransfer = this.controlTransfers.at(-1);
-
-		if(controlTransfer != null && controlTransfer.from === this.scope) {
-			controlTransfer.value = value;
-			controlTransfer.type = type;
-		} else {
-			this.controlTransfers.push({
-				from: this.scope,
-				to: this.getScope(-1),
-				value: value,
-				type: type
-			});
-		}
-		this.print('cts: '+this.scope?.title+', '+this.scope?.IDs.own+' / '+this.getScope(-1)?.title+', '+this.getScope(-1)?.IDs.own+' / '+JSON.stringify(value)+', '+JSON.stringify(type));
-		// Store return values in stack or anything to separate
-		// returns by deinitializers (or any other nested calls) and common ones
+	//	this.print('cts: '+JSON.stringify(value)+', '+JSON.stringify(type));
 	}
 
 	static resetControlTransfer() {
-		if(this.controlTransfer != null) {
-			this.controlTransfers.pop();
-			this.print('ctr: '+this.scope?.title+', '+this.scope?.IDs.own+' / '+this.getScope(-1)?.title+', '+this.getScope(-1)?.IDs.own+' / '+JSON.stringify(this.controlTransfer?.value)+', '+JSON.stringify(this.controlTransfer?.type));
+		let CT = this.controlTransfers.at(-1);
+
+		if(CT != null) {
+			CT.value =
+			CT.type = undefined;
 		}
+
+	//	this.print('ctr');
 	}
 
 	static executeNode(node, ...arguments_) {
@@ -1453,16 +1449,16 @@ class Interpreter {
 				value = this.executeNode(node),
 				end = this.composites.length;
 
-			if(node === nodes.at(-1) && this.controlTransferFrom?.type == null) {  // Implicit control transfer
+			if(node === nodes.at(-1) && this.controlTransfer?.type == null) {  // Implicit control transfer
 				this.setControlTransfer(value);
 			}
 
-			switch(CTDiscarded?.(this.controlTransferFrom?.type, this.controlTransferFrom?.value)) {
-				case 0: this.setControlTransfer(undefined, this.controlTransferFrom?.type); break;
+			switch(CTDiscarded?.(this.controlTransfer?.type, this.controlTransfer?.value)) {
+				case 0: this.setControlTransfer(undefined, this.controlTransfer?.type); break;
 				case 1: this.resetControlTransfer();									break;
 			}
 
-			this.position = NP;								 // Consider deinitializers
+			this.position = NP;  // Consider deinitializers
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
@@ -1472,7 +1468,7 @@ class Interpreter {
 				}
 			}
 
-			if(this.controlTransferFrom?.type != null) { // Explicit control transfer is done
+			if(this.controlTransfer?.type != null) { // Explicit control transfer is done
 				break;
 			}
 		}
@@ -1569,8 +1565,8 @@ class Interpreter {
 			throws = properties.throws === 1;
 
 	//	this.report(0, undefined, 'ca: '+function_.title+', '+this.getOwnID(function_));
-		this.addCall(function_);
 		this.addScope(namespace);
+		this.addCall(function_);
 
 		if(SSC != null) {
 			let type = [{ predefined: 'Any', nillable: true }],
@@ -1599,13 +1595,13 @@ class Interpreter {
 			FSO.life = 1;
 		}
 
-		this.removeScope();
 		this.removeCall();
-	//	this.report(0, undefined, 'ke: '+JSON.stringify(value));
+		this.removeScope();
 
-		let CT = this.controlTransfer;
+		let CTV = this.controlTransfer?.value;
 
-		if(CT?.type !== 'throw') {
+	//	this.report(0, undefined, 'ke: '+JSON.stringify(CTV));
+		if(!this.threw) {
 			this.resetControlTransfer();
 		} else
 		if(throws) {
@@ -1614,7 +1610,7 @@ class Interpreter {
 			this.report(1, undefined, 'Throw from non-throwing function.');
 		}
 
-		return CT?.value;
+		return CTV;
 	}
 
 	static setCompositeType(composite, type) {
