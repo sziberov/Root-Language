@@ -5,7 +5,7 @@ class Interpreter {
 	static composites;
 	static calls;
 	static scopes;
-	static controlTransfer;
+	static controlTransfers;
 	static preferences;
 	static reports;
 
@@ -927,6 +927,14 @@ class Interpreter {
 		return this.getScope();
 	}
 
+	static get controlTransfer() {
+		return this.getControlTransfer();
+	}
+
+	static get controlTransferFrom() {
+		return this.getControlTransfer(true);
+	}
+
 	static get threw() {
 		return this.controlTransfer?.type === 'throw';
 	}
@@ -1012,6 +1020,9 @@ class Interpreter {
 			return;
 		}
 
+		if(composite.IDs.own === 7) {
+			debugger;
+		}
 		this.print('ds: '+composite.title+', '+this.getOwnID(composite));
 
 		composite.life = 2;
@@ -1354,16 +1365,27 @@ class Interpreter {
 	 */
 	static addScope(composite) {
 		this.scopes.push(composite);
+		this.print('crs: '+composite.title+', '+this.getOwnID(composite));
 	}
 
 	/*
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	static removeScope(destroy = true) {
+		this.print('dss: '+this.scope.title+', '+this.getOwnID(this.scope));
 		let composite = this.scopes.pop();
 
 		if(destroy) {
 			this.destroyReleasedComposite(composite);
+		}
+		this.print('des: '+composite.title+', '+this.getOwnID(composite));
+	}
+
+	static getControlTransfer(from) {
+		let controlTransfer = this.controlTransfers.at(-1);
+
+		if(controlTransfer != null && controlTransfer[!from ? 'to' : 'from'] === this.scope) {
+			return controlTransfer;
 		}
 	}
 
@@ -1374,18 +1396,33 @@ class Interpreter {
 	 * Specifying a type means explicit control transfer.
 	 */
 	static setControlTransfer(value, type) {
-		this.controlTransfer = {
-			value: value,
-			type: type
+		if(this.getValueComposite(value)?.IDs.own === 7 && type == null) {
+			debugger;
 		}
-		this.print('cts: '+JSON.stringify(this.controlTransfer));
-		// TODO: Store return values in call/scope stack or anything to separate
+
+		let controlTransfer = this.controlTransfers.at(-1);
+
+		if(controlTransfer != null && controlTransfer.from === this.scope) {
+			controlTransfer.value = value;
+			controlTransfer.type = type;
+		} else {
+			this.controlTransfers.push({
+				from: this.scope,
+				to: this.getScope(-1),
+				value: value,
+				type: type
+			});
+		}
+		this.print('cts: '+this.scope?.title+', '+this.scope?.IDs.own+' / '+this.getScope(-1)?.title+', '+this.getScope(-1)?.IDs.own+' / '+JSON.stringify(value)+', '+JSON.stringify(type));
+		// Store return values in stack or anything to separate
 		// returns by deinitializers (or any other nested calls) and common ones
 	}
 
 	static resetControlTransfer() {
-		this.controlTransfer = undefined;
-		this.print('ctr');
+		if(this.controlTransfer != null) {
+			this.controlTransfers.pop();
+			this.print('ctr: '+this.scope?.title+', '+this.scope?.IDs.own+' / '+this.getScope(-1)?.title+', '+this.getScope(-1)?.IDs.own+' / '+JSON.stringify(this.controlTransfer?.value)+', '+JSON.stringify(this.controlTransfer?.type));
+		}
 	}
 
 	static executeNode(node, ...arguments_) {
@@ -1416,18 +1453,16 @@ class Interpreter {
 				value = this.executeNode(node),
 				end = this.composites.length;
 
-			if(node === nodes.at(-1) && this.controlTransfer?.type == null) {  // Implicit control transfer
+			if(node === nodes.at(-1) && this.controlTransferFrom?.type == null) {  // Implicit control transfer
 				this.setControlTransfer(value);
 			}
 
-			switch(CTDiscarded?.(this.controlTransfer?.type, this.controlTransfer?.value)) {
-				case 0: this.setControlTransfer(undefined, this.controlTransfer?.type); break;
+			switch(CTDiscarded?.(this.controlTransferFrom?.type, this.controlTransferFrom?.value)) {
+				case 0: this.setControlTransfer(undefined, this.controlTransferFrom?.type); break;
 				case 1: this.resetControlTransfer();									break;
 			}
 
 			this.position = NP;								 // Consider deinitializers
-															 //
-			let CT = structuredClone(this.controlTransfer);  // Can be mutated
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
@@ -1435,11 +1470,9 @@ class Interpreter {
 				if(this.threw) {
 					break;
 				}
-
-				this.controlTransfer = CT;
 			}
 
-			if(this.controlTransfer?.type != null) { // Explicit control transfer is done
+			if(this.controlTransferFrom?.type != null) { // Explicit control transfer is done
 				break;
 			}
 		}
@@ -2470,7 +2503,7 @@ class Interpreter {
 		this.composites = composites ?? []
 		this.calls = []
 		this.scopes = []
-		this.controlTransfer = undefined;
+		this.controlTransfers = []
 		this.preferences = {
 			callStackSize: 128,
 			allowedReportLevel: 2,
