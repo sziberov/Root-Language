@@ -2,6 +2,7 @@ class Interpreter {
 	static tokens;
 	static tree;
 	static position;
+	static node;
 	static composites;
 	static calls;
 	static scopes;
@@ -98,28 +99,15 @@ class Interpreter {
 
 			return this.callFunction(function_, gargs, args);
 		},
-		chainExpression: (n, last) => {
-			last ??= n;
-
-			let last_ = ['callExpression', 'subscriptExpression', 'chainExpression'].includes(n.composite?.type) ? last : undefined,
-				composite = this.getValueComposite(this.executeNode(n.composite, last_));
+		chainExpression: (n, n_) => {
+			let n__ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite?.type) ? n : undefined,
+				composite = this.executeNode(n.composite, n__);
 
 			if(this.threw) {
-				if(last === n && this.controlTransfer.value.startsWith('NillableError')) {
-					this.resetControlTransfer();
-				}
-
 				return;
 			}
-			if(composite == null) {
-				if(n.composite?.type !== 'nillableExpression') {
-					this.setControlTransfer('NilError: Composite wasn\'t found.', 'throw');
-				} else {
-				if(last !== n)
-					this.setControlTransfer('NillableError: Composite wasn\'t found.', 'throw');
-				}
-
-				return;
+			if(n__ != null && composite === -1) {
+				return n_ != null ? -1 : undefined;
 			}
 
 			let identifier = n.member;
@@ -130,7 +118,27 @@ class Interpreter {
 				identifier = identifier.value;
 			}
 
-			return this.findMemberOverload(composite, identifier, undefined, true)?.value;
+			composite = this.getValueComposite(composite);
+
+			if(composite == null) {
+				if(n.composite?.type === 'nillableExpression') {
+					return n_ != null ? -1 : undefined;
+				}
+
+				this.setControlTransfer('NilError: Composite wasn\'t found (accessing \''+identifier+'\').', 'throw');
+
+				return;
+			}
+
+			let overload = this.findMemberOverload(composite, identifier, undefined, true);
+
+			if(overload == null) {
+				this.report(1, undefined, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
+
+				return;
+			}
+
+			return overload.value;
 		},
 		classDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
