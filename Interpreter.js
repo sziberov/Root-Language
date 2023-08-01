@@ -99,15 +99,18 @@ class Interpreter {
 
 			return this.callFunction(function_, gargs, args);
 		},
-		chainExpression: (n, n_) => {
-			let n__ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite?.type) ? n : undefined,
-				composite = this.executeNode(n.composite, n__);
+		chainExpression: (n, inner) => {
+			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite?.type),
+				value = this.executeNode(n.composite, inner_);
 
 			if(this.threw) {
+				let value = this.controlTransfer.value;
+
+				if(!inner && typeof value === 'string' && value.startsWith('Nillable')) {
+					this.resetControlTransfer();
+				}
+
 				return;
-			}
-			if(n__ != null && composite === -1) {
-				return n_ != null ? -1 : undefined;
 			}
 
 			let identifier = n.member;
@@ -118,14 +121,10 @@ class Interpreter {
 				identifier = identifier.value;
 			}
 
-			composite = this.getValueComposite(composite);
+			let composite = this.getValueComposite(value);
 
 			if(composite == null) {
-				if(n.composite?.type === 'nillableExpression') {
-					return n_ != null ? -1 : undefined;
-				}
-
-				this.setControlTransfer('NilError: Composite wasn\'t found (accessing \''+identifier+'\').', 'throw');
+				this.setControlTransfer('Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing \''+identifier+'\').', 'throw');
 
 				return;
 			}
@@ -543,7 +542,7 @@ class Interpreter {
 				return value;
 			}
 			if(value?.primitiveType !== 'reference') {
-				this.report(2, n, 'Non-reference value ("'+(value?.primitiveType ?? 'nil')+'") can\'t be used as a pointer.');
+				this.report(2, n, 'Non-reference value (\''+(value?.primitiveType ?? 'nil')+'\') can\'t be used as a pointer.');
 
 				return;
 			}
@@ -583,9 +582,15 @@ class Interpreter {
 		nillableExpression: (n) => {
 			let value = this.executeNode(n.value);
 
-			if(!this.threw) {
-				return value;
+			if(this.threw) {
+				return;
 			}
+
+			if(value == null) {
+				this.setControlTransfer('Nillable: Expected to be handled by an outer call, chain or subscript expression.', 'throw');
+			}
+
+			return value;
 		},
 		nillableType: (n, t, tp) => {
 			this.rules.optionalType(n, t, tp, ['default', 'nillable'], 1);
