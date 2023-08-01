@@ -98,11 +98,26 @@ class Interpreter {
 
 			return this.callFunction(function_, gargs, args);
 		},
-		chainExpression: (n) => {
-			let composite = this.getValueComposite(this.executeNode(n.composite));
+		chainExpression: (n, last) => {
+			last ??= n;
 
+			let last_ = ['callExpression', 'subscriptExpression', 'chainExpression'].includes(n.composite?.type) ? last : undefined,
+				composite = this.getValueComposite(this.executeNode(n.composite, last_));
+
+			if(this.threw) {
+				if(last === n && this.controlTransfer.value.startsWith('NillableError')) {
+					this.resetControlTransfer();
+				}
+
+				return;
+			}
 			if(composite == null) {
-				this.report(2, n, 'Composite wasn\'t found.');
+				if(n.composite?.type !== 'nillableExpression') {
+					this.setControlTransfer('NilError: Composite wasn\'t found.', 'throw');
+				} else {
+				if(last !== n)
+					this.setControlTransfer('NillableError: Composite wasn\'t found.', 'throw');
+				}
 
 				return;
 			}
@@ -558,19 +573,11 @@ class Interpreter {
 			return this.rules.compositeDeclaration(n, true);
 		},
 		nillableExpression: (n) => {
-			let value;
+			let value = this.executeNode(n.value);
 
-			try {
-				value = this.executeNode(n);
-			} catch(error) {
-				/*
-				if(error !== 0) {
-					throw error;
-				}
-				*/
+			if(!this.threw) {
+				return value;
 			}
-
-			return value;
 		},
 		nillableType: (n, t, tp) => {
 			this.rules.optionalType(n, t, tp, ['default', 'nillable'], 1);
@@ -2469,6 +2476,16 @@ class Interpreter {
 		return retainingComposite.observers.some(v => v.value === this.getOwnID(retainedComposite));
 	}
 
+	static importPath(path) {
+		let code = typeof require !== 'undefined' ? require('fs').readFileSync(global.__dirname+path).toString() : '';
+
+		if(code.length === 0) {
+			return;
+		}
+
+		return this.interpretRaw(code, this.composites, this.preferences);
+	}
+
 	static report(level, node, string) {
 		let position = this.position,
 			location = this.tokens[position]?.location ?? {
@@ -2527,5 +2544,13 @@ class Interpreter {
 		this.reset();
 
 		return result;
+	}
+
+	static interpretRaw(code, composites = [], preferences = {}) {
+ 		let lexerResult = Lexer.tokenize(code),
+	 		parserResult = Parser.parse(lexerResult),
+	 		interpreterResult = Interpreter.interpret(lexerResult, parserResult, composites, preferences);
+
+	 	return interpreterResult;
 	}
 }
