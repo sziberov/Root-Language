@@ -116,7 +116,7 @@ class Interpreter {
 			let identifier = n.member;
 
 			if(identifier.type === 'stringLiteral') {
-				identifier = this.rules.stringLiteral(n.member);
+				identifier = this.executeNode(n.member, true)?.primitiveValue;
 			} else {
 				identifier = identifier.value;
 			}
@@ -2041,6 +2041,18 @@ class Interpreter {
 		}
 	}
 
+	static findImports(composite) {
+		let imports = {}
+
+		while(composite != null) {
+			imports_ = Object.assign(composite.imports, imports_);
+
+			composite = this.getComposite(this.getScopeID(composite));
+		}
+
+		return imports;
+	}
+
 	static setImport(namespace, identifier, value) {
 		if(!this.compositeIsNamespace(namespace)) {
 			return;
@@ -2191,20 +2203,24 @@ class Interpreter {
 
 		if(member == null && default_) {
 			let IDs = {
-			//	global: () => undefined,			  Global-object is no thing
-				Global: () => 0,				   // Global-type
-				super: () => composite.IDs.super,  // Super-object or a type
-				Super: () => composite.IDs.Super,  // Super-type
-				self: () => composite.IDs.self,	   // Self-object or a type
-				Self: () => composite.IDs.Self,	   // Self-type
-				sub: () => composite.IDs.sub,	   // Sub-object
-				Sub: () => composite.IDs.Sub	   // Sub-type
-			//	metaSelf: () => undefined,			  Self-object or a type (descriptor)
-			//	arguments: () => undefined			  Function arguments array (should be in callFunction() if needed)
+			//	global: undefined,				Global-object is no thing
+				Global: 0,					 // Global-type
+				super: composite.IDs.super,  // Super-object or a type
+				Super: composite.IDs.Super,  // Super-type
+				self: composite.IDs.self,	 // Self-object or a type
+				Self: composite.IDs.Self,	 // Self-type
+				sub: composite.IDs.sub,		 // Sub-object
+				Sub: composite.IDs.Sub		 // Sub-type
+			//	metaSelf: undefined,			Self-object or a type (descriptor)
+			//	arguments: undefined			Function arguments array (should be in callFunction() if needed)
+			}
+
+			if(!(identifier in IDs)) {
+				IDs = this.findImports(composite);
 			}
 
 			if(identifier in IDs) {
-				let ID = IDs[identifier]();
+				let ID = IDs[identifier]
 
 				if(ID !== -1) {  // Intentionally missed IDs should be treated like non-existent
 					member = [{
@@ -2335,20 +2351,34 @@ class Interpreter {
 	 * and can participate in plain scope chains.
 	 */
 	static findMemberOverloadInComposite(composite, identifier, matching) {
-		if(
-			!this.compositeIsFunction(composite) &&
-			!this.compositeIsNamespace(composite)
-		) {
+		let isFunction = this.compositeIsFunction(composite),
+			isNamespace = this.compositeIsNamespace(composite);
+
+		if(!isFunction && !isNamespace) {
 			return;
 		}
 
 		let overload = this.getMemberOverload(composite, identifier, matching);
 
+		if(overload == null && isNamespace) {
+			for(let importID of this.findImports(composite)) {
+				composite = this.getComposite(importID);
+
+				if(composite == null) {
+					continue;
+				}
+
+				overload = this.getMemberOverload(composite, identifier, matching);
+
+				if(overload != null) {
+					break;
+				}
+			}
+		}
+
 		if(overload != null) {
 			return this.getMemberOverloadProxy(overload, { owner: composite });
 		}
-
-		// TODO: Imports lookup
 	}
 
 	/*
