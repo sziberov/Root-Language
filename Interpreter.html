@@ -3,11 +3,10 @@
 <style>
 body {
 	display: grid;
-	grid-template-columns: 5fr 4fr;
-	grid-template-rows: 2fr 1fr;
-	grid-template-areas:
-		'code trees'
-		'console console';
+	grid-template:
+		'code trees' 2fr
+		'console console' 1fr
+		/ 6fr 5fr;
 
 	margin: 0;
 }

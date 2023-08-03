@@ -1,3 +1,29 @@
+func fib(n) {
+	if n <= 1 {
+		return n
+	}
+
+	return fib(n-2)+fib(n-1)
+}
+
+var start = getTimestamp(),
+	i = 0
+
+while i < 20 {
+	print(fib(i))
+	i++
+}
+
+print(getTimestamp()-start)
+
+// ~211408ms / ~3.52346667m (before replacement of getSubtype() with getTypeParts() and other tiny optimizations)
+// ~24913ms / ~0.415216667m (after)
+//
+// structuredClone() is performance-expensive tool
+// and should be avoided in highly recursive functions
+
+return
+
 var a = 0
 
 class A {

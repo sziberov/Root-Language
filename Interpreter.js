@@ -332,10 +332,31 @@ class Interpreter {
 
 				return this.createValue('boolean', value);
 			}
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<=') {
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]),
+					value = lhs?.primitiveValue <= rhs?.primitiveValue;
+
+				return this.createValue('boolean', value);
+			}
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '>=') {
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]),
+					value = lhs?.primitiveValue >= rhs?.primitiveValue;
+
+				return this.createValue('boolean', value);
+			}
 			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<') {
 				let lhs = this.executeNode(n.values[0]),
 					rhs = this.executeNode(n.values[2]),
 					value = lhs?.primitiveValue < rhs?.primitiveValue;
+
+				return this.createValue('boolean', value);
+			}
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '>') {
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]),
+					value = lhs?.primitiveValue > rhs?.primitiveValue;
 
 				return this.createValue('boolean', value);
 			}
@@ -348,6 +369,18 @@ class Interpreter {
 				}
 
 				let value = lhs?.primitiveValue-rhs?.primitiveValue;
+
+				return this.createValue('integer', value);
+			}
+			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '+') {
+				let lhs = this.executeNode(n.values[0]),
+					rhs = this.executeNode(n.values[2]);
+
+				if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
+					return;
+				}
+
+				let value = lhs?.primitiveValue+rhs?.primitiveValue;
 
 				return this.createValue('integer', value);
 			}
@@ -1054,9 +1087,11 @@ class Interpreter {
 				this.addControlTransfer();
 				this.callFunction(function_);
 
+				/*  Let the objects destroy no matter of errors
 				if(this.threw) {
-				//	return;  Let the objects destroy no matter of errors
+					return;
 				}
+				*/
 
 				this.removeControlTransfer();
 			}
@@ -1066,16 +1101,18 @@ class Interpreter {
 			retainersIDs = this.getRetainersIDs(composite);
 
 		for(let composite_ of this.composites) {
-			if(this.getRetainersIDs(composite_, true)?.includes(ID)) {
+			if(this.getRetainersIDs(composite_)?.includes(ID)) {
 				this.releaseComposite(composite, composite_);
 
+				/*  Let the objects destroy no matter of errors
 				if(this.threw) {
-				//	return;  Let the objects destroy no matter of errors
+					return;
 				}
+				*/
 			}
 		}
 
-		delete this.composites[ID]
+		this.composites[ID] = undefined;
 
 		let aliveRetainers = 0;
 
@@ -1699,8 +1736,8 @@ class Interpreter {
 		return composite.IDs.scope;
 	}
 
-	static getRetainersIDs(composite, nillable) {
-		return !nillable ? composite.IDs.retainers : composite?.IDs.retainers;
+	static getRetainersIDs(composite) {
+		return composite?.IDs.retainers;
 	}
 
 	static setSuperID(composite, superComposite) {
@@ -1787,7 +1824,7 @@ class Interpreter {
 	}
 
 	static getTypeGenericParameters(type) {
-		return this.getSubtype(type, type.find(v => v.genericParameters)).slice(1);
+		return this.getTypeParts(type, type.findIndex(v => v.genericParameters)).slice(1);
 	}
 
 	static getTypeFunctionProperties(type) {
@@ -1800,7 +1837,22 @@ class Interpreter {
 	}
 
 	static getTypeFunctionParameters(type) {
-		return this.getSubtype(type, type.find(v => v.parameters)).slice(1);
+		return this.getTypeParts(type, type.findIndex(v => v.parameters)).slice(1);
+	}
+
+	static getTypeParts(type, index, parts = []) {
+		for(let i in type) {
+			let part = type[i]
+
+			if(i == index) {
+				parts.push(part);
+			} else
+			if(part.super == index) {
+				this.getTypeParts(type, i, parts);
+			}
+		}
+
+		return parts;
 	}
 
 	static getSubtype(type, part, offset) {
@@ -1964,9 +2016,10 @@ class Interpreter {
 			return;
 		}
 
-		let parameters = this.getTypeFunctionParameters(function_.type);
+		let parameters = this.getTypeFunctionParameters(function_.type),
+			topSuper = Math.min(...parameters.map(v => v.super));
 
-		if(arguments_.length !== parameters.filter(v => v.super === 0).length) {
+		if(arguments_.length !== parameters.filter(v => v.super === topSuper).length) {
 			// TODO: Variadic parameters support
 
 			return;
