@@ -2053,17 +2053,6 @@ class Interpreter {
 		}
 	}
 
-	static findImports(composite) {
-		let imports = {}
-
-		while(composite != null) {
-			imports = Object.assign(composite.imports, imports);
-			composite = this.getComposite(this.getScopeID(composite));
-		}
-
-		return imports;
-	}
-
 	static setImport(namespace, identifier, value) {
 		if(!this.compositeIsNamespace(namespace)) {
 			return;
@@ -2333,11 +2322,11 @@ class Interpreter {
 	/*
 	 * Looking for member overload in a composite itself.
 	 *
-	 * Used to find static members (primarily of functions and namespaces),
-	 * defaults (such as "Global" or "self"), and imports within namespaces.
+	 * Used to find member overloads (primarily of functions and namespaces),
+	 * pseudovariables (such as "Global" or "self"), and imports within namespaces.
 	 *
 	 * Functions and namespaces are slightly different from other types. They can inherit or miss levels and
-	 * eventually aren't inheritable nor instantiable themself. But they are still used as members storage
+	 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 	 * and can participate in plain scope chains.
 	 */
 	static findMemberOverloadInComposite(composite, identifier, matching) {
@@ -2353,7 +2342,7 @@ class Interpreter {
 				Self: composite.IDs.Self,	 // Self-type
 				sub: composite.IDs.sub,		 // Sub-object
 				Sub: composite.IDs.Sub		 // Sub-type
-			//	metaSelf: undefined,			Self-object or a type (descriptor)
+			//	metaSelf: undefined,			Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
 			//	arguments: undefined			Function arguments array (should be in callFunction() if needed)
 			}
 
@@ -2372,16 +2361,18 @@ class Interpreter {
 		}
 
 		if(overload == null && this.compositeIsNamespace(composite)) {
-			if(identifier in composite.imports) {
+			let IDs = composite.imports;
+
+			if(identifier in IDs) {
 				overload = {
 					modifiers: ['final'],
-					type: [{ predefined: 'Any', nillable: true }],
-					value: ID != null ? this.createValue('reference', ID) : undefined,
+					type: [{ predefined: 'Any' }],
+					value: this.createValue('reference', IDs[identifier]),
 					observers: []
 				}
 			} else {
-				for(let importID of Object.values(this.findImports(composite))) {
-					composite = this.getComposite(importID);
+				for(let identifier in IDs) {
+					composite = this.getComposite(IDs[identifier]);
 
 					if(composite == null) {
 						continue;
@@ -2465,11 +2456,13 @@ class Interpreter {
 	 * Not specifying "internal" means use of direct declaration without search.
 	 */
 	static setMemberOverload(composite, identifier, modifiers, type, value, observers, matching, internal) {
-		let overload = internal == null ? this.getMemberOverload(composite, identifier, matching) : this.findMemberOverload(composite, identifier, matching, internal);
+		let overload = internal == null
+					 ? this.getMemberOverload(composite, identifier, matching)
+					 : this.findMemberOverload(composite, identifier, matching, internal);
 
 		if(overload == null) {
 			/*
-			if(internal == null) {
+			if(internal != null) {
 				return;
 			}
 			*/
