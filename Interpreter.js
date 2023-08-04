@@ -76,7 +76,11 @@ class Interpreter {
 				MOSP = this.helpers.getMemberOverloadSearchParameters(callee);
 
 			if(MOSP == null) {
+				this.addContext({ args: args }, ['chainExpression'], n.type);
+
 				value = this.executeNode(callee);
+
+				this.removeContext();
 
 				if(this.threw) {
 					return;
@@ -115,10 +119,14 @@ class Interpreter {
 
 			let identifier = n.member;
 
-			if(identifier.type === 'stringLiteral') {
-				identifier = this.executeNode(n.member, true)?.primitiveValue;
-			} else {
+			if(identifier.type === 'identifier') {
 				identifier = identifier.value;
+			} else {  // stringLiteral
+				identifier = this.executeNode(identifier, true)?.primitiveValue;
+
+				if(this.threw) {
+					return;
+				}
 			}
 
 			let composite = this.getValueComposite(value);
@@ -874,7 +882,7 @@ class Interpreter {
 					value,
 					observers = []
 
-				this.addContext({ type: type }, ['implicitChainExpression']);
+				this.addContext({ type: type }, ['implicitChainExpression'], n.type);
 
 				value = this.executeNode(declarator.value);
 
@@ -1008,7 +1016,32 @@ class Interpreter {
 
 
 	static getContext(tag) {
-		return this.contexts.reduce((ov, nv) => nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags) : ov, {});
+		let groups = []
+
+		return this.contexts.reduce((ov, nv) =>
+			nv.group == null ? (nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags)
+																		 : ov)
+							 : (!groups.includes(nv.group) ? groups.push(nv.group) && Object.assign(ov, this.contexts.findLast(v => v.group === nv.group).flags)
+							 							   : ov), {});
+
+		/*
+		return this.contexts.reduce((ov, nv) => {
+			if(nv.group == null) {
+				if(nv.tags == null || nv.tags.includes(tag)) {
+					return Object.assign(ov, nv.flags);
+				} else {
+					return ov;
+				}
+			} else
+			if(!groups.includes(nv.group)) {
+				groups.push(nv.group);
+
+				return Object.assign(ov, this.contexts.findLast(v => v.group === nv.group).flags);
+			} else {
+				return ov;
+			}
+		}, {});
+		*/
 	}
 
 	/*
@@ -1019,12 +1052,14 @@ class Interpreter {
 	 *
 	 * Rule can be considered ambiguous if it is e.g. subrule of a subrule and cannot be recognized directly.
 	 *
-	 * Specifying tags allows to filter out current context(s), typically they equal to node types.
+	 * Specifying tags allows to filter current context(s), while
+	 * group can make search look only for its rightmost member.
 	 */
-	static addContext(flags, tags) {
+	static addContext(flags, tags, group) {
 		this.contexts.push({
 			flags: flags,
-			tags: tags
+			tags: tags,
+			group: group
 		});
 	}
 
