@@ -1,8 +1,8 @@
 class Interpreter {
 	static tokens;
 	static tree;
-	static position;
 	static node;
+	static contexts;
 	static composites;
 	static calls;
 	static scopes;
@@ -153,7 +153,7 @@ class Interpreter {
 				typePart.reference = this.getOwnID(composite);
 			}
 
-			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
+			typePart = this.createOrSetCollectionTypePart(type, typePart, { [composite != null ? 'genericArguments' : title]: true });
 
 			if(title === 'dictionary') {
 				this.helpers.createTypePart(type, typePart, n.key);
@@ -166,7 +166,7 @@ class Interpreter {
 				return;
 			}
 
-			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { [title]: true });
+			typePart = this.createOrSetCollectionTypePart(type, typePart, { [title]: true });
 
 			for(let subtype of n.subtypes) {
 				this.helpers.createTypePart(type, typePart, subtype);
@@ -188,14 +188,14 @@ class Interpreter {
 				composite = this['create'+capitalizedTitle](identifier, this.scope);
 
 			if(genericParameters?.length > 0) {
-				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { genericParameters: true });
+				let typePart = this.createOrSetCollectionTypePart(composite.type, composite.type[0], { genericParameters: true });
 
 				for(let genericParameter of genericParameters) {
 					this.rules.genericParameter(genericParameter, composite.type, typePart);
 				}
 			}
 			if(inheritedTypes?.length > 0) {
-				let typePart = this.helpers.createOrSetCollectionTypePart(composite.type, composite.type[0], { inheritedTypes: true });
+				let typePart = this.createOrSetCollectionTypePart(composite.type, composite.type[0], { inheritedTypes: true });
 
 				for(let inheritedType of inheritedTypes) {
 					this.helpers.createTypePart(composite.type, typePart, inheritedType, false);
@@ -474,7 +474,7 @@ class Interpreter {
 			return type;
 		},
 		functionType: (n, type, typePart) => {
-			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { predefined: 'Function' });
+			typePart = this.createOrSetCollectionTypePart(type, typePart, { predefined: 'Function' });
 
 			typePart.awaits = n.awaits ?? 0;
 			typePart.throws = n.throws ?? 0;
@@ -821,7 +821,7 @@ class Interpreter {
 				return;
 			}
 
-			typePart = this.helpers.createOrSetCollectionTypePart(type, typePart, { genericArguments: true });
+			typePart = this.createOrSetCollectionTypePart(type, typePart, { genericArguments: true });
 
 			for(let genericArgument of n.genericArguments) {
 				this.helpers.createTypePart(type, typePart, genericArgument);
@@ -897,29 +897,6 @@ class Interpreter {
 	}
 
 	static helpers = {
-		createOrSetCollectionTypePart: (type, typePart, collectionFlag) => {
-			let collectionFlags = {
-				array: true,
-				dictionary: true,
-				genericArguments: true,
-				genericParameters: true,
-				intersection: true,
-				parameters: true,
-				predefined: 'Function',
-				union: true
-			}
-
-			for(let flag in typePart) {
-				if(
-					flag in collectionFlags &&
-					typePart[flag] === collectionFlags[flag]
-				) {
-					return this.createTypePart(type, typePart, collectionFlag);
-				}
-			}
-
-			return Object.assign(typePart, collectionFlag);
-		},
 		createTypePart: (type, typePart, node, fallback = true) => {
 			typePart = this.createTypePart(type, typePart);
 
@@ -987,6 +964,34 @@ class Interpreter {
 
 			return value;
 		}
+	}
+
+
+	static get context() {
+		return this.contexts.reduce((nv, ov) => nv.types == null || nv.types.includes(this.node?.type) ? Object.assign(ov, nv.flags) : ov, {});
+	}
+
+	/*
+	 * Should be used to pass local state between super-rule and ambigous sub-rules.
+	 *
+	 * Local means everything that does not belong to global execution process
+	 * (calls, scopes, controlTransfers, etc), but rather to concrete rules.
+	 *
+	 * Rule can be considered ambiguous if it is e.g. subrule of a
+	 * subrule and cannot be recognized directly.
+	 *
+	 * Specifying types means restricting current node(s)
+	 * that can accept flags of current context(s).
+	 */
+	static addContext(flags, types) {
+		this.contexts.push({
+			flags: flags,
+			types: types
+		});
+	}
+
+	static removeContext() {
+		this.contexts.pop();
 	}
 
 	static getSave() {
@@ -1490,14 +1495,18 @@ class Interpreter {
 	//	this.print('ctr');
 	}
 
+	static get position() {
+		return this.node?.range?.start;
+	}
+
 	static executeNode(node, ...arguments_) {
-		let OP = this.position,  // Old/new position
-			NP = node?.range?.start,
+		let ON = this.node,  // Old/new node
+			NN = node,
 			value;
 
-		this.position = NP;
+		this.node = NN;
 		value = this.rules[node?.type]?.(node, ...arguments_);
-		this.position = OP;
+		this.node = ON;
 
 		return value;
 	}
@@ -1510,10 +1519,10 @@ class Interpreter {
 	 * Control transfer result can be discarded (fully - 1, value only - 0).
 	 */
 	static executeNodes(nodes, CTDiscarded) {
-		let OP = this.position;  // Old position
+		let ON = this.node;  // Old node
 
 		for(let node of nodes ?? []) {
-			let NP = node.range?.start,  // New position
+			let NN = node,  // New node
 				start = this.composites.length,
 				value = this.executeNode(node),
 				end = this.composites.length;
@@ -1527,7 +1536,7 @@ class Interpreter {
 				case 1: this.resetControlTransfer();									break;
 			}
 
-			this.position = NP;  // Consider deinitializers
+			this.node = NN;  // Consider deinitializers
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
@@ -1542,7 +1551,7 @@ class Interpreter {
 			}
 		}
 
-		this.position = OP;
+		this.node = ON;
 	}
 
 	/*
@@ -1811,6 +1820,30 @@ class Interpreter {
 		}
 
 		return part;
+	}
+
+	static createOrSetCollectionTypePart(type, typePart, collectionFlag) {
+		let collectionFlags = {
+			array: true,
+			dictionary: true,
+			genericArguments: true,
+			genericParameters: true,
+			intersection: true,
+			parameters: true,
+			predefined: 'Function',
+			union: true
+		}
+
+		for(let flag in typePart) {
+			if(
+				flag in collectionFlags &&
+				typePart[flag] === collectionFlags[flag]
+			) {
+				return this.createTypePart(type, typePart, collectionFlag);
+			}
+		}
+
+		return Object.assign(typePart, collectionFlag);
 	}
 
 	static getTypeInheritedID(type) {
@@ -2622,7 +2655,8 @@ class Interpreter {
 	static reset(composites, preferences) {
 		this.tokens = []
 		this.tree = undefined;
-		this.position = undefined;
+		this.node = undefined;
+		this.contexts = []
 		this.composites = composites ?? []
 		this.calls = []
 		this.scopes = []
