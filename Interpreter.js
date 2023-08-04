@@ -1,7 +1,7 @@
 class Interpreter {
 	static tokens;
 	static tree;
-	static node;
+	static position;
 	static contexts;
 	static composites;
 	static calls;
@@ -124,7 +124,7 @@ class Interpreter {
 			let composite = this.getValueComposite(value);
 
 			if(composite == null) {
-				this.report(1, undefined, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing \''+identifier+'\').', 'throw');
+				this.report(1, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing \''+identifier+'\').', 'throw');
 
 				return;
 			}
@@ -132,7 +132,7 @@ class Interpreter {
 			let overload = this.findMemberOverload(composite, identifier, undefined, true);
 
 			if(overload == null) {
-				this.report(1, undefined, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
+				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
 
 				return;
 			}
@@ -297,92 +297,96 @@ class Interpreter {
 			return this.rules.compositeDeclaration(n, true);
 		},
 		expressionsSequence: (n) => {
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '=') {
-				let lhs = n.values[0],
-					lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs);
+			let v = n.values;
 
-				if(lhsMOSP != null && lhsMOSP.composite != null && lhsMOSP.identifier != null) {
-					lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
-				} else {
-					lhs = undefined;
+			if(v.length === 3 && v[1].type === 'infixOperator') {
+				if(v[1].value === '=') {
+					let lhs = v[0],
+						lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs);
+
+					if(lhsMOSP != null && lhsMOSP.composite != null && lhsMOSP.identifier != null) {
+						lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
+					} else {
+						lhs = undefined;
+					}
+
+					// TODO: Create member with default type if not exists
+
+					if(lhs == null) {
+						this.report(1, n, 'Cannot assign to anything but a valid identifier or chain expression.');
+
+						return;
+					}
+
+					let rhs = this.executeNode(v[2]);
+
+					this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
+
+					return rhs;
 				}
+				if(v[1].value === '==') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]),
+						value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
 
-				// TODO: Create member with default type if not exists
+					if(!value) {
+					//	debugger;
+					}
 
-				if(lhs == null) {
-					this.report(1, n, 'Cannot assign to anything but a valid identifier or chain expression.');
-
-					return;
+					return this.createValue('boolean', value);
 				}
+				if(v[1].value === '<=') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]),
+						value = lhs?.primitiveValue <= rhs?.primitiveValue;
 
-				let rhs = this.executeNode(n.values[2]);
-
-				this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
-
-				return rhs;
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '==') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]),
-					value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
-
-				if(!value) {
-				//	debugger;
+					return this.createValue('boolean', value);
 				}
+				if(v[1].value === '>=') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]),
+						value = lhs?.primitiveValue >= rhs?.primitiveValue;
 
-				return this.createValue('boolean', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<=') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]),
-					value = lhs?.primitiveValue <= rhs?.primitiveValue;
-
-				return this.createValue('boolean', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '>=') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]),
-					value = lhs?.primitiveValue >= rhs?.primitiveValue;
-
-				return this.createValue('boolean', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '<') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]),
-					value = lhs?.primitiveValue < rhs?.primitiveValue;
-
-				return this.createValue('boolean', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '>') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]),
-					value = lhs?.primitiveValue > rhs?.primitiveValue;
-
-				return this.createValue('boolean', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '-') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]);
-
-				if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
-					return;
+					return this.createValue('boolean', value);
 				}
+				if(v[1].value === '<') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]),
+						value = lhs?.primitiveValue < rhs?.primitiveValue;
 
-				let value = lhs?.primitiveValue-rhs?.primitiveValue;
-
-				return this.createValue('integer', value);
-			}
-			if(n.values.length === 3 && n.values[1].type === 'infixOperator' && n.values[1].value === '+') {
-				let lhs = this.executeNode(n.values[0]),
-					rhs = this.executeNode(n.values[2]);
-
-				if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
-					return;
+					return this.createValue('boolean', value);
 				}
+				if(v[1].value === '>') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]),
+						value = lhs?.primitiveValue > rhs?.primitiveValue;
 
-				let value = lhs?.primitiveValue+rhs?.primitiveValue;
+					return this.createValue('boolean', value);
+				}
+				if(v[1].value === '-') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]);
 
-				return this.createValue('integer', value);
+					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
+						return;
+					}
+
+					let value = lhs?.primitiveValue-rhs?.primitiveValue;
+
+					return this.createValue('integer', value);
+				}
+				if(v[1].value === '+') {
+					let lhs = this.executeNode(v[0]),
+						rhs = this.executeNode(v[2]);
+
+					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
+						return;
+					}
+
+					let value = lhs?.primitiveValue+rhs?.primitiveValue;
+
+					return this.createValue('integer', value);
+				}
 			}
 		},
 		floatLiteral: (n) => {
@@ -529,6 +533,36 @@ class Interpreter {
 			}
 
 			return this.controlTransfer?.value;
+		},
+		implicitChainExpression: (n) => {
+			let type = this.getContext(n.type)?.type,
+				composite = this.getComposite(type?.[0]?.reference);
+
+			this.report(0, n, 'Implicit type: '+JSON.stringify(type));
+
+			let identifier = n.member;
+
+			if(identifier.type === 'stringLiteral') {
+				identifier = this.executeNode(n.member, true)?.primitiveValue;
+			} else {
+				identifier = identifier.value;
+			}
+
+			if(composite == null) {
+				this.report(1, n, 'Type: Cannot get a composite from the implicit type (accessing \''+identifier+'\').', 'throw');
+
+				return;
+			}
+
+			let overload = this.findMemberOverload(composite, identifier, undefined, true);
+
+			if(overload == null) {
+				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
+
+				return;
+			}
+
+			return overload.value;
 		},
 		initializerDeclaration: (n) => {
 			let modifiers = n.modifiers,
@@ -837,8 +871,14 @@ class Interpreter {
 				let identifier = declarator.identifier.value,
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
-					value = this.executeNode(declarator.value),
+					value,
 					observers = []
+
+				this.addContext({ type: type }, ['implicitChainExpression']);
+
+				value = this.executeNode(declarator.value);
+
+				this.removeContext();
 
 				// Type-related checks
 
@@ -967,8 +1007,8 @@ class Interpreter {
 	}
 
 
-	static get context() {
-		return this.contexts.reduce((nv, ov) => nv.types == null || nv.types.includes(this.node?.type) ? Object.assign(ov, nv.flags) : ov, {});
+	static getContext(tag) {
+		return this.contexts.reduce((ov, nv) => nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags) : ov, {});
 	}
 
 	/*
@@ -977,16 +1017,14 @@ class Interpreter {
 	 * Local means everything that does not belong to global execution process
 	 * (calls, scopes, controlTransfers, etc), but rather to concrete rules.
 	 *
-	 * Rule can be considered ambiguous if it is e.g. subrule of a
-	 * subrule and cannot be recognized directly.
+	 * Rule can be considered ambiguous if it is e.g. subrule of a subrule and cannot be recognized directly.
 	 *
-	 * Specifying types means restricting current node(s)
-	 * that can accept flags of current context(s).
+	 * Specifying tags allows to filter out current context(s), typically they equal to node types.
 	 */
-	static addContext(flags, types) {
+	static addContext(flags, tags) {
 		this.contexts.push({
 			flags: flags,
-			types: types
+			tags: tags
 		});
 	}
 
@@ -1495,18 +1533,14 @@ class Interpreter {
 	//	this.print('ctr');
 	}
 
-	static get position() {
-		return this.node?.range?.start;
-	}
-
 	static executeNode(node, ...arguments_) {
-		let ON = this.node,  // Old/new node
-			NN = node,
+		let OP = this.position,  // Old/new position
+			NP = node?.range?.start,
 			value;
 
-		this.node = NN;
+		this.position = NP;
 		value = this.rules[node?.type]?.(node, ...arguments_);
-		this.node = ON;
+		this.position = OP;
 
 		return value;
 	}
@@ -1519,10 +1553,10 @@ class Interpreter {
 	 * Control transfer result can be discarded (fully - 1, value only - 0).
 	 */
 	static executeNodes(nodes, CTDiscarded) {
-		let ON = this.node;  // Old node
+		let OP = this.position;  // Old position
 
 		for(let node of nodes ?? []) {
-			let NN = node,  // New node
+			let NP = node.range?.start,  // New position
 				start = this.composites.length,
 				value = this.executeNode(node),
 				end = this.composites.length;
@@ -1536,7 +1570,7 @@ class Interpreter {
 				case 1: this.resetControlTransfer();									break;
 			}
 
-			this.node = NN;  // Consider deinitializers
+			this.position = NP;  // Consider deinitializers
 
 			for(start; start < end; start++) {
 				this.destroyReleasedComposite(this.getComposite(start));
@@ -1551,7 +1585,7 @@ class Interpreter {
 			}
 		}
 
-		this.node = ON;
+		this.position = OP;
 	}
 
 	/*
@@ -2655,7 +2689,7 @@ class Interpreter {
 	static reset(composites, preferences) {
 		this.tokens = []
 		this.tree = undefined;
-		this.node = undefined;
+		this.position = undefined;
 		this.contexts = []
 		this.composites = composites ?? []
 		this.calls = []
