@@ -1016,7 +1016,11 @@ class Interpreter {
 
 
 	static getContext(tag) {
-		let groups = []
+		return this.contexts.reduce((ov, nv) => nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags) : ov, {});
+
+		/*  Result looks the same, why I did this?
+		let flags = {},
+			groups = []
 
 		return this.contexts.reduce((ov, nv) =>
 			nv.group == null ? (nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags)
@@ -1024,23 +1028,22 @@ class Interpreter {
 							 : (!groups.includes(nv.group) ? groups.push(nv.group) && Object.assign(ov, this.contexts.findLast(v => v.group === nv.group).flags)
 							 							   : ov), {});
 
-		/*
-		return this.contexts.reduce((ov, nv) => {
-			if(nv.group == null) {
-				if(nv.tags == null || nv.tags.includes(tag)) {
-					return Object.assign(ov, nv.flags);
-				} else {
-					return ov;
+		for(let i = this.contexts.length-1; i >= 0; i--) {
+			let context = this.contexts[i]
+
+			if(context.group == null) {
+				if(context.tags == null || context.tags.includes(tag)) {
+					flags = { ...context.flags, ...flags }
 				}
 			} else
-			if(!groups.includes(nv.group)) {
-				groups.push(nv.group);
+			if(!groups.includes(context.group)) {
+				groups.push(context.group);
 
-				return Object.assign(ov, this.contexts.findLast(v => v.group === nv.group).flags);
-			} else {
-				return ov;
+				flags = { ...context.flags, ...flags }
 			}
-		}, {});
+		}
+
+		return flags;
 		*/
 	}
 
