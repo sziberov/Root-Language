@@ -1,3 +1,21 @@
+namespace A {
+func a(b) {
+print(b)
+}
+
+func a(b, c) {
+print(b+c)
+}
+
+func a() {
+return a
+}
+}
+
+A.a(1, 2)
+
+return
+
 struct Int {
     static var value = 2
 }

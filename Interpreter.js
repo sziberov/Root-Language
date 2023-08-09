@@ -49,8 +49,9 @@ class Interpreter {
 
 			return value;
 		},
-		callExpression: (n) => {
-			let gargs = [],  // (Generic) arguments
+		callExpression: (n, inner) => {
+			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.callee.type),
+				gargs = [],  // (Generic) arguments
 				args = []
 
 			for(let garg of n.genericArguments) {
@@ -71,41 +72,73 @@ class Interpreter {
 				}
 			}
 
-			let callee = n.callee,
-				value,
-				MOSP = this.helpers.getMemberOverloadSearchParameters(callee);
+			this.addContext({ args: args }, ['chainExpression', 'identifier', 'implicitChainExpression']);
 
-			if(MOSP == null) {
-				this.addContext({ args: args }, ['chainExpression'], n.type);
+			let value = this.executeNode(n.callee, inner_);
 
-				value = this.executeNode(callee);
+			this.removeContext();
 
-				this.removeContext();
+			if(this.threw) {
+				let value_ = this.controlTransfer.value;
 
-				if(this.threw) {
-					return;
+				if(!inner && typeof value_ === 'string' && value_.startsWith('Nillable')) {
+					this.resetControlTransfer();
 				}
-			}
-
-			if((MOSP?.composite == null || MOSP?.identifier == null) && value == null) {
-				this.report(1, n, 'Cannot search for function using anything but a valid (in particular, chain) expression.');
 
 				return;
 			}
 
-			let function_ = this.findFunction(MOSP?.composite, MOSP?.identifier, MOSP?.internal, value, args);
+			if(value != null) {
+				return this.callFunction(value, gargs, args);
+			}
 
-			if(function_ == null) {
-				this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
+			value = this.executeNode(n.callee, inner_);
+
+			if(this.threw) {
+				let value_ = this.controlTransfer.value;
+
+				if(!inner && typeof value_ === 'string' && value_.startsWith('Nillable')) {
+					this.resetControlTransfer();
+				}
 
 				return;
 			}
 
-			return this.callFunction(function_, gargs, args);
+			let composite = this.getValueComposite(value);
+
+			if(composite == null) {
+				this.report(1, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\').', 'throw');
+
+				return;
+			}
+
+			if(this.compositeIsObject(composite) && n.callee.type === 'identifier' && ['super', 'self', 'sub'].includes(n.callee.value)) {
+				composite = this.getComposite(composite.IDs.Self);
+			}
+			if(this.compositeIsInstantiable(composite)) {
+				value = this.getMemberOverload(composite, 'init', (v) => {
+					v = this.findValueFunction(v.value, args);
+
+					if(v != null && this.getTypeFunctionProperties(v.type).inits === 1) {
+						return v;
+					}
+				})?.matchingValue;
+			}
+
+			if(value != null) {
+				return this.callFunction(value, gargs, args);
+			}
+
+			this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
 		},
 		chainExpression: (n, inner) => {
-			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite?.type),
-				value = this.executeNode(n.composite, inner_);
+			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type);
+
+			this.addContext({ args: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);
+
+			let value = this.executeNode(n.composite, inner_);
+
+			this.removeContext();
 
 			if(this.threw) {
 				let value = this.controlTransfer.value;
@@ -137,7 +170,9 @@ class Interpreter {
 				return;
 			}
 
-			let overload = this.findMemberOverload(composite, identifier, undefined, true);
+			let args = this.getContext(n.type)?.args,
+				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
+				overload = this.findMemberOverload(composite, identifier, matching, true);
 
 			if(overload == null) {
 				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
@@ -145,7 +180,7 @@ class Interpreter {
 				return;
 			}
 
-			return overload.value;
+			return overload.matchingValue ?? overload.value;
 		},
 		classDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
@@ -508,7 +543,17 @@ class Interpreter {
 			typePart.identifier = n.identifier.value;
 		},
 		identifier: (n) => {
-			return this.findMemberOverload(this.scope, n.value)?.value;
+			let args = this.getContext(n.type)?.args,
+				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
+				overload = this.findMemberOverload(this.scope, n.value, matching);
+
+			if(overload == null) {
+				this.report(1, n, 'Identifier wasn\'t found (accessing \''+n.value+'\').');
+
+				return;
+			}
+
+			return overload.matchingValue ?? overload.value;
 		},
 		ifStatement: (n) => {
 			if(n.condition == null) {
@@ -882,7 +927,7 @@ class Interpreter {
 					value,
 					observers = []
 
-				this.addContext({ type: type }, ['implicitChainExpression'], n.type);
+				this.addContext({ type: type }, ['implicitChainExpression']);
 
 				value = this.executeNode(declarator.value);
 
@@ -1016,35 +1061,15 @@ class Interpreter {
 
 
 	static getContext(tag) {
-		return this.contexts.reduce((ov, nv) => nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags) : ov, {});
+		let flags = {}
 
-		/*  Result looks the same, why I did this?
-		let flags = {},
-			groups = []
-
-		return this.contexts.reduce((ov, nv) =>
-			nv.group == null ? (nv.tags == null || nv.tags.includes(tag) ? Object.assign(ov, nv.flags)
-																		 : ov)
-							 : (!groups.includes(nv.group) ? groups.push(nv.group) && Object.assign(ov, this.contexts.findLast(v => v.group === nv.group).flags)
-							 							   : ov), {});
-
-		for(let i = this.contexts.length-1; i >= 0; i--) {
-			let context = this.contexts[i]
-
-			if(context.group == null) {
-				if(context.tags == null || context.tags.includes(tag)) {
-					flags = { ...context.flags, ...flags }
-				}
-			} else
-			if(!groups.includes(context.group)) {
-				groups.push(context.group);
-
-				flags = { ...context.flags, ...flags }
+		for(let context of this.contexts) {
+			if(context.tags == null || context.tags.includes(tag)) {
+				Object.assign(flags, context.flags);
 			}
 		}
 
 		return flags;
-		*/
 	}
 
 	/*
@@ -1055,14 +1080,12 @@ class Interpreter {
 	 *
 	 * Rule can be considered ambiguous if it is e.g. subrule of a subrule and cannot be recognized directly.
 	 *
-	 * Specifying tags allows to filter current context(s), while
-	 * group can make search look only for its rightmost member.
+	 * Specifying tags allows to filter current context(s).
 	 */
-	static addContext(flags, tags, group) {
+	static addContext(flags, tags) {
 		this.contexts.push({
 			flags: flags,
-			tags: tags,
-			group: group
+			tags: tags
 		});
 	}
 
@@ -1688,12 +1711,15 @@ class Interpreter {
 					if(objects.length === 1) {
 						let gparams = this.getTypeGenericParameters(FSSC.type);  // Generic parameters
 
-						for(let i = 0; i < gparams.length; i++) {
-							if(gargs.length-1 < i) {
-								break;
-							}
+						if(gargs.length === gparams.length) {
+							for(let i = 0; i < gargs.length; i++) {
+								let garg = gargs[i],
+									gparam = gparams[i],
+									identifier = gparam.find(v => v != null).identifier,
+									type = [{ predefined: 'type' }]
 
-							this.setMemberOverload(object, gparams[i].identifier, [], [{ predefined: 'type' }], gargs[i], []);
+								this.setMemberOverload(object, identifier, [], type, garg, []);
+							}
 						}
 					}
 					if(objects.length > 1) {
@@ -1727,10 +1753,12 @@ class Interpreter {
 
 		for(let i = 0; i < args.length; i++) {
 			let arg = args[i],
-				paramType = this.getSubtype(params, params[i]),
-				identifier = paramType[0]?.identifier ?? '$'+i;
+				param = params[i],
+				paramStart = param.find(v => v != null),
+				identifier = paramStart?.identifier ?? '$'+i,
+				type = this.getSubtype(param, paramStart);
 
-			this.setMemberOverload(this.scope, identifier, [], paramType, arg.value, []);
+			this.setMemberOverload(this.scope, identifier, [], type, arg.value, []);
 		}
 
 		if(FSO?.life === 0) {
@@ -1880,12 +1908,12 @@ class Interpreter {
 		}
 	}
 
-	static createTypePart(type, superPart, flags = {}) {
+	static createTypePart(type, superpart, flags = {}) {
 		let part = { ...flags }
 
 		if(type != null) {
-			if(superPart != null) {
-				part.super = type.indexOf(superPart);
+			if(superpart != null) {
+				part.super = type.indexOf(superpart);
 			}
 
 			type.push(part);
@@ -1894,7 +1922,7 @@ class Interpreter {
 		return part;
 	}
 
-	static createOrSetCollectionTypePart(type, typePart, collectionFlag) {
+	static createOrSetCollectionTypePart(type, part, collectionFlag) {
 		let collectionFlags = {
 			array: true,
 			dictionary: true,
@@ -1906,16 +1934,16 @@ class Interpreter {
 			union: true
 		}
 
-		for(let flag in typePart) {
+		for(let flag in part) {
 			if(
 				flag in collectionFlags &&
-				typePart[flag] === collectionFlags[flag]
+				part[flag] === collectionFlags[flag]
 			) {
-				return this.createTypePart(type, typePart, collectionFlag);
+				return this.createTypePart(type, part, collectionFlag);
 			}
 		}
 
-		return Object.assign(typePart, collectionFlag);
+		return Object.assign(part, collectionFlag);
 	}
 
 	static getTypeInheritedID(type) {
@@ -1929,7 +1957,16 @@ class Interpreter {
 	}
 
 	static getTypeGenericParameters(type) {
-		return this.getTypeParts(type, type.findIndex(v => v.genericParameters)).slice(1);
+		let parameters = [],
+			superindex = type.findIndex(v => v.genericParameters);
+
+		for(let index in type) {
+			if(type[index].super === superindex) {
+				parameters.push(this.getShallowSubtype(type, index));
+			}
+		}
+
+		return parameters;
 	}
 
 	static getTypeFunctionProperties(type) {
@@ -1942,52 +1979,70 @@ class Interpreter {
 	}
 
 	static getTypeFunctionParameters(type) {
-		return this.getTypeParts(type, type.findIndex(v => v.parameters)).slice(1);
+		let parameters = [],
+			superindex = type.findIndex(v => v.parameters);
+
+		for(let index in type) {
+			if(type[index].super === superindex) {
+				parameters.push(this.getShallowSubtype(type, index));
+			}
+		}
+
+		return parameters;
 	}
 
-	static getTypeParts(type, index, parts = []) {
-		for(let i in type) {
-			let part = type[i]
+	static getShallowSubtype(type, superindex, subtype = []) {
+		subtype[superindex] = type[superindex]
 
-			if(i == index) {
-				parts.push(part);
+		for(let index = +superindex+1; index < type.length; index++) {
+			if(type[index].super == superindex) {
+				this.getShallowSubtype(type, index, subtype);
+			}
+		}
+
+		return subtype;
+	}
+
+	/*
+	static getShallowSubtype_(type, superpart, subtype = []) {
+		let superindex = -1;
+
+		for(let index in type) {
+			let part = type[index]
+
+			if(part === superpart) {
+				subtype[index] = part;
+				superindex = index;
 			} else
-			if(part.super == index) {
-				this.getTypeParts(type, i, parts);
+			if(part.super == superindex) {
+				this.getShallowSubtype_(type, part, subtype);
 			}
 		}
 
-		return parts;
+		return subtype;
 	}
+	*/
 
-	static getSubtype(type, part, offset) {
-		offset ??= type.indexOf(part);
+	static getSubtype(type, superpart) {
+		let superindex = type.indexOf(superpart),
+			parts = this.getShallowSubtype(type, superindex),
+			subtype = structuredClone(parts);
 
-		if(offset < 0) {
-			return []
-		}
-		if(offset === 0) {
-			return structuredClone(type);
-		}
+		subtype.splice(0, superindex);
 
-		let type_ = [],
-			part_ = structuredClone(part);
+		for(let index in subtype) {
+			let part = subtype[index]
 
-		part_.super -= offset;
+			if('super' in part) {
+				part.super -= superindex;
 
-		if(part_.super < 0) {
-			delete part_.super;
-		}
-
-		type_.push(part_);
-
-		for(let part_ of type) {
-			if(part_.super === type.indexOf(part)) {
-				type_.push(...this.getSubtype(type, part_, offset));
+				if(part.super < 0) {
+					delete part.super;
+				}
 			}
 		}
 
-		return type_;
+		return subtype;
 	}
 
 	static typeIsComposite(type, wantedValue, any) {
@@ -2121,10 +2176,9 @@ class Interpreter {
 			return;
 		}
 
-		let parameters = this.getTypeFunctionParameters(function_.type),
-			topSuper = Math.min(...parameters.map(v => v.super));
+		let parameters = this.getTypeFunctionParameters(function_.type);
 
-		if(arguments_.length !== parameters.filter(v => v.super === topSuper).length) {
+		if(arguments_.length !== parameters.length) {
 			// TODO: Variadic parameters support
 
 			return;
@@ -2132,9 +2186,10 @@ class Interpreter {
 
 		for(let i = 0; i < (arguments_ ?? []).length; i++) {
 			let argument = arguments_[i],
-				parameter = parameters[i]
+				parameter = parameters[i],
+				parameterStart = parameter.find(v => v != null);
 
-			if(parameter.label != null && argument.label !== parameter.label) {
+			if(parameterStart.label != null && argument.label !== parameterStart.label) {
 				return;
 			}
 			if(!this.typeAccepts(parameter, this.getValueType(argument.value))) {
