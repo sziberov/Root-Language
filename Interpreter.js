@@ -32,7 +32,7 @@ class Interpreter {
 				}
 			}
 
-			return this.helpers.wrapValue('Array', value);
+			return this.getValueWrapper(value, 'Array');
 		},
 		arrayType: (n, t, tp) => {
 			this.rules.collectionType(n, t, tp, 'array');
@@ -40,7 +40,7 @@ class Interpreter {
 		booleanLiteral: (n) => {
 			let value = this.createValue('boolean', n.value === 'true');
 
-			return this.helpers.wrapValue('Boolean', value);
+			return this.getValueWrapper(value, 'Boolean');
 		},
 		breakStatement: (n) => {
 			let value = n.label != null ? this.createValue('string', n.label.value) : undefined;
@@ -91,7 +91,6 @@ class Interpreter {
 			let function_ = this.getValueFunction(value, args);  // TODO: Remove overhead from excess checks
 
 			if(function_ == null) {
-				debugger;
 				this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
 
 				return;
@@ -293,7 +292,7 @@ class Interpreter {
 				}
 			}
 
-			return this.helpers.wrapValue('Dictionary', value);
+			return this.getValueWrapper(value, 'Dictionary');
 		},
 		dictionaryType: (n, t, tp) => {
 			this.rules.collectionType(n, t, tp, 'dictionary');
@@ -338,10 +337,12 @@ class Interpreter {
 
 					return rhs;
 				}
+
+				let lhs = this.executeNode(v[0]),
+					rhs = this.executeNode(v[2]);
+
 				if(v[1].value === '==') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]),
-						value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
+					let value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
 
 					if(!value) {
 					//	debugger;
@@ -350,37 +351,26 @@ class Interpreter {
 					return this.createValue('boolean', value);
 				}
 				if(v[1].value === '<=') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]),
-						value = lhs?.primitiveValue <= rhs?.primitiveValue;
+					let value = lhs?.primitiveValue <= rhs?.primitiveValue;
 
 					return this.createValue('boolean', value);
 				}
 				if(v[1].value === '>=') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]),
-						value = lhs?.primitiveValue >= rhs?.primitiveValue;
+					let value = lhs?.primitiveValue >= rhs?.primitiveValue;
 
 					return this.createValue('boolean', value);
 				}
 				if(v[1].value === '<') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]),
-						value = lhs?.primitiveValue < rhs?.primitiveValue;
+					let value = lhs?.primitiveValue < rhs?.primitiveValue;
 
 					return this.createValue('boolean', value);
 				}
 				if(v[1].value === '>') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]),
-						value = lhs?.primitiveValue > rhs?.primitiveValue;
+					let value = lhs?.primitiveValue > rhs?.primitiveValue;
 
 					return this.createValue('boolean', value);
 				}
 				if(v[1].value === '-') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]);
-
 					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
 						return;
 					}
@@ -390,9 +380,6 @@ class Interpreter {
 					return this.createValue('integer', value);
 				}
 				if(v[1].value === '+') {
-					let lhs = this.executeNode(v[0]),
-						rhs = this.executeNode(v[2]);
-
 					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
 						return;
 					}
@@ -406,7 +393,7 @@ class Interpreter {
 		floatLiteral: (n) => {
 			let value = this.createValue('float', n.value*1);
 
-			return this.helpers.wrapValue('Float', value);
+			return this.getValueWrapper(value, 'Float');
 		},
 		functionDeclaration: (n) => {
 			let modifiers = n.modifiers,
@@ -670,7 +657,7 @@ class Interpreter {
 		integerLiteral: (n) => {
 			let value = this.createValue('integer', n.value*1);
 
-			return this.helpers.wrapValue('Integer', value);
+			return this.getValueWrapper(value, 'Integer');
 		},
 		intersectionType: (n, t, tp) => {
 			this.rules.combiningType(n, t, tp, 'intersection');
@@ -855,7 +842,7 @@ class Interpreter {
 
 			let value = this.createValue('string', string);
 
-			return this.helpers.wrapValue('String', value);
+			return this.getValueWrapper(value, 'String');
 		},
 		structureDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
@@ -1029,16 +1016,6 @@ class Interpreter {
 					internal: true
 				}
 			}
-		},
-		wrapValue: (wrapperIdentifier, value) => {
-			let args = [{ label: undefined, value: value }],
-				function_ = this.findFunction(this.scope, wrapperIdentifier, false, undefined, args);
-
-			if(function_ != null) {
-				return this.callFunction(function_, undefined, args);
-			}
-
-			return value;
 		}
 	}
 
@@ -2069,6 +2046,36 @@ class Interpreter {
 		}
 	}
 
+	static getValueString(value) {
+		if(value == null) {
+			return 'nil';
+		}
+
+		if(['boolean', 'float', 'integer', 'string'].includes(value?.primitiveType)) {
+			return value.primitiveValue+'';
+		}
+
+		let composite = this.getValueComposite(value);
+
+		if(composite != null) {
+			return JSON.stringify(composite);
+		}
+
+		return JSON.stringify(value, (k, v) => {
+			if(v instanceof Map) {
+				return {
+					__TYPE__: 'Map',
+					__VALUE__: Array.from(v.entries())
+				}
+			} else
+			if(v == null) {
+				return null;
+			} else {
+				return v;
+			}
+		});
+	}
+
 	static getValueType(value) {
 		if(value == null) {
 			return []
@@ -2106,42 +2113,26 @@ class Interpreter {
 		return type;
 	}
 
+	/*
+	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
+	 */
+	static getValueWrapper(value, identifier) {
+		let args = [{ label: undefined, value: value }],
+			function_ = this.findFunctionalMemberOverload(this.scope, identifier, false, args)?.matchingValue;
+
+		if(function_ != null) {
+			return this.callFunction(function_, undefined, args);
+		}
+
+		return value;
+	}
+
 	static getValueComposite(value) {
 		if(!['pointer', 'reference'].includes(value?.primitiveType)) {
 			return;
 		}
 
 		return this.getComposite(value.primitiveValue);
-	}
-
-	static getValueString(value) {
-		if(['boolean', 'float', 'integer', 'string'].includes(value?.primitiveType)) {
-			return value.primitiveValue+'';
-		}
-
-		let composite = this.getValueComposite(value);
-
-		if(composite != null) {
-			return JSON.stringify(composite);
-		}
-
-		if(value != null) {
-			return JSON.stringify(value, (k, v) => {
-				if(v instanceof Map) {
-					return {
-						__TYPE__: 'Map',
-						__VALUE__: Array.from(v.entries())
-					}
-				} else
-				if(v == null) {
-					return null;
-				} else {
-					return v;
-				}
-			});
-		}
-
-		return 'nil';
 	}
 
 	static getValueFunction(value, arguments_) {
@@ -2449,25 +2440,18 @@ class Interpreter {
 		});
 	}
 
-	/*
-	 * Looking for function among member overloads or in a value.
-	 * Tries to find intitializer for instantiable composites.
-	 */
-	static findFunction(composite, identifier, internal, value, args) {
-		let overload = composite != null && identifier != null,
-			function_ = overload
-					  ? this.findMemberOverload(composite, identifier, (v) => this.findValueFunction(v.value, args), internal)?.matchingValue
-					  : this.findValueFunction(value, args);
+	static findFunctionalMemberOverload(composite, identifier, internal, args) {
+		let overload = this.findMemberOverload(composite, identifier, (v) => this.findValueFunction(v.value, args), internal);
 
-		if(function_ != null) {
-			return function_;
+		if(overload != null) {
+			return overload;
 		}
 
-		composite = overload
-				  ? this.findMemberOverload(composite, identifier, (v) => this.getValueComposite(v.value), internal)?.matchingValue
-				  : this.getValueComposite(value);
+		composite = this.findMemberOverload(composite, identifier, (v) => this.getValueComposite(v.value), internal)?.matchingValue;
 
-		return this.findInitializingMemberOverload(composite, identifier, args)?.matchingValue;
+		if(composite != null) {
+			return this.findInitializingMemberOverload(composite, identifier, args);
+		}
 	}
 
 	static findInitializingMemberOverload(composite, identifier, args) {
