@@ -50,8 +50,7 @@ class Interpreter {
 			return value;
 		},
 		callExpression: (n, inner) => {
-			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.callee.type),
-				gargs = [],  // (Generic) arguments
+			let gargs = [],  // (Generic) arguments
 				args = []
 
 			for(let garg of n.genericArguments) {
@@ -74,69 +73,37 @@ class Interpreter {
 
 			this.addContext({ args: args }, ['chainExpression', 'identifier', 'implicitChainExpression']);
 
-			let value = this.executeNode(n.callee, inner_);
+			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.callee.type),
+				value = this.executeNode(n.callee, outer);
 
 			this.removeContext();
 
 			if(this.threw) {
-				let value_ = this.controlTransfer.value;
+				let value = this.controlTransfer.value;
 
-				if(!inner && typeof value_ === 'string' && value_.startsWith('Nillable')) {
+				if(!inner && typeof value === 'string' && value.startsWith('Nillable')) {
 					this.resetControlTransfer();
 				}
 
 				return;
 			}
 
-			if(value != null) {
-				return this.callFunction(value, gargs, args);
-			}
+			let function_ = this.getValueFunction(value, args);  // TODO: Remove overhead from excess checks
 
-			value = this.executeNode(n.callee, inner_);
-
-			if(this.threw) {
-				let value_ = this.controlTransfer.value;
-
-				if(!inner && typeof value_ === 'string' && value_.startsWith('Nillable')) {
-					this.resetControlTransfer();
-				}
+			if(function_ == null) {
+				debugger;
+				this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
 
 				return;
 			}
 
-			let composite = this.getValueComposite(value);
-
-			if(composite == null) {
-				this.report(1, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\').', 'throw');
-
-				return;
-			}
-
-			if(this.compositeIsObject(composite) && n.callee.type === 'identifier' && ['super', 'self', 'sub'].includes(n.callee.value)) {
-				composite = this.getComposite(composite.IDs.Self);
-			}
-			if(this.compositeIsInstantiable(composite)) {
-				value = this.getMemberOverload(composite, 'init', (v) => {
-					v = this.findValueFunction(v.value, args);
-
-					if(v != null && this.getTypeFunctionProperties(v.type).inits === 1) {
-						return v;
-					}
-				})?.matchingValue;
-			}
-
-			if(value != null) {
-				return this.callFunction(value, gargs, args);
-			}
-
-			this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
+			return this.callFunction(function_, gargs, args);
 		},
 		chainExpression: (n, inner) => {
-			let inner_ = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type);
+			this.addContext({ args: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);  // Prevent unwanted context pass
 
-			this.addContext({ args: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);
-
-			let value = this.executeNode(n.composite, inner_);
+			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type),
+				composite = this.executeNode(n.composite, outer);
 
 			this.removeContext();
 
@@ -162,7 +129,7 @@ class Interpreter {
 				}
 			}
 
-			let composite = this.getValueComposite(value);
+			composite = this.getValueComposite(composite);
 
 			if(composite == null) {
 				this.report(1, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing \''+identifier+'\').', 'throw');
@@ -174,13 +141,17 @@ class Interpreter {
 				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
 				overload = this.findMemberOverload(composite, identifier, matching, true);
 
+			if(overload == null && args != null) {
+				overload = this.findInitializingMemberOverload(composite, identifier, args);
+			}
+
 			if(overload == null) {
-				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
+				this.report(1, n, 'Member overload wasn\'t found (accessing chained \''+identifier+'\').');
 
 				return;
 			}
 
-			return overload.matchingValue ?? overload.value;
+			return overload.value;
 		},
 		classDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
@@ -543,17 +514,23 @@ class Interpreter {
 			typePart.identifier = n.identifier.value;
 		},
 		identifier: (n) => {
-			let args = this.getContext(n.type)?.args,
+			let composite = this.scope,
+				identifier = n.value,
+				args = this.getContext(n.type)?.args,
 				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
-				overload = this.findMemberOverload(this.scope, n.value, matching);
+				overload = this.findMemberOverload(composite, identifier, matching);
+
+			if(overload == null && args != null) {
+				overload = this.findInitializingMemberOverload(composite, identifier, args);
+			}
 
 			if(overload == null) {
-				this.report(1, n, 'Identifier wasn\'t found (accessing \''+n.value+'\').');
+				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
 
 				return;
 			}
 
-			return overload.matchingValue ?? overload.value;
+			return overload.value;
 		},
 		ifStatement: (n) => {
 			if(n.condition == null) {
@@ -607,10 +584,16 @@ class Interpreter {
 				return;
 			}
 
-			let overload = this.findMemberOverload(composite, identifier, undefined, true);
+			let args = this.getContext(n.type)?.args,
+				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
+				overload = this.findMemberOverload(composite, identifier, matching, true);
+
+			if(overload == null && args != null) {
+				overload = this.findInitializingMemberOverload(composite, identifier, args);
+			}
 
 			if(overload == null) {
-				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
+				this.report(1, n, 'Member overload wasn\'t found (accessing implicitly chained \''+identifier+'\').');
 
 				return;
 			}
@@ -1178,27 +1161,19 @@ class Interpreter {
 
 		composite.life = 2;
 
-		if(this.compositeIsObject(composite)) {
-			let function_ = this.getMemberOverload(composite, 'deinit', (v) => {
-				v = this.findValueFunction(v.value, []);
+		let deinitializer = this.findDeinitializingMemberOverload(composite)?.matchingValue;
 
-				if(v != null && this.getTypeFunctionProperties(v.type).deinits === 1) {
-					return v;
-				}
-			})?.matchingValue;
+		if(deinitializer != null) {
+			this.addControlTransfer();
+			this.callFunction(deinitializer);
 
-			if(function_ != null) {
-				this.addControlTransfer();
-				this.callFunction(function_);
-
-				/*  Let the objects destroy no matter of errors
-				if(this.threw) {
-					return;
-				}
-				*/
-
-				this.removeControlTransfer();
+			/*  Let the objects destroy no matter of errors
+			if(this.threw) {
+				return;
 			}
+			*/
+
+			this.removeControlTransfer();
 		}
 
 		let ID = this.getOwnID(composite),
@@ -2492,20 +2467,34 @@ class Interpreter {
 				  ? this.findMemberOverload(composite, identifier, (v) => this.getValueComposite(v.value), internal)?.matchingValue
 				  : this.getValueComposite(value);
 
+		return this.findInitializingMemberOverload(composite, identifier, args)?.matchingValue;
+	}
+
+	static findInitializingMemberOverload(composite, identifier, args) {
 		if(this.compositeIsObject(composite) && ['super', 'self', 'sub'].includes(identifier)) {
 			composite = this.getComposite(composite.IDs.Self);
 		}
 		if(this.compositeIsInstantiable(composite)) {
-			function_ = this.getMemberOverload(composite, 'init', (v) => {
+			return this.getMemberOverload(composite, 'init', (v) => {
 				v = this.findValueFunction(v.value, args);
 
 				if(v != null && this.getTypeFunctionProperties(v.type).inits === 1) {
 					return v;
 				}
-			})?.matchingValue;
+			});
 		}
+	}
 
-		return function_;
+	static findDeinitializingMemberOverload(object) {
+		if(this.compositeIsObject(object)) {
+			return this.getMemberOverload(object, 'deinit', (v) => {
+				v = this.findValueFunction(v.value, []);
+
+				if(v != null && this.getTypeFunctionProperties(v.type).deinits === 1) {
+					return v;
+				}
+			});
+		}
 	}
 
 	/*
