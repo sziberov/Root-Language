@@ -91,7 +91,7 @@ class Interpreter {
 			let function_ = this.getValueFunction(value, args);  // TODO: Remove overhead from excess checks
 
 			if(function_ == null) {
-				this.report(2, n, 'Function or initializer with specified signature wasn\'t found.');
+				this.report(2, n, 'Type: Value is not a function or initializer of specified signature.', 'throw');
 
 				return;
 			}
@@ -102,7 +102,7 @@ class Interpreter {
 			this.addContext({ args: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);  // Prevent unwanted context pass
 
 			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type),
-				composite = this.executeNode(n.composite, outer);
+				value = this.executeNode(n.composite, outer);
 
 			this.removeContext();
 
@@ -128,21 +128,15 @@ class Interpreter {
 				}
 			}
 
-			composite = this.getValueComposite(composite);
+			let composite = this.getValueComposite(value);
 
 			if(composite == null) {
-				this.report(1, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing \''+identifier+'\').', 'throw');
+				this.report(2, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing chained \''+identifier+'\').', 'throw');
 
 				return;
 			}
 
-			let args = this.getContext(n.type)?.args,
-				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
-				overload = this.findMemberOverload(composite, identifier, matching, true);
-
-			if(overload == null && args != null) {
-				overload = this.findInitializingMemberOverload(composite, identifier, args);
-			}
+			let overload = this.helpers.findMemberOverload(n, composite, identifier, true);
 
 			if(overload == null) {
 				this.report(1, n, 'Member overload wasn\'t found (accessing chained \''+identifier+'\').');
@@ -503,13 +497,7 @@ class Interpreter {
 		identifier: (n) => {
 			let composite = this.scope,
 				identifier = n.value,
-				args = this.getContext(n.type)?.args,
-				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
-				overload = this.findMemberOverload(composite, identifier, matching);
-
-			if(overload == null && args != null) {
-				overload = this.findInitializingMemberOverload(composite, identifier, args);
-			}
+				overload = this.helpers.findMemberOverload(n, composite, identifier);
 
 			if(overload == null) {
 				this.report(1, n, 'Member overload wasn\'t found (accessing \''+identifier+'\').');
@@ -566,18 +554,12 @@ class Interpreter {
 			}
 
 			if(composite == null) {
-				this.report(1, n, 'Type: Cannot get a composite from the implicit type (accessing \''+identifier+'\').', 'throw');
+				this.report(2, n, 'Type: Cannot get a composite from the implicit type (accessing implicitly chained \''+identifier+'\').', 'throw');
 
 				return;
 			}
 
-			let args = this.getContext(n.type)?.args,
-				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
-				overload = this.findMemberOverload(composite, identifier, matching, true);
-
-			if(overload == null && args != null) {
-				overload = this.findInitializingMemberOverload(composite, identifier, args);
-			}
+			let overload = this.helpers.findMemberOverload(n, composite, identifier, true);
 
 			if(overload == null) {
 				this.report(1, n, 'Member overload wasn\'t found (accessing implicitly chained \''+identifier+'\').');
@@ -644,7 +626,7 @@ class Interpreter {
 				return value;
 			}
 			if(value?.primitiveType !== 'reference') {
-				this.report(2, n, 'Non-reference value (\''+(value?.primitiveType ?? 'nil')+'\') can\'t be used as a pointer.');
+				this.report(2, n, 'Type: Non-reference value (\''+(value?.primitiveType ?? 'nil')+'\') can\'t be used as a pointer.', 'throw');
 
 				return;
 			}
@@ -869,7 +851,7 @@ class Interpreter {
 			if(composite == null || this.compositeIsObject(composite)) {
 				typePart.predefined = 'Any';
 
-				this.report(2, n, 'Composite is an object or wasn\'t found.');
+				this.report(1, n, 'Composite is an object or wasn\'t found.');
 			} else {
 				typePart.reference = this.getOwnID(composite, true);
 			}
@@ -977,6 +959,19 @@ class Interpreter {
 			}
 
 			return typePart;
+		},
+		findMemberOverload: (node, composite, identifier, internal) => {
+			let args = this.getContext(node.type)?.args,
+				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
+				overload = this.findMemberOverload(composite, identifier, matching, internal);
+
+			if(overload == null && args != null) {
+				overload = this.findInitializingMemberOverload(composite, identifier, args);
+			}
+
+			// TODO: Subscript
+
+			return overload;
 		},
 		separateStatements: (statements, objectStatements) => {
 			let excluded = ['initializerDeclaration'],	// Static only

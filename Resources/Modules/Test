@@ -1,3 +1,7 @@
+var a: Self = .print(1)
+
+return
+
 namespace A {
 	func a() {
 		return a
