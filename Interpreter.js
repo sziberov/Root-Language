@@ -421,7 +421,7 @@ class Interpreter {
 				if(object) {  // Non-static in object
 					statements = []
 					signature = n.signature;
-					functionScope = this.findMemberOverload(this.scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.matchingValue ?? this.scope;
+					functionScope = this.findMemberOverload(this.scope, identifier, (v) => this.findValueFunction(v.value, []), true)?.match ?? this.scope;
 				} else {  // Non-static in non-object
 					if(statements.length === 0) {
 						return;
@@ -962,12 +962,9 @@ class Interpreter {
 		},
 		findMemberOverload: (node, composite, identifier, internal) => {
 			let args = this.getContext(node.type)?.args,
-				matching = args != null ? (v) => this.findValueFunction(v.value, args) : undefined,
-				overload = this.findMemberOverload(composite, identifier, matching, internal);
-
-			if(overload == null && args != null) {
-				overload = this.findInitializingMemberOverload(composite, identifier, args);
-			}
+				overload = args == null
+						 ? this.findMemberOverload(composite, identifier, undefined, internal)
+						 : this.findFunctionalMemberOverload(composite, identifier, internal, args);
 
 			// TODO: Subscript
 
@@ -1133,7 +1130,7 @@ class Interpreter {
 
 		composite.life = 2;
 
-		let deinitializer = this.findDeinitializingMemberOverload(composite)?.matchingValue;
+		let deinitializer = this.findDeinitializingMemberOverload(composite)?.match;
 
 		if(deinitializer != null) {
 			this.addControlTransfer();
@@ -2113,7 +2110,7 @@ class Interpreter {
 	 */
 	static getValueWrapper(value, identifier) {
 		let args = [{ label: undefined, value: value }],
-			function_ = this.findFunctionalMemberOverload(this.scope, identifier, false, args)?.matchingValue;
+			function_ = this.findFunctionalMemberOverload(this.scope, identifier, false, args)?.match;
 
 		if(function_ != null) {
 			return this.callFunction(function_, undefined, args);
@@ -2385,16 +2382,24 @@ class Interpreter {
 
 		if(member != null) {
 			for(let overload of member) {
-				if(matching == null) {
+				overload = this.getMemberOverloadMatch(overload, matching);
+
+				if(overload != null) {
 					return overload;
 				}
-
-				let matchingValue = matching(overload);
-
-				if(matchingValue != null) {
-					return this.getMemberOverloadProxy(overload, { matchingValue: matchingValue });
-				}
 			}
+		}
+	}
+
+	static getMemberOverloadMatch(overload, matching) {
+		if(matching == null) {
+			return overload;
+		}
+
+		let match = matching(overload);
+
+		if(match != null) {
+			return this.getMemberOverloadProxy(overload, { match: match });
 		}
 	}
 
@@ -2442,7 +2447,7 @@ class Interpreter {
 			return overload;
 		}
 
-		composite = this.findMemberOverload(composite, identifier, (v) => this.getValueComposite(v.value), internal)?.matchingValue;
+		composite = this.findMemberOverload(composite, identifier, (v) => this.getValueComposite(v.value), internal)?.match;
 
 		if(composite != null) {
 			return this.findInitializingMemberOverload(composite, identifier, args);
@@ -2531,12 +2536,12 @@ class Interpreter {
 				let ID = IDs[identifier]
 
 				if(ID !== -1) {  // Intentionally missed IDs should be treated like non-existent
-					overload = {
+					overload = this.getMemberOverloadMatch({
 						modifiers: ['final'],
 						type: [{ predefined: 'Any', nillable: true }],
 						value: ID != null ? this.createValue('reference', ID) : undefined,
 						observers: []
-					}
+					}, matching);
 				}
 			}
 		}
@@ -2545,12 +2550,12 @@ class Interpreter {
 			let IDs = composite.imports;
 
 			if(identifier in IDs) {
-				overload = {
+				overload = this.getMemberOverloadMatch({
 					modifiers: ['final'],
 					type: [{ predefined: 'Any' }],
 					value: this.createValue('reference', IDs[identifier]),
 					observers: []
-				}
+				}, matching);
 			} else {
 				for(let identifier in IDs) {
 					composite = this.getComposite(IDs[identifier]);
