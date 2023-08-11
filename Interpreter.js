@@ -309,10 +309,25 @@ class Interpreter {
 			if(v.length === 3 && v[1].type === 'infixOperator') {
 				if(v[1].value === '=') {
 					let lhs = v[0],
-						lhsMOSP = this.helpers.getMemberOverloadSearchParameters(lhs);
+						composite,
+						identifier,
+						internal;
 
-					if(lhsMOSP != null && lhsMOSP.composite != null && lhsMOSP.identifier != null) {
-						lhs = this.findMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, undefined, lhsMOSP.internal);
+					if(lhs.type === 'identifier') {
+						composite = this.scope;
+						identifier = lhs.value;
+						internal = false;
+					} else
+					if(lhs.type === 'chainExpression') {
+						composite = this.getValueComposite(this.executeNode(lhs.composite));
+						identifier = lhs.member.type === 'identifier'
+								   ? lhs.member.value
+								   : this.rules.stringLiteral(lhs.member, true).primitiveValue;
+						internal = true;
+					}
+
+					if(composite != null && identifier != null) {
+						lhs = this.findMemberOverload(composite, identifier, undefined, internal);
 					} else {
 						lhs = undefined;
 					}
@@ -327,7 +342,7 @@ class Interpreter {
 
 					let rhs = this.executeNode(v[2]);
 
-					this.setMemberOverload(lhsMOSP.composite, lhsMOSP.identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, lhsMOSP.internal);
+					this.setMemberOverload(composite, identifier, lhs.modifiers, lhs.type, rhs, lhs.observers, undefined, internal);
 
 					return rhs;
 				}
@@ -335,52 +350,25 @@ class Interpreter {
 				let lhs = this.executeNode(v[0]),
 					rhs = this.executeNode(v[2]);
 
-				if(v[1].value === '==') {
-					let value = lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue;
+				if(v[1].value === '==')	return this.createValue('boolean', lhs?.primitiveType === rhs?.primitiveType && lhs?.primitiveValue === rhs?.primitiveValue);
+				if(v[1].value === '<=')	return this.createValue('boolean', lhs?.primitiveValue <= rhs?.primitiveValue);
+				if(v[1].value === '>=')	return this.createValue('boolean', lhs?.primitiveValue >= rhs?.primitiveValue);
+				if(v[1].value === '<')	return this.createValue('boolean', lhs?.primitiveValue < rhs?.primitiveValue);
+				if(v[1].value === '>')	return this.createValue('boolean', lhs?.primitiveValue > rhs?.primitiveValue);
 
-					if(!value) {
-					//	debugger;
-					}
-
-					return this.createValue('boolean', value);
-				}
-				if(v[1].value === '<=') {
-					let value = lhs?.primitiveValue <= rhs?.primitiveValue;
-
-					return this.createValue('boolean', value);
-				}
-				if(v[1].value === '>=') {
-					let value = lhs?.primitiveValue >= rhs?.primitiveValue;
-
-					return this.createValue('boolean', value);
-				}
-				if(v[1].value === '<') {
-					let value = lhs?.primitiveValue < rhs?.primitiveValue;
-
-					return this.createValue('boolean', value);
-				}
-				if(v[1].value === '>') {
-					let value = lhs?.primitiveValue > rhs?.primitiveValue;
-
-					return this.createValue('boolean', value);
-				}
 				if(v[1].value === '-') {
 					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
 						return;
 					}
 
-					let value = lhs?.primitiveValue-rhs?.primitiveValue;
-
-					return this.createValue('integer', value);
+					return this.createValue('integer', lhs?.primitiveValue-rhs?.primitiveValue);
 				}
 				if(v[1].value === '+') {
 					if(lhs?.primitiveType !== 'integer' || rhs?.primitiveType !== 'integer') {
 						return;
 					}
 
-					let value = lhs?.primitiveValue+rhs?.primitiveValue;
-
-					return this.createValue('integer', value);
+					return this.createValue('integer', lhs?.primitiveValue+rhs?.primitiveValue);
 				}
 			}
 		},
@@ -990,22 +978,6 @@ class Interpreter {
 
 					statements.splice(i, 1);
 					i--;
-				}
-			}
-		},
-		getMemberOverloadSearchParameters: (node) => {
-			if(node.type === 'identifier') {
-				return {
-					composite: this.scope,
-					identifier: node.value,
-					internal: false
-				}
-			} else
-			if(node.type === 'chainExpression') {
-				return {
-					composite: this.getValueComposite(this.executeNode(node.composite)),
-					identifier: node.member.type === 'identifier' ? node.member.value : this.rules.stringLiteral(node.member, true).primitiveValue,
-					internal: true
 				}
 			}
 		}
@@ -2109,11 +2081,11 @@ class Interpreter {
 	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
 	 */
 	static getValueWrapper(value, identifier) {
-		let args = [{ label: undefined, value: value }],
-			function_ = this.findFunctionalMemberOverload(this.scope, identifier, false, args)?.match;
+		let arguments_ = [{ label: undefined, value: value }],
+			function_ = this.findFunctionalMemberOverload(this.scope, identifier, false, arguments_)?.match;
 
 		if(function_ != null) {
-			return this.callFunction(function_, undefined, args);
+			return this.callFunction(function_, undefined, arguments_);
 		}
 
 		return value;

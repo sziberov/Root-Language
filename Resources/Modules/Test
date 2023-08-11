@@ -1,3 +1,39 @@
+class User {
+	private var username: String
+	private var valid: Bool
+
+	init(username: String, password: String) {
+		self.username = username
+		valid = validateUser(username, password)
+	}
+
+	/*virtual*/ func validateUser(username: String, password: String) -> Bool {
+		return false
+	}
+
+	final func isValid() -> Bool {
+		return valid
+	}
+}
+
+class Attacker: User {
+	init(username: String, password: String) {
+		super(username, password)
+	}
+
+	func validateUser(username: String, password: String) -> Bool {
+		return true
+	}
+}
+
+if Attacker('Evil', 'Hacker').isValid() == true {
+	print('Attack successful!')
+} else {
+	print('Attack failed')
+}
+
+return
+
 var a: Self = .print(1)
 
 return
@@ -733,19 +769,28 @@ func test(a: inout _?, and b) {
 
 var a: Function | bool = 1
 
-if i > -a { b } { c }  // sequence, prefixed
-if i > a { b } { c }   // sequence, non prefixed
-if -a { b } { c }      // non sequence, prefixed
-if a { b } { c }       // non sequence, non prefixed
+if a[] { c }           //
+if a { b } { c }       // Trailing lhs
+if -a() { c }          // Prefixed
+if -a { b } { c }      // Prefixed, trailing lhs
+if i > a[] { c }       // Sequence
+if i > a { b } { c }   // Sequence, trailing lhs
+if i > -a() { c }      // Sequence, prefixed
+if i > -a { b } { c }  // Sequence, prefixed, trailing lhs (a { b })
+
+if i > -a { b } { c }  //     Sequence,     prefixed, trailing lhs
+if i > a { b } { c }   //     Sequence, non-prefixed, trailing lhs
+if -a { b } { c }      // Non-sequence,     prefixed, trailing lhs
+if a { b } { c }       // Non-sequence, non-prefixed, trailing lhs
 
 for i in 0...3 {
 
-} where i > -1 {  // sequence, prefixed
+} where i > -1 {  // Sequence, prefixed, non-trailing lhs
 	print(i)
 }
 + outside
 
-for i in 0...3 where i > -1 {  // sequence, prefixed
+for i in 0...3 where i > -1 {  // Sequence, prefixed, non-trailing lhs
 	print(i)
 }
 

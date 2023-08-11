@@ -2846,7 +2846,8 @@ class Parser {
 
 			let node_ = node[conditionType],
 				sequence,
-				prefixed;
+				prefixed,
+				trailiing = (n) => 'closure' in n;
 
 			if(sequence = node_.type === 'expressionsSequence') {
 				node_ = node_.values.at(-1);
@@ -2855,27 +2856,45 @@ class Parser {
 				node_ = node_.value;
 			}
 
-			if(['callExpression', 'subscriptExpression'].includes(node_.type) && node_.closure != null && node_.closure.signature == null) {
+			if(trailiing(node_) && node_.closure != null && node_.closure.signature == null) {
+				let lhs = node_.callee ?? node_.composite,
+					conditions = sequence << 2 | prefixed << 3 | trailiing(lhs) << 4;
+
 				this.position = node_.closure.range.start;
 
-				if(sequence) {
-					if(prefixed) {
-						node[conditionType].values.at(-1).value =     node[conditionType].values.at(-1).value.callee;
-						node[conditionType].values.at(-1).range.end = node[conditionType].values.at(-1).value.range.end;
-						node[conditionType].range.end =               node[conditionType].values.at(-1).range.end;
-					} else {
-						node[conditionType].values.splice(-1, 1, node[conditionType].values.at(-1).callee);
-						node[conditionType].range.end =          node[conditionType].values.at(-1).range.end;
-					}
-				} else {
-					if(prefixed) {
-						node[conditionType].value =     node[conditionType].value.callee;
-						node[conditionType].range.end = node[conditionType].value.range.end;
-					} else {
-						node[conditionType] = node[conditionType].callee;
-					}
+				switch(conditions) {
+					case 0:
+						node[conditionType].closure = undefined;
+					break;
+					case 16:  // Trailing lhs
+						node[conditionType] = lhs;
+					break;
+					case 8:   // Prefixed
+						node[conditionType].value.closure =   undefined;
+						node[conditionType].value.range.end = this.position-1;
+					break;
+					case 24:  // Prefixed, trailing lhs
+						node[conditionType].value = lhs;
+					break;
+					case 4:   // Sequence
+						node[conditionType].values.at(-1).closure =   undefined;
+						node[conditionType].values.at(-1).range.end = this.position-1;
+					break;
+					case 20:  // Sequence, trailing lhs
+						node[conditionType].values.splice(-1, 1, lhs);
+					break;
+					case 12:  // Sequence, prefixed
+						node[conditionType].values.at(-1).value.closure =   undefined;
+						node[conditionType].values.at(-1).value.range.end =
+						node[conditionType].values.at(-1).range.end =       this.position-1;
+					break;
+					case 28:  // Sequence, prefixed, trailing lhs
+						node[conditionType].values.at(-1).value =     lhs;
+						node[conditionType].values.at(-1).range.end = this.position-1;
+					break;
 				}
 
+				node[conditionType].range.end = this.position-1;
 				node[valueType] = this.rules.functionBody();
 			}
 
