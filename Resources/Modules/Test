@@ -26,7 +26,7 @@ class Attacker: User {
 	}
 }
 
-if Attacker('Evil', 'Hacker').isValid() == true {
+if Attacker('Evil', 'Hacker').isValid() {
 	print('Attack successful!')
 } else {
 	print('Attack failed')
@@ -770,27 +770,26 @@ func test(a: inout _?, and b) {
 var a: Function | bool = 1
 
 if a[] { c }           //
-if a { b } { c }       // Trailing lhs
+if a { c }             // Exportable (0: a)
+if a { b } { c }       // Exportable (1: a { b })
 if -a() { c }          // Prefixed
-if -a { b } { c }      // Prefixed, trailing lhs
+if -a { c }            // Prefixed, exportable (0)
+if -a { b } { c }      // Prefixed, exportable (1)
 if i > a[] { c }       // Sequence
-if i > a { b } { c }   // Sequence, trailing lhs
+if i > a { c }         // Sequence, exportable (0)
+if i > a { b } { c }   // Sequence, exportable (1)
 if i > -a() { c }      // Sequence, prefixed
-if i > -a { b } { c }  // Sequence, prefixed, trailing lhs (a { b })
-
-if i > -a { b } { c }  //     Sequence,     prefixed, trailing lhs
-if i > a { b } { c }   //     Sequence, non-prefixed, trailing lhs
-if -a { b } { c }      // Non-sequence,     prefixed, trailing lhs
-if a { b } { c }       // Non-sequence, non-prefixed, trailing lhs
+if i > -a { c }        // Sequence, prefixed, exportable (0)
+if i > -a { b } { c }  // Sequence, prefixed, exportable (1)
 
 for i in 0...3 {
 
-} where i > -1 {  // Sequence, prefixed, non-trailing lhs
+} where i > -1 {  // Sequence, prefixed
 	print(i)
 }
 + outside
 
-for i in 0...3 where i > -1 {  // Sequence, prefixed, non-trailing lhs
+for i in 0...3 where i > -1 {  // Sequence, prefixed
 	print(i)
 }
 

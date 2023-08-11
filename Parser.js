@@ -2831,9 +2831,9 @@ class Parser {
 		/*
 		 * Trying to set the node's value to a functionBody or an expressionsSequence.
 		 *
-		 * Trailing closures can be unwrapped from the condition-callExpression/subscriptExpression or from a last
-		 * callExpression/subscriptExpression that is stored in the condition-expressionsSequence.
-		 * Nested into prefixExpression ones are also supported.
+		 * Condition node that have unsignatured trailing closure will be divided to parts including
+		 * closure itself, and its left-hand-side (if closure goes right after it). Closures, nested into
+		 * expressionsSequence and prefixExpression, are also supported.
 		 *
 		 * Useful for completing preconditional statements, such as if or for.
 		 */
@@ -2846,8 +2846,7 @@ class Parser {
 
 			let node_ = node[conditionType],
 				sequence,
-				prefixed,
-				trailiing = (n) => 'closure' in n;
+				prefixed;
 
 			if(sequence = node_.type === 'expressionsSequence') {
 				node_ = node_.values.at(-1);
@@ -2856,45 +2855,47 @@ class Parser {
 				node_ = node_.value;
 			}
 
-			if(trailiing(node_) && node_.closure != null && node_.closure.signature == null) {
-				let lhs = node_.callee ?? node_.composite,
-					conditions = sequence << 2 | prefixed << 3 | trailiing(lhs) << 4;
-
+			if(node_.closure != null && node_.closure.signature == null) {
 				this.position = node_.closure.range.start;
+
+				let lhs = node_.callee ?? node_.composite,
+					end = this.position-1,
+					exportable = lhs.range.end === end,
+					conditions = sequence << 2 | prefixed << 3 | exportable << 4;
 
 				switch(conditions) {
 					case 0:
 						node[conditionType].closure = undefined;
 					break;
-					case 16:  // Trailing lhs
+					case 16:  // Exportable
 						node[conditionType] = lhs;
 					break;
 					case 8:   // Prefixed
 						node[conditionType].value.closure =   undefined;
-						node[conditionType].value.range.end = this.position-1;
+						node[conditionType].value.range.end = end;
 					break;
-					case 24:  // Prefixed, trailing lhs
+					case 24:  // Prefixed, exportable
 						node[conditionType].value = lhs;
 					break;
 					case 4:   // Sequence
 						node[conditionType].values.at(-1).closure =   undefined;
-						node[conditionType].values.at(-1).range.end = this.position-1;
+						node[conditionType].values.at(-1).range.end = end;
 					break;
-					case 20:  // Sequence, trailing lhs
+					case 20:  // Sequence, exportable
 						node[conditionType].values.splice(-1, 1, lhs);
 					break;
 					case 12:  // Sequence, prefixed
 						node[conditionType].values.at(-1).value.closure =   undefined;
 						node[conditionType].values.at(-1).value.range.end =
-						node[conditionType].values.at(-1).range.end =       this.position-1;
+						node[conditionType].values.at(-1).range.end =       end;
 					break;
-					case 28:  // Sequence, prefixed, trailing lhs
+					case 28:  // Sequence, prefixed, exportable
 						node[conditionType].values.at(-1).value =     lhs;
-						node[conditionType].values.at(-1).range.end = this.position-1;
+						node[conditionType].values.at(-1).range.end = end;
 					break;
 				}
 
-				node[conditionType].range.end = this.position-1;
+				node[conditionType].range.end = end;
 				node[valueType] = this.rules.functionBody();
 			}
 
