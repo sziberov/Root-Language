@@ -224,7 +224,6 @@ class Interpreter {
 
 			let type = [this.createTypePart(undefined, undefined, { predefined: capitalizedTitle, self: true })],
 				value = this.createValue('reference', this.getOwnID(composite)),
-				observers = [],
 				statements = n.body?.statements ?? [],
 				objectStatements = []
 
@@ -234,7 +233,7 @@ class Interpreter {
 			}
 
 			if(!anonymous) {
-				this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers);
+				this.setMemberOverload(this.scope, identifier, modifiers, type, value);
 			}
 
 			this.addScope(composite);
@@ -265,15 +264,14 @@ class Interpreter {
 					deinits: 1,
 					awaits: -1,  // 1?
 					throws: -1,  // 1?
-					returnType: undefined
+					returnType: { type: 'predefinedType', value: 'void' }
 				}),
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
-				value = this.createValue('reference', this.getOwnID(function_)),
-				observers = []
+				value = this.createValue('reference', this.getOwnID(function_));
 
 			function_.type = signature;
 
-			this.setMemberOverload(this.scope, identifier, [], type, value, observers, () => {});
+			this.setMemberOverload(this.scope, identifier, [], type, value, undefined, () => {});
 		},
 		dictionaryLiteral: (n) => {
 			let value = this.createValue('dictionary', new Map());
@@ -392,7 +390,6 @@ class Interpreter {
 				functionScope,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
 				value,
-				observers = [],
 				object = this.compositeIsObject(this.scope),
 				staticDeclaration = modifiers.includes('static') || !object && !this.compositeIsInstantiable(this.scope);
 
@@ -424,7 +421,7 @@ class Interpreter {
 			function_.type = this.rules.functionSignature(signature);
 			value = this.createValue('reference', this.getOwnID(function_));
 
-			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
+			this.setMemberOverload(this.scope, identifier, modifiers, type, value, undefined, () => {});
 			this.addScope(function_);
 			this.executeNodes(statements);
 			this.removeScope(false);
@@ -563,8 +560,7 @@ class Interpreter {
 				function_ = this.createFunction(identifier, n.body?.statements, this.scope),
 				signature = n.signature,
 				type = [this.createTypePart(undefined, undefined, { predefined: 'Function' })],
-				value = this.createValue('reference', this.getOwnID(function_)),
-				observers = []
+				value = this.createValue('reference', this.getOwnID(function_));
 
 			signature ??= {
 				type: 'functionSignature',
@@ -605,7 +601,7 @@ class Interpreter {
 				});
 			}
 
-			this.setMemberOverload(this.scope, identifier, modifiers, type, value, observers, () => {});
+			this.setMemberOverload(this.scope, identifier, modifiers, type, value, undefined, () => {});
 		},
 		inoutExpression: (n) => {
 			let value = this.executeNode(n.value);
@@ -668,6 +664,24 @@ class Interpreter {
 			this.rules.optionalType(n, t, tp, ['default', 'nillable'], 1);
 		},
 		nilLiteral: () => {},
+		observerDeclaration: (n, signature, observers) => {
+			let identifier = n.identifier.value,
+				statements = n.body?.statements,
+				function_ = this.createFunction(identifier, statements, this.scope);
+
+			function_.type = this.rules.functionSignature({
+				type: 'functionSignature',
+				genericParameters: [],
+				parameters: [],
+				inits: -1,
+				deinits: -1,
+				awaits: -1,  // 1?
+				throws: -1,  // 1?
+				returnType: identifier === 'get' ? signature.returnType : { type: 'predefinedType', value: 'void' }
+			});
+
+			observers[identifier] = this.getOwnID(function_);
+		},
 		operatorDeclaration: (n) => {
 			let operator = n.operator?.value,
 				precedence,
@@ -820,6 +834,36 @@ class Interpreter {
 		structureExpression: (n) => {
 			return this.rules.compositeDeclaration(n, true);
 		},
+		subscriptDeclaration: (n) => {
+			let modifiers = n.modifiers,
+				identifier = 'subscript',
+				signature = n.signature;
+
+			if(signature == null) {
+				return;
+			}
+
+			let type = this.rules.functionSignature(signature),
+				observers = {}
+
+			if(n.body?.type === 'functionBody') {
+				this.rules.observerDeclaration({
+					type: 'observerDeclaration',
+					identifier: {
+						type: 'identifier',
+						value: 'get'
+					},
+					body: n.body
+				}, signature, observers);
+			}
+			if(n.body?.type === 'subscriptBody') {
+				for(let statement of n.body.statements) {
+					this.rules.observerDeclaration(statement, signature, observers);
+				}
+			}
+
+			this.setMemberOverload(this.scope, identifier, modifiers, type, undefined, observers, () => {});
+		},
 		throwStatement: (n) => {
 			let value = this.executeNode(n.value);
 
@@ -865,7 +909,7 @@ class Interpreter {
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
 					value,
-					observers = []
+					observers = {}
 
 				this.addContext({ type: type }, ['implicitChainExpression']);
 
@@ -1079,7 +1123,7 @@ class Interpreter {
 			imports: {},
 			operators: {},
 			members: {},
-			observers: []
+			observers: {}
 		}
 
 		this.composites.push(composite);
@@ -1219,7 +1263,7 @@ class Interpreter {
 			this.typeRetains(retainingComposite.type, retainedComposite) ||
 			this.importsRetain(retainingComposite, retainedComposite) ||
 			this.membersRetain(retainingComposite, retainedComposite) ||
-			this.observersRetain(retainingComposite, retainedComposite)
+			this.observersRetain(retainingComposite.observers, retainedComposite)
 		);
 	}
 
@@ -1634,7 +1678,7 @@ class Interpreter {
 									identifier = gparam.find(v => v != null).identifier,
 									type = [{ predefined: 'type' }]
 
-								this.setMemberOverload(object, identifier, [], type, garg, []);
+								this.setMemberOverload(object, identifier, [], type, garg);
 							}
 						}
 					}
@@ -1664,7 +1708,7 @@ class Interpreter {
 			let type = [{ predefined: 'Any', nillable: true }],
 				value = this.createValue('reference', this.getOwnID(SSC));
 
-			this.setMemberOverload(this.scope, 'caller', [], type, value, []);
+			this.setMemberOverload(this.scope, 'caller', [], type, value);
 		}
 
 		for(let i = 0; i < args.length; i++) {
@@ -1674,7 +1718,7 @@ class Interpreter {
 				identifier = paramStart?.identifier ?? '$'+i,
 				type = this.getSubtype(param, paramStart);
 
-			this.setMemberOverload(this.scope, identifier, [], type, arg.value, []);
+			this.setMemberOverload(this.scope, identifier, [], type, arg.value);
 		}
 
 		if(FSO?.life === 0) {
@@ -2158,7 +2202,11 @@ class Interpreter {
 	}
 
 	static valueRetains(retainingValue, retainedComposite) {
-		if(retainingValue?.primitiveType === 'dictionary') {
+		if(retainingValue == null) {
+			return;
+		}
+
+		if(retainingValue.primitiveType === 'dictionary') {
 			for(let [retainingKey, retainingValue_] of retainingValue.primitiveValue) {
 				if(
 					this.valueRetains(retainingKey, retainedComposite) ||
@@ -2213,8 +2261,10 @@ class Interpreter {
 	}
 
 	static importsRetain(retainingComposite, retainedComposite) {
+		let ID = this.getOwnID(retainedComposite);
+
 		for(let identifier in retainingComposite.imports) {
-			if(retainingComposite.imports[identifier] === this.getOwnID(retainedComposite)) {
+			if(retainingComposite.imports[identifier] === ID) {
 				return true;
 			}
 		}
@@ -2323,10 +2373,10 @@ class Interpreter {
 			{ super: 0, predefined: 'integer' }
 		]
 
-		this.setMemberOverload(composite, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(print)), []);
-		this.setMemberOverload(composite, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)), []);
-		this.setMemberOverload(composite, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)), []);
-		this.setMemberOverload(composite, 'getTimestamp', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getTimestamp)), []);
+		this.setMemberOverload(composite, 'print', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(print)));
+		this.setMemberOverload(composite, 'getComposite', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getComposite)));
+		this.setMemberOverload(composite, 'getCallsString', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getCallsString)));
+		this.setMemberOverload(composite, 'getTimestamp', [], [{ predefined: 'Function' }], this.createValue('reference', this.getOwnID(getTimestamp)));
 	}
 
 	static removeMember(composite, identifier) {
@@ -2512,7 +2562,7 @@ class Interpreter {
 						modifiers: ['final'],
 						type: [{ predefined: 'Any', nillable: true }],
 						value: ID != null ? this.createValue('reference', ID) : undefined,
-						observers: []
+						observers: {}
 					}, matching);
 				}
 			}
@@ -2526,7 +2576,7 @@ class Interpreter {
 					modifiers: ['final'],
 					type: [{ predefined: 'Any' }],
 					value: this.createValue('reference', IDs[identifier]),
-					observers: []
+					observers: {}
 				}, matching);
 			} else {
 				for(let identifier in IDs) {
@@ -2636,12 +2686,14 @@ class Interpreter {
 		let OT = overload.type ?? [],  // Old/new type
 			NT = type ?? [],
 			OV = overload.value,  // Old/new value
-			NV = value;
+			NV = value,
+			OO = overload.observers ?? {},  // Old/new observers
+			NO = observers ?? {}
 
 		overload.modifiers = modifiers;
-		overload.type = type;
+		overload.type = NT;
 		overload.value = value;
-		overload.observers = observers;
+		overload.observers = NO;
 
 		if(OT !== NT) {
 			let IDs = new Set([...OT, ...NT].map(v => v.reference));
@@ -2654,6 +2706,13 @@ class Interpreter {
 			this.retainOrReleaseValueComposites(composite, OV);
 			this.retainOrReleaseValueComposites(composite, NV);
 		}
+		if(OO !== NO) {
+			let IDs = new Set([...Object.values(OO), ...Object.values(NO)]);
+
+			for(let ID of IDs) {
+				this.retainOrReleaseComposite(composite, this.getComposite(ID));
+			}
+		}
 	}
 
 	static membersRetain(retainingComposite, retainedComposite) {
@@ -2662,7 +2721,7 @@ class Interpreter {
 				if(
 					this.typeRetains(overload.type, retainedComposite) ||
 					this.valueRetains(overload.value, retainedComposite) ||
-					overload.observers.some(v => v.value === this.getOwnID(retainedComposite))
+					this.observersRetain(overload.observers, retainedComposite)
 				) {
 					return true;
 				}
@@ -2674,20 +2733,30 @@ class Interpreter {
 
 	static findObserver() {}
 
-	static setObserver(composite) {
+	static setObserver(composite, identifier, function_) {
 		if(!['Class', 'Function', 'Namespace', 'Structure'].includes(composite.type[0]?.predefined)) {
 			return;
 		}
+
+		composite.observers[identifier] = this.getOwnID(function_);
 	}
 
-	static deleteObserver(composite, observer) {
-		composite.observers = composite.observers.filter(v => v !== observer);
+	static deleteObserver(composite, identifier) {
+		let ID = composite.observers[identifier]
 
-		this.retainOrReleaseComposite(composite, this.getComposite(observer.value));
+		delete composite.observers[identifier]
+
+		this.retainOrReleaseComposite(composite, this.getComposite(ID));
 	}
 
-	static observersRetain(retainingComposite, retainedComposite) {
-		return retainingComposite.observers.some(v => v.value === this.getOwnID(retainedComposite));
+	static observersRetain(retainingObservers, retainedComposite) {
+		let ID = this.getOwnID(retainedComposite);
+
+		for(let identifier in retainingObservers) {
+			if(retainingObservers[identifier] === ID) {
+				return true;
+			}
+		}
 	}
 
 	static importPath(path) {

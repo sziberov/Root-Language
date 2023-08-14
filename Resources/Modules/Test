@@ -1,3 +1,58 @@
+class A {
+	static subscript(a, b) {
+		get {
+			return a+b
+		}
+
+		set {
+			print('\(a) \(b) \(value)')
+		}
+	}
+
+	/*
+	static var subscript = [
+		'get': func () {
+			return a+b
+		},
+		'set': func () {
+			print('\(a) \(b) \(value)')
+		}
+	]
+	*/
+}
+
+print(A[1, 2])	// 3
+
+A[1, 2] = 3		// 1 2 3
+
+return
+
+func a() {
+	print(1)
+
+	return func () {
+		print(2)
+
+		return func () {
+			print(3)
+		}
+	}
+}
+
+/*
+func a(f) {
+	return { (f_) -> () in
+		return { (f__) -> () in
+			print(1)
+		}
+	}
+}
+*/
+
+a {} {} {}
+
+return
+
 class User {
 	private var username: String
 	private var valid: Bool

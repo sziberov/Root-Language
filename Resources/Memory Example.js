@@ -1,3 +1,6 @@
+// Most of this is outdated.
+// Manually execute code in Interpreter to see actual memory output.
+
 let memory = [
 	{
 		address: 0,
@@ -80,6 +83,43 @@ let memory = [
 							value: null  // Function address
 						}
 					]
+				}
+			],
+			'subscript': [
+				{
+					modifiers: ['final'],
+					type: [
+						{
+							predefined: 'Function'
+						}
+						// ...
+					],
+					value: null,
+					observers: {
+						primitiveType: 'dictionary',
+						primitiveValue: [
+							[
+								{
+									primitiveType: 'string',
+									primitiveValue: 'get'
+								},
+								{
+									primitiveType: 'reference',
+									primitiveValue: 5
+								}
+							],
+							[
+								{
+									primitiveType: 'string',
+									primitiveValue: 'set'
+								},
+								{
+									primitiveType: 'reference',
+									primitiveValue: 6
+								}
+							]
+						]
+					}
 				}
 			]
 		},
