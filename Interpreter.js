@@ -99,7 +99,7 @@ class Interpreter {
 			return this.callFunction(function_, gargs, args);
 		},
 		chainExpression: (n, inner) => {
-			this.addContext({ args: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);  // Prevent unwanted context pass
+			this.addContext({ args: undefined, subscript: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);  // Prevent unwanted context pass
 
 			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type),
 				value = this.executeNode(n.composite, outer);
@@ -844,25 +844,53 @@ class Interpreter {
 			}
 
 			let type = this.rules.functionSignature(signature),
-				observers = {}
+				observers = this.helpers.createObservers(n, signature);
 
-			if(n.body?.type === 'functionBody') {
-				this.rules.observerDeclaration({
-					type: 'observerDeclaration',
-					identifier: {
-						type: 'identifier',
-						value: 'get'
-					},
-					body: n.body
-				}, signature, observers);
-			}
-			if(n.body?.type === 'subscriptBody') {
-				for(let statement of n.body.statements) {
-					this.rules.observerDeclaration(statement, signature, observers);
+			this.setMemberOverload(this.scope, identifier, modifiers, type, undefined, observers, () => {});
+		},
+		subscriptExpression: (n, inner) => {
+			/*
+			let args = []  // Arguments
+
+			for(let arg of n.arguments) {
+				arg = this.executeNode(arg);
+
+				if(this.threw) {
+					return;
+				}
+
+				if(arg != null) {
+					args.push(arg);
 				}
 			}
 
-			this.setMemberOverload(this.scope, identifier, modifiers, type, undefined, observers, () => {});
+			this.addContext({ args: args, subscript: true }, ['chainExpression', 'identifier', 'implicitChainExpression']);
+
+			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type),
+				value = this.executeNode(n.composite, outer);
+
+			this.removeContext();
+
+			if(this.threw) {
+				let value = this.controlTransfer.value;
+
+				if(!inner && typeof value === 'string' && value.startsWith('Nillable')) {
+					this.resetControlTransfer();
+				}
+
+				return;
+			}
+
+			let function_ = this.getValueFunction(value, args);  // TODO: Remove overhead from excess checks
+
+			if(function_ == null) {
+				this.report(2, n, 'Type: Value is not an observer of specified signature.', 'throw');
+
+				return;
+			}
+
+			return this.callFunction(function_, undefined, args);
+			*/
 		},
 		throwStatement: (n) => {
 			let value = this.executeNode(n.value);
@@ -909,7 +937,7 @@ class Interpreter {
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
 					value,
-					observers = {}
+					observers = this.helpers.createObservers(declarator, { returnType: declarator.type_ });
 
 				this.addContext({ type: type }, ['implicitChainExpression']);
 
@@ -974,6 +1002,27 @@ class Interpreter {
 	}
 
 	static helpers = {
+		createObservers: (node, signature) => {
+			let observers = {}
+
+			if(node.body?.type === 'functionBody') {
+				this.rules.observerDeclaration({
+					type: 'observerDeclaration',
+					identifier: {
+						type: 'identifier',
+						value: 'get'
+					},
+					body: node.body
+				}, signature, observers);
+			}
+			if(node.body?.type === 'observersBody') {
+				for(let statement of node.body.statements) {
+					this.rules.observerDeclaration(statement, signature, observers);
+				}
+			}
+
+			return observers;
+		},
 		createTypePart: (type, typePart, node, fallback = true) => {
 			typePart = this.createTypePart(type, typePart);
 
@@ -998,7 +1047,21 @@ class Interpreter {
 						 ? this.findMemberOverload(composite, identifier, undefined, internal)
 						 : this.findFunctionalMemberOverload(composite, identifier, internal, args);
 
-			// TODO: Subscript
+			for(let identifier in overload?.observers) {
+				let function_ = this.getComposite(overload.observers[identifier]);
+
+				if(!this.compositeIsFunction(function_)) {
+					continue;
+				}
+
+				if(identifier === 'willGet') {
+					this.addControlTransfer();
+					this.callFunction(function_);
+					this.removeControlTransfer();
+				}
+
+				// TODO: Subscript
+			}
 
 			return overload;
 		},

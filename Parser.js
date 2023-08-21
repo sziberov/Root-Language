@@ -309,17 +309,6 @@ class Parser {
 
 			return node;
 		},
-		chainBody: (strict) => {
-			let node = this.rules.body('chain');
-
-			if(node != null && strict && !node?.statements.some(v => v.type !== 'unsupported')) {
-				this.position = node.range.start;
-
-				return;
-			}
-
-			return node;
-		},
 		chainDeclaration: () => {
 			let node = {
 				type: 'chainDeclaration',
@@ -337,7 +326,7 @@ class Parser {
 			}
 
 			node.range.start = this.position++;
-			node.body = this.rules.chainBody();
+			node.body = this.rules.observersBody();
 
 			if(node.modifiers.some(v => v !== 'static')) {
 				this.report(1, node.range.start, node.type, 'Can only have specific modifier (static).');
@@ -609,7 +598,9 @@ class Parser {
 
 			node.type_ = this.rules.typeClause();
 			node.value = this.rules.initializerClause();
-			node.body = this.rules.chainBody(true) ?? this.rules.functionBody();
+
+			this.helpers.bodyTrailedValue(node, 'value', 'body', false, () => this.rules.observersBody(true) ?? this.rules.functionBody());
+
 			node.range.end = this.position-1;
 
 			return node;
@@ -993,7 +984,7 @@ class Parser {
 				node.where = this.rules.expressionsSequence();
 			}
 
-			this.helpers.preconditionalStatementValue(node, node.where != null ? 'where' : 'in', 'value');
+			this.helpers.bodyTrailedValue(node, node.where != null ? 'where' : 'in', 'value');
 
 			if(node.identifier == null) {
 				this.report(1, node.range.start, node.type, 'No identifier.');
@@ -1302,7 +1293,7 @@ class Parser {
 			node.range.start = this.position++;
 			node.condition = this.rules.expressionsSequence();
 
-			this.helpers.preconditionalStatementValue(node, 'condition', 'then');
+			this.helpers.bodyTrailedValue(node, 'condition', 'then');
 
 			node.else = this.rules.elseClause();
 
@@ -1860,6 +1851,20 @@ class Parser {
 			node.range.end = this.position-1;
 
 			return node;
+		},
+		observersBody: (strict) => {
+			let node = this.rules.body('observers');
+
+			if(node != null && strict && !node?.statements.some(v => v.type !== 'unsupported')) {
+				this.position = node.range.start;
+
+				return;
+			}
+
+			return node;
+		},
+		observersStatements: () => {
+			return this.rules.statements(['observerDeclaration']);
 		},
 		operator: () => {
 			let node = {
@@ -2470,17 +2475,6 @@ class Parser {
 				'variableDeclaration'
 			]);
 		},
-		subscriptBody: (strict) => {
-			let node = this.rules.body('subscript');
-
-			if(node != null && strict && !node?.statements.some(v => v.type !== 'unsupported')) {
-				this.position = node.range.start;
-
-				return;
-			}
-
-			return node;
-		},
 		subscriptDeclaration: () => {
 			let node = {
 				type: 'subscriptDeclaration',
@@ -2500,7 +2494,7 @@ class Parser {
 
 			node.range.start = this.position++;
 			node.signature = this.rules.functionSignature();
-			node.body = this.rules.subscriptBody(true) ?? this.rules.functionBody();
+			node.body = this.rules.observersBody(true) ?? this.rules.functionBody();
 
 			if(node.modifiers.some(v => !['private', 'protected', 'public', 'static'].includes(v))) {
 				this.report(1, node.range.start, node.type, 'Wrong modifier(s).');
@@ -2574,9 +2568,6 @@ class Parser {
 			node.range.end = this.position-1;
 
 			return node;
-		},
-		subscriptStatements: () => {
-			return this.rules.statements(['observerDeclaration']);
 		},
 		throwStatement: () => {
 			let node = {
@@ -2812,7 +2803,7 @@ class Parser {
 			node.range.start = this.position++;
 			node.condition = this.rules.expressionsSequence();
 
-			this.helpers.preconditionalStatementValue(node, 'condition', 'value');
+			this.helpers.bodyTrailedValue(node, 'condition', 'value');
 
 			if(node.condition == null) {
 				this.report(2, node.range.start, node.type, 'No condition.');
@@ -2829,77 +2820,82 @@ class Parser {
 
 	static helpers = {
 		/*
-		 * Trying to set the node's value to a functionBody or an expressionsSequence.
+		 * Trying to set the node's value and body basing on its value.
 		 *
-		 * Condition node that have unsignatured trailing closure will be divided to parts including
-		 * closure itself, and its left-hand-side (if closure goes right after it). Closures, nested into
-		 * expressionsSequence and prefixExpression, are also supported.
+		 * Value that have unsignatured trailing closure will be divided to:
+		 * - Value - a left-hand-side (exported, if closure goes right after it).
+		 * - Body - the closure.
 		 *
-		 * Useful for completing preconditional statements, such as if or for.
+		 * Closures, nested into expressionsSequence and prefixExpression, are also supported.
+		 *
+		 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 		 */
-		preconditionalStatementValue: (node, conditionType, valueType) => {
-			node[valueType] = this.rules.functionBody();
+		bodyTrailedValue: (node, valueKey, bodyKey, expressionTrailed = true, body) => {
+			body ??= () => this.rules.functionBody();
+			node[bodyKey] = body();
 
-			if(node[conditionType] == null || node[valueType] != null) {
+			if(node[valueKey] == null || node[bodyKey] != null) {
 				return;
 			}
 
-			let node_ = node[conditionType],
+			let value = node[valueKey],
 				sequence,
 				prefixed;
 
-			if(sequence = node_.type === 'expressionsSequence') {
-				node_ = node_.values.at(-1);
+			if(sequence = value.type === 'expressionsSequence') {
+				value = value.values.at(-1);
 			}
-			if(prefixed = node_.type === 'prefixExpression') {
-				node_ = node_.value;
+			if(prefixed = value.type === 'prefixExpression') {
+				value = value.value;
 			}
 
-			if(node_.closure != null && node_.closure.signature == null) {
-				this.position = node_.closure.range.start;
+			if(value.closure != null && value.closure.signature == null) {
+				this.position = value.closure.range.start;
 
-				let lhs = node_.callee ?? node_.composite,
+				let lhs = value.callee ?? value.composite,
 					end = this.position-1,
 					exportable = lhs.range.end === end,
 					conditions = sequence << 2 | prefixed << 3 | exportable << 4;
 
 				switch(conditions) {
 					case 0:
-						node[conditionType].closure = undefined;
+						node[valueKey].closure = undefined;
 					break;
 					case 16:  // Exportable
-						node[conditionType] = lhs;
+						node[valueKey] = lhs;
 					break;
 					case 8:   // Prefixed
-						node[conditionType].value.closure =   undefined;
-						node[conditionType].value.range.end = end;
+						node[valueKey].value.closure =   undefined;
+						node[valueKey].value.range.end = end;
 					break;
 					case 24:  // Prefixed, exportable
-						node[conditionType].value = lhs;
+						node[valueKey].value = lhs;
 					break;
 					case 4:   // Sequence
-						node[conditionType].values.at(-1).closure =   undefined;
-						node[conditionType].values.at(-1).range.end = end;
+						node[valueKey].values.at(-1).closure =   undefined;
+						node[valueKey].values.at(-1).range.end = end;
 					break;
 					case 20:  // Sequence, exportable
-						node[conditionType].values.splice(-1, 1, lhs);
+						node[valueKey].values.splice(-1, 1, lhs);
 					break;
 					case 12:  // Sequence, prefixed
-						node[conditionType].values.at(-1).value.closure =   undefined;
-						node[conditionType].values.at(-1).value.range.end =
-						node[conditionType].values.at(-1).range.end =       end;
+						node[valueKey].values.at(-1).value.closure =   undefined;
+						node[valueKey].values.at(-1).value.range.end =
+						node[valueKey].values.at(-1).range.end =       end;
 					break;
 					case 28:  // Sequence, prefixed, exportable
-						node[conditionType].values.at(-1).value =     lhs;
-						node[conditionType].values.at(-1).range.end = end;
+						node[valueKey].values.at(-1).value =     lhs;
+						node[valueKey].values.at(-1).range.end = end;
 					break;
 				}
 
-				node[conditionType].range.end = end;
-				node[valueType] = this.rules.functionBody();
+				node[valueKey].range.end = end;
+				node[bodyKey] = body();
 			}
 
-			node[valueType] ??= this.rules.expressionsSequence();
+			if(expressionTrailed) {
+				node[bodyKey] ??= this.rules.expressionsSequence();
+			}
 		},
 		/*
 		 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].

@@ -1,4 +1,10 @@
 class A {
+	static var a = 1 {
+		willGet {
+			print('GETTING')
+		}
+	}
+
 	static subscript(a, b) {
 		get {
 			return a+b
@@ -21,6 +27,7 @@ class A {
 	*/
 }
 
+print(A.a)		// GETTING
 print(A[1, 2])	// 3
 
 A[1, 2] = 3		// 1 2 3
