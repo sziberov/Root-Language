@@ -144,7 +144,9 @@ class Interpreter {
 				return;
 			}
 
-			return overload.value;
+			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+
+			return getterValue != null ? getterValue[0] : overload.value;
 		},
 		classDeclaration: (n) => {
 			this.rules.compositeDeclaration(n);
@@ -302,6 +304,8 @@ class Interpreter {
 			return this.rules.compositeDeclaration(n, true);
 		},
 		expressionsSequence: (n) => {
+			this.addContext({ args: undefined });
+
 			let v = n.values;
 
 			if(v.length === 3 && v[1].type === 'infixOperator') {
@@ -310,6 +314,13 @@ class Interpreter {
 						composite,
 						identifier,
 						internal;
+
+				//	this.addContext({ assignment: true }, [
+				//		'chainExpression',
+				//		'subscriptExpression',
+				//		'identifier',
+				//		'implicitChainExpression'
+				//	]);
 
 					if(lhs.type === 'identifier') {
 						composite = this.scope;
@@ -329,6 +340,8 @@ class Interpreter {
 					} else {
 						lhs = undefined;
 					}
+
+				//	this.removeContext();
 
 					// TODO: Create member with default type if not exists
 
@@ -369,6 +382,8 @@ class Interpreter {
 					return this.createValue('integer', lhs?.primitiveValue+rhs?.primitiveValue);
 				}
 			}
+
+			this.removeContext();
 		},
 		floatLiteral: (n) => {
 			let value = this.createValue('float', n.value*1);
@@ -490,7 +505,9 @@ class Interpreter {
 				return;
 			}
 
-			return overload.value;
+			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+
+			return getterValue != null ? getterValue[0] : overload.value;
 		},
 		ifStatement: (n) => {
 			if(n.condition == null) {
@@ -552,7 +569,9 @@ class Interpreter {
 				return;
 			}
 
-			return overload.value;
+			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+
+			return getterValue != null ? getterValue[0] : overload.value;
 		},
 		initializerDeclaration: (n) => {
 			let modifiers = n.modifiers,
@@ -849,7 +868,6 @@ class Interpreter {
 			this.setMemberOverload(this.scope, identifier, modifiers, type, undefined, observers, () => {});
 		},
 		subscriptExpression: (n, inner) => {
-			/*
 			let args = []  // Arguments
 
 			for(let arg of n.arguments) {
@@ -881,16 +899,25 @@ class Interpreter {
 				return;
 			}
 
-			let function_ = this.getValueFunction(value, args);  // TODO: Remove overhead from excess checks
+			let composite = this.getValueComposite(value);
 
-			if(function_ == null) {
-				this.report(2, n, 'Type: Value is not an observer of specified signature.', 'throw');
+			if(composite == null) {
+				this.report(2, n, 'Type: Value is not a composite (\''+(value?.primitiveType ?? 'nil')+'\') (accessing subscript).', 'throw');
 
 				return;
 			}
 
-			return this.callFunction(function_, undefined, args);
-			*/
+			let overload = this.helpers.findMemberOverload(n, composite, 'subscript', true);
+
+			if(overload == null) {
+				this.report(1, n, 'Member overload wasn\'t found (accessing subscript).');
+
+				return;
+			}
+
+			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+
+			return getterValue != null ? getterValue[0] : overload.value;
 		},
 		throwStatement: (n) => {
 			let value = this.executeNode(n.value);
@@ -1002,6 +1029,32 @@ class Interpreter {
 	}
 
 	static helpers = {
+		callObservers: (overload, set, args) => {
+			let types = set
+					  ? ['willSet', 'set', 'didSet']
+					  : ['willGet', 'get', 'didGet'],
+				value;
+
+			for(let identifier of types) {
+				let function_ = this.getComposite(overload.observers[identifier]);
+
+				if(!this.compositeIsFunction(function_)) {
+					continue;
+				}
+
+				this.addControlTransfer();
+
+				let value_ = this.callFunction(function_, undefined, args);
+
+				if(identifier === 'get') {
+					value = [value_]
+				}
+
+				this.removeControlTransfer();
+			}
+
+			return value;
+		},
 		createObservers: (node, signature) => {
 			let observers = {}
 
@@ -1042,26 +1095,13 @@ class Interpreter {
 			return typePart;
 		},
 		findMemberOverload: (node, composite, identifier, internal) => {
-			let args = this.getContext(node.type)?.args,
+			let context = this.getContext(node.type),
+				args = context?.args,
 				overload = args == null
 						 ? this.findMemberOverload(composite, identifier, undefined, internal)
 						 : this.findFunctionalMemberOverload(composite, identifier, internal, args);
 
-			for(let identifier in overload?.observers) {
-				let function_ = this.getComposite(overload.observers[identifier]);
-
-				if(!this.compositeIsFunction(function_)) {
-					continue;
-				}
-
-				if(identifier === 'willGet') {
-					this.addControlTransfer();
-					this.callFunction(function_);
-					this.removeControlTransfer();
-				}
-
-				// TODO: Subscript
-			}
+			// TODO: Subscript search
 
 			return overload;
 		},

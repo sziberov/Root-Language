@@ -1,8 +1,6 @@
 class A {
-	static var a = 1 {
-		willGet {
-			print('GETTING')
-		}
+	static func get(a, b) {
+		return a+b
 	}
 
 	static subscript(a, b) {
@@ -11,7 +9,7 @@ class A {
 		}
 
 		set {
-			print('\(a) \(b) \(value)')
+			print('SET 0: \(a) \(b) \(value)')
 		}
 	}
 
@@ -21,16 +19,91 @@ class A {
 			return a+b
 		},
 		'set': func () {
-			print('\(a) \(b) \(value)')
+			print('SET 0: \(a) \(b) \(value)')
 		}
 	]
 	*/
 }
 
-print(A.a)		// GETTING
-print(A[1, 2])	// 3
+class B: A {
+	static subscript(a, b, c) {
+		get {
+			return a+b+c
+		}
 
-A[1, 2] = 3		// 1 2 3
+		set {
+			print('SET 1: \(a) \(b) \(c) \(value)')
+		}
+	}
+}
+
+func a() {
+	print(B.get(1, 2))	// 3
+	print(B[1, 2])		// 3
+	print(B[1, 2, 3])	// 6
+
+	B[1, 2] = 3			// SET 0: 1 2 3
+	B[1, 2, 3] = 4		// SET 1: 1 2 3 4
+
+	class B {
+		static func get(a, b, c) {
+			return a+b+c
+		}
+
+		static subscript(a, b, c) {
+			set {
+				print('SET 2: \(a) \(b) \(c) \(value)')
+			}
+		}
+	}
+
+	print(B.get(1, 2))	// nil
+	print(B[1, 2])		// nil
+	print(B[1, 2, 3])	// nil
+
+	B[1, 2] = 3			// nil
+	B[1, 2, 3] = 4		// SET 2: 1 2 3 4
+}
+
+a()
+
+return
+
+class A {
+	static var a = 1 {
+		willGet {
+			print('WILL GET')
+		}
+
+		get {
+			print('GET')
+
+			return 2
+		}
+
+		didGet {
+			print('DID GET')
+		}
+
+		willSet {
+			print('WILL SET \(value)')
+		}
+
+		set {
+			print('SET \(value)')
+
+			a = value
+		}
+
+		didSet {
+			print('DID SET \(value)')
+		}
+	}
+}
+
+print(A.a)		// GETTING
+
+A.a = 2
 
 return
 
