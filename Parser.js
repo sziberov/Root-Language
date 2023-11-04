@@ -2826,7 +2826,7 @@ class Parser {
 		 * - Value - a left-hand-side (exported, if closure goes right after it).
 		 * - Body - the closure.
 		 *
-		 * Closures, nested into expressionsSequence and prefixExpression, are also supported.
+		 * Closures, nested into expressionsSequence, prefixExpression and inOperator, are also supported.
 		 *
 		 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 		 */
@@ -2838,63 +2838,48 @@ class Parser {
 				return;
 			}
 
-			let rules = (n) => {
-				let a;
+			let end;
 
+			let parse = (n) => {
+				if(n === node) {
+					parse(n[valueKey]);
+
+					if(end != null) {
+						n[bodyKey] = body();
+					}
+				} else
 				if(n.type === 'expressionsSequence') {
-					a = rules(n.values.at(-1));
+					parse(n.values.at(-1));
 				} else
 				if(n.type === 'prefixExpression') {
-					a = rules(n.value);
+					parse(n.value);
 				} else
 				if(n.type === 'inOperator') {
-					a = rules(n.composite);
-				} else
-				if(n === node) {
-					a = rules(n[valueKey]);
+					parse(n.composite);
 				} else
 				if(n.closure != null && n.closure.signature == null) {
 					this.position = n.closure.range.start;
 					n.closure = undefined;
-					n.range.end = this.position-1;
+					end = this.position-1;
 
-					let lhs = n.callee ?? n.composite;
+					let lhs = n.callee ?? n.composite,
+						exportable = lhs.range.end === end;
 
-					return {
-						lhs: lhs.range.end === this.position-1 ? lhs : undefined  // Exportable
+					if(exportable) {
+						for(let k in n) {
+							delete n[k]
+						}
+
+						Object.assign(n, lhs);
 					}
 				}
 
-				if(a == null) {
-					return;
-				}
-
-				n.range.end = this.position-1;
-
-				if(a?.lhs != null) {
-					if(n.type === 'expressionsSequence') {
-						n.values.splice(-1, 1, a.lhs);
-					} else
-					if(n.type === 'prefixExpression') {
-						n.value = a.lhs;
-					} else
-					if(n.type === 'inOperator') {
-						n.composite = a.lhs;
-					} else
-					if(n === node) {
-						n[valueKey] = a.lhs;
-					}
-
-					a.lhs = undefined;
-				}
-				if(a != null && n === node) {
-					n[bodyKey] = body();
-				} else {
-					return a;
+				if(end != null) {
+					n.range.end = end;
 				}
 			}
 
-			rules(node);
+			parse(node);
 
 			if(expressionTrailed) {
 				node[bodyKey] ??= this.rules.expressionsSequence();
