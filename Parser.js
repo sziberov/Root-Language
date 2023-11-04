@@ -2838,89 +2838,63 @@ class Parser {
 				return;
 			}
 
-			let value = node[valueKey],
-				sequence,
-				prefixed,
-				in_;
+			let rules = (n) => {
+				let a;
 
-			let starter = (n) => (
-				n.type === 'expressionsSequence' ? starter(n.values.at(-1)) :
-				n.type === 'prefixExpression' ? starter(n.value) :
-				n.type === 'inOperator' ? starter(n.composite) :
-				n.closure != null && n.closure.signature == null
-			);
+				if(n.type === 'expressionsSequence') {
+					a = rules(n.values.at(-1));
+				} else
+				if(n.type === 'prefixExpression') {
+					a = rules(n.value);
+				} else
+				if(n.type === 'inOperator') {
+					a = rules(n.composite);
+				} else
+				if(n === node) {
+					a = rules(n[valueKey]);
+				} else
+				if(n.closure != null && n.closure.signature == null) {
+					this.position = n.closure.range.start;
+					n.closure = undefined;
+					n.range.end = this.position-1;
 
-			if(starter(value)) {
-				this.report(0, 0, '', 1);
-				let rules = {
-					expressionsSequence: (n) => {
+					let lhs = n.callee ?? n.composite;
 
-					},
-					prefixExpression: (n) => {
-
-					},
-					inOperator: (n) => {
-
+					return {
+						lhs: lhs.range.end === this.position-1 ? lhs : undefined  // Exportable
 					}
 				}
 
-				rules[value.type]?.(value);
-			}
-
-			if(sequence = value.type === 'expressionsSequence') {
-				value = value.values.at(-1);
-			}
-			if(prefixed = value.type === 'prefixExpression') {
-				value = value.value;
-			}
-			if(in_ = value.type === 'inOperator') {
-			//	value = value.composite;
-			}
-
-			if(value.closure != null && value.closure.signature == null) {
-				this.report(0, 0, '', 2);
-				this.position = value.closure.range.start;
-
-				let lhs = value.callee ?? value.composite,
-					end = this.position-1,
-					exportable = lhs.range.end === end,
-					conditions = sequence << 2 | prefixed << 3 | exportable << 4;
-
-				switch(conditions) {
-					case 0:
-						node[valueKey].closure = undefined;
-					break;
-					case 16:  // Exportable
-						node[valueKey] = lhs;
-					break;
-					case 8:   // Prefixed
-						node[valueKey].value.closure =   undefined;
-						node[valueKey].value.range.end = end;
-					break;
-					case 24:  // Prefixed, exportable
-						node[valueKey].value = lhs;
-					break;
-					case 4:   // Sequence
-						node[valueKey].values.at(-1).closure =   undefined;
-						node[valueKey].values.at(-1).range.end = end;
-					break;
-					case 20:  // Sequence, exportable
-						node[valueKey].values.splice(-1, 1, lhs);
-					break;
-					case 12:  // Sequence, prefixed
-						node[valueKey].values.at(-1).value.closure =   undefined;
-						node[valueKey].values.at(-1).value.range.end =
-						node[valueKey].values.at(-1).range.end =       end;
-					break;
-					case 28:  // Sequence, prefixed, exportable
-						node[valueKey].values.at(-1).value =     lhs;
-						node[valueKey].values.at(-1).range.end = end;
-					break;
+				if(a == null) {
+					return;
 				}
 
-				node[valueKey].range.end = end;
-				node[bodyKey] = body();
+				n.range.end = this.position-1;
+
+				if(a?.lhs != null) {
+					if(n.type === 'expressionsSequence') {
+						n.values.splice(-1, 1, a.lhs);
+					} else
+					if(n.type === 'prefixExpression') {
+						n.value = a.lhs;
+					} else
+					if(n.type === 'inOperator') {
+						n.composite = a.lhs;
+					} else
+					if(n === node) {
+						n[valueKey] = a.lhs;
+					}
+
+					a.lhs = undefined;
+				}
+				if(a != null && n === node) {
+					n[bodyKey] = body();
+				} else {
+					return a;
+				}
 			}
+
+			rules(node);
 
 			if(expressionTrailed) {
 				node[bodyKey] ??= this.rules.expressionsSequence();
