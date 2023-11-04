@@ -98,6 +98,12 @@ class Interpreter {
 
 			return this.callFunction(function_, gargs, args);
 		},
+		chainDeclaration: (n) => {
+			let observers = this.helpers.createObservers(n);
+
+			this.scope.observers = observers;
+		//	this.setObserver(...)
+		},
 		chainExpression: (n, inner) => {
 			this.addContext({ args: undefined, subscript: undefined }, ['chainExpression', 'identifier', 'implicitChainExpression']);  // Prevent unwanted context pass
 
@@ -144,7 +150,7 @@ class Interpreter {
 				return;
 			}
 
-			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+			let getterValue = this.helpers.callObservers(overload.observers, this.getContext(n.type)?.assignment);
 
 			return getterValue != null ? getterValue[0] : overload.value;
 		},
@@ -505,7 +511,7 @@ class Interpreter {
 				return;
 			}
 
-			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+			let getterValue = this.helpers.callObservers(overload.observers, this.getContext(n.type)?.assignment);
 
 			return getterValue != null ? getterValue[0] : overload.value;
 		},
@@ -569,7 +575,7 @@ class Interpreter {
 				return;
 			}
 
-			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+			let getterValue = this.helpers.callObservers(overload.observers, this.getContext(n.type)?.assignment);
 
 			return getterValue != null ? getterValue[0] : overload.value;
 		},
@@ -683,7 +689,7 @@ class Interpreter {
 			this.rules.optionalType(n, t, tp, ['default', 'nillable'], 1);
 		},
 		nilLiteral: () => {},
-		observerDeclaration: (n, signature, observers) => {
+		observerDeclaration: (n, type, observers) => {
 			let identifier = n.identifier.value,
 				statements = n.body?.statements,
 				function_ = this.createFunction(identifier, statements, this.scope);
@@ -696,7 +702,7 @@ class Interpreter {
 				deinits: -1,
 				awaits: -1,  // 1?
 				throws: -1,  // 1?
-				returnType: identifier === 'get' ? signature.returnType : { type: 'predefinedType', value: 'void' }
+				returnType: identifier === 'get' ? type : { type: 'predefinedType', value: 'void' }
 			});
 
 			observers[identifier] = this.getOwnID(function_);
@@ -863,7 +869,7 @@ class Interpreter {
 			}
 
 			let type = this.rules.functionSignature(signature),
-				observers = this.helpers.createObservers(n, signature);
+				observers = this.helpers.createObservers(n, signature.returnType);
 
 			this.setMemberOverload(this.scope, identifier, modifiers, type, undefined, observers, () => {});
 		},
@@ -882,12 +888,9 @@ class Interpreter {
 				}
 			}
 
-			this.addContext({ args: args, subscript: true }, ['chainExpression', 'identifier', 'implicitChainExpression']);
 
 			let outer = ['callExpression', 'chainExpression', 'subscriptExpression'].includes(n.composite.type),
 				value = this.executeNode(n.composite, outer);
-
-			this.removeContext();
 
 			if(this.threw) {
 				let value = this.controlTransfer.value;
@@ -907,7 +910,11 @@ class Interpreter {
 				return;
 			}
 
+			this.addContext({ args: args });
+
 			let overload = this.helpers.findMemberOverload(n, composite, 'subscript', true);
+
+			this.removeContext();
 
 			if(overload == null) {
 				this.report(1, n, 'Member overload wasn\'t found (accessing subscript).');
@@ -915,7 +922,7 @@ class Interpreter {
 				return;
 			}
 
-			let getterValue = this.helpers.callObservers(overload, this.getContext(n.type)?.assignment);
+			let getterValue = this.helpers.callObservers(overload.observers, this.getContext(n.type)?.assignment);
 
 			return getterValue != null ? getterValue[0] : overload.value;
 		},
@@ -964,7 +971,7 @@ class Interpreter {
 					type = [],
 					typePart = this.helpers.createTypePart(type, undefined, declarator.type_),
 					value,
-					observers = this.helpers.createObservers(declarator, { returnType: declarator.type_ });
+					observers = this.helpers.createObservers(declarator, declarator.type_);
 
 				this.addContext({ type: type }, ['implicitChainExpression']);
 
@@ -1029,14 +1036,14 @@ class Interpreter {
 	}
 
 	static helpers = {
-		callObservers: (overload, set, args) => {
+		callObservers: (observers, set, args) => {
 			let types = set
 					  ? ['willSet', 'set', 'didSet']
 					  : ['willGet', 'get', 'didGet'],
 				value;
 
 			for(let identifier of types) {
-				let function_ = this.getComposite(overload.observers[identifier]);
+				let function_ = this.getComposite(observers[identifier]);
 
 				if(!this.compositeIsFunction(function_)) {
 					continue;
@@ -1055,7 +1062,7 @@ class Interpreter {
 
 			return value;
 		},
-		createObservers: (node, signature) => {
+		createObservers: (node, type) => {
 			let observers = {}
 
 			if(node.body?.type === 'functionBody') {
@@ -1066,11 +1073,11 @@ class Interpreter {
 						value: 'get'
 					},
 					body: node.body
-				}, signature, observers);
+				}, type, observers);
 			}
 			if(node.body?.type === 'observersBody') {
 				for(let statement of node.body.statements) {
-					this.rules.observerDeclaration(statement, signature, observers);
+					this.rules.observerDeclaration(statement, type, observers);
 				}
 			}
 
@@ -1097,11 +1104,11 @@ class Interpreter {
 		findMemberOverload: (node, composite, identifier, internal) => {
 			let context = this.getContext(node.type),
 				args = context?.args,
-				overload = args == null
+				overload = args == null && identifier !== 'subscript'
 						 ? this.findMemberOverload(composite, identifier, undefined, internal)
-						 : this.findFunctionalMemberOverload(composite, identifier, internal, args);
-
-			// TODO: Subscript search
+						 : identifier !== 'subscript'
+						 ? this.findFunctionalMemberOverload(composite, identifier, internal, args)
+						 : this.findSubscriptedMemberOverload(composite, identifier, internal, args);
 
 			return overload;
 		},
@@ -2605,6 +2612,8 @@ class Interpreter {
 			});
 		}
 	}
+
+	static findSubscriptedMemberOverload(composite, identifier, internal, args) {}
 
 	/*
 	 * Looking for member overload in Scope chain (scope).

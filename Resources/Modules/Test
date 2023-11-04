@@ -1,3 +1,11 @@
+if a in b in c in d { e }
+
+if key in self + 1 {
+	return .'\(key)'
+}
+
+return
+
 class A {
 	static func get(a, b) {
 		return a+b
@@ -38,12 +46,11 @@ class B: A {
 }
 
 func a() {
-	print(B.get(1, 2))	// 3
-	print(B[1, 2])		// 3
-	print(B[1, 2, 3])	// 6
-
-	B[1, 2] = 3			// SET 0: 1 2 3
-	B[1, 2, 3] = 4		// SET 1: 1 2 3 4
+	print(B.get(1, 2) == 3)
+	print(B[1, 2] == 3)
+	print(B[1, 2, 3] == 6)
+	print((B[1, 2] = 3) == 3)		// SET 0: 1 2 3
+	print((B[1, 2, 3] = 4) == 4)	// SET 1: 1 2 3 4
 
 	class B {
 		static func get(a, b, c) {
@@ -57,12 +64,11 @@ func a() {
 		}
 	}
 
-	print(B.get(1, 2))	// nil
-	print(B[1, 2])		// nil
-	print(B[1, 2, 3])	// nil
-
-	B[1, 2] = 3			// nil
-	B[1, 2, 3] = 4		// SET 2: 1 2 3 4
+	print(B.get(1, 2) == nil)
+	print(B[1, 2] == nil)
+	print(B[1, 2, 3] == nil)
+	print((B[1, 2] = 3) == nil)
+	print((B[1, 2, 3] = 4) == 4)	// SET 2: 1 2 3 4
 }
 
 a()
@@ -70,38 +76,56 @@ a()
 return
 
 class A {
+	chain {
+		get {
+			print('GLOBAL GET '+key)
+
+			if key in self {
+				return .'\(key)'
+			}
+		}
+
+		set {
+			print('GLOBAL SET '+key)
+
+			if key in self {
+				.'\(key)' = value
+			}
+		}
+	}
+
 	static var a = 1 {
 		willGet {
-			print('WILL GET')
+			print('WILL GET '+key)
 		}
 
 		get {
-			print('GET')
+			print('GET '+key)
 
 			return 2
 		}
 
 		didGet {
-			print('DID GET')
+			print('DID GET '+key)
 		}
 
 		willSet {
-			print('WILL SET \(value)')
+			print('WILL SET \(key): \(value)')
 		}
 
 		set {
-			print('SET \(value)')
+			print('SET \(key): \(value)')
 
 			a = value
 		}
 
 		didSet {
-			print('DID SET \(value)')
+			print('DID SET \(key): \(value)')
 		}
 	}
 }
 
-print(A.a)		// GETTING
+print(A.a)		// GLOBAL GET a; WILL GET a; GET a; DID GET a
 
 A.a = 2
 
@@ -916,6 +940,8 @@ if i > a { b } { c }   // Sequence, exportable (1)
 if i > -a() { c }      // Sequence, prefixed
 if i > -a { c }        // Sequence, prefixed, exportable (0)
 if i > -a { b } { c }  // Sequence, prefixed, exportable (1)
+
+if a in b in c in d { e }
 
 for i in 0...3 {
 

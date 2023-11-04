@@ -2831,7 +2831,7 @@ class Parser {
 		 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 		 */
 		bodyTrailedValue: (node, valueKey, bodyKey, expressionTrailed = true, body) => {
-			body ??= () => this.rules.functionBody();
+			body ??= this.rules.functionBody;
 			node[bodyKey] = body();
 
 			if(node[valueKey] == null || node[bodyKey] != null) {
@@ -2840,7 +2840,32 @@ class Parser {
 
 			let value = node[valueKey],
 				sequence,
-				prefixed;
+				prefixed,
+				in_;
+
+			let starter = (n) => (
+				n.type === 'expressionsSequence' ? starter(n.values.at(-1)) :
+				n.type === 'prefixExpression' ? starter(n.value) :
+				n.type === 'inOperator' ? starter(n.composite) :
+				n.closure != null && n.closure.signature == null
+			);
+
+			if(starter(value)) {
+				this.report(0, 0, '', 1);
+				let rules = {
+					expressionsSequence: (n) => {
+
+					},
+					prefixExpression: (n) => {
+
+					},
+					inOperator: (n) => {
+
+					}
+				}
+
+				rules[value.type]?.(value);
+			}
 
 			if(sequence = value.type === 'expressionsSequence') {
 				value = value.values.at(-1);
@@ -2848,8 +2873,12 @@ class Parser {
 			if(prefixed = value.type === 'prefixExpression') {
 				value = value.value;
 			}
+			if(in_ = value.type === 'inOperator') {
+			//	value = value.composite;
+			}
 
 			if(value.closure != null && value.closure.signature == null) {
+				this.report(0, 0, '', 2);
 				this.position = value.closure.range.start;
 
 				let lhs = value.callee ?? value.composite,
