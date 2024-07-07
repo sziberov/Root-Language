@@ -1,0 +1,785 @@
+#include <iostream>
+#include <regex>
+#include <set>
+#include <string>
+#include <variant>
+#include <unordered_map>
+#include <functional>
+#include "JSON.hpp"
+
+using namespace std;
+using json = nlohmann::json;
+
+template <typename Container, typename Predicate>
+bool some(const Container& container, Predicate predicate) {
+	return any_of(container.begin(), container.end(), predicate);
+}
+
+template <typename T>
+struct nlohmann::adl_serializer<shared_ptr<T>> {
+	static void to_json(json& j, const shared_ptr<T>& opt) {
+		if(opt) {
+			j = *opt;
+		} else {
+			j = nullptr;
+		}
+	}
+
+	static void from_json(const json& j, shared_ptr<T>& opt) {
+		if(j.is_null()) {
+			opt = nullptr;
+		} else {
+			opt.reset(new T(j.get<T>()));
+		}
+	}
+};
+
+// ----------------------------------------------------------------
+
+class Lexer {
+public:
+	struct Location {
+		int line = 0,
+			column = 0;
+
+		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Location, line, column);
+	};
+
+	struct Token {
+		int position = 0;
+		shared_ptr<Location> location = nullptr;
+		string type = "",
+			   value = "";
+		bool nonmergeable = false,
+			 generated = false;
+
+		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Token, position, location, type, value, nonmergeable, generated);
+	};
+
+	struct Rule {
+		variant<string, vector<string>, regex> triggers;
+		function<bool(string)> actions;
+	};
+
+	string code;
+	int position;
+	vector<shared_ptr<Token>> tokens;
+	vector<string> states;
+	vector<Rule> rules {
+		{"#!", [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+			} else
+			if(position == 0) {
+				addToken("commentShebang", v);
+				addState("comment");
+			} else {
+				return true;
+			}
+
+			return false;
+		}},
+		{vector<string> {"/*", "*/"}, [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+			} else
+			if(v == "/*") {
+				addToken("commentBlock", v);
+			}
+			if(token()->type == "commentBlock") {
+				if(v == "/*") {
+					addState("comment");
+				} else {
+					removeState("comment");
+				}
+			}
+
+			return false;
+		}},
+		{"//", [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+			} else {
+				addToken("commentLine", v);
+				addState("comment");
+			}
+
+			return false;
+		}},
+		{vector<string> {"\\\\", "\\'", "\\(", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\"}, [this](string v) {
+			if(atComments()) {
+				token()->value += v;
+
+				return false;
+			}
+			if(!atString()) {
+				addToken("unsupported", v);
+
+				return false;
+			}
+			if(v == "\\(") {
+				return true;
+			}
+
+			helpers["continueString"]();
+			token()->value += unordered_map<string, string> {
+				{"\\\\", "\\"},
+				{"\\'", "'"},
+				{"\\b", "\b"},
+				{"\\f", "\f"},
+				{"\\n", "\n"},
+				{"\\r", "\r"},
+				{"\\t", "\t"},
+				{"\\v", "\v"},
+				{"\\", ""}
+			}.find(v)->second;
+
+			return false;
+		}},
+		{vector<string> {"\\(", ")"}, [this](string v) {
+			if(atComments()) {
+				token()->value += v;
+
+				return false;
+			}
+
+			if(v == "\\(" && atString()) {
+				addToken("stringExpressionOpen", v);
+				addState("stringExpression");
+			}
+			if(v == ")" && atStringExpression()) {
+				addToken("stringExpressionClosed");
+				removeState("stringExpression");
+			} else {
+				return v == ")";
+			}
+
+			return false;
+		}},
+		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			set<string> initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+						singletons = {"!", "?"},									// Create new token if current (postfix operator) token matches any value in the list
+						generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
+
+			bool initializer = initializers.contains(v) && !token()->value.starts_with(v),
+				 singleton = token()->type == "operatorPostfix" && singletons.contains(token()->value),
+				 generic = generics.contains(v);
+
+			if(!generic) {
+				helpers["mergeOperators"]();
+			}
+
+			bool closingAngle = atAngle() && v == ">";
+
+			if(token()->type.starts_with("operator") && !initializer && !singleton && !closingAngle) {
+				token()->value += v;
+
+				return false;
+			}
+
+			string type = "operator";
+
+			if(singleton) {
+				type = token()->type;
+			} else {
+				if(
+					(set<string> {"string", "identifier"}).contains(token()->type) ||
+					token()->type.ends_with("Closed") ||
+					token()->type.starts_with("number") ||
+					token()->type.starts_with("keyword")
+				) {
+					type += "Postfix";
+				}
+
+				helpers["specifyOperatorType"]();
+			}
+
+			addToken(type);
+			if(initializer || singleton) {
+				token()->nonmergeable = true;
+			}
+
+			if(v == "<") addState("angle");
+			if(v == ">") removeState("angle");
+
+			return false;
+		}},
+		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			string type = unordered_map<string, string> {
+				{"(", "parenthesisOpen"},
+				{")", "parenthesisClosed"},
+				{"[", "bracketOpen"},
+				{"]", "bracketClosed"},
+				{"{", "braceOpen"},
+				{"}", "braceClosed"}
+			}.find(v)->second;
+
+			if(type.ends_with("Open")) {
+				helpers["specifyOperatorType"]();
+			}
+			addToken(type);
+			removeState("angle", 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
+
+			if(v == "{" && atStatement() && atToken([](string t, string v) { return t == "whitespace" && v.contains("\n"); }, ignorable), -1) {
+				addState("statementBody");
+
+				return false;
+			}
+			if(v == "}" && atStatementBody() && !atFutureToken([](string t, string v) { return (set<string> {"keywordElse", "keywordWhere"}).contains(t); }, ignorable)) {
+				addToken("delimiter", ";");
+				token()->generated = true;
+				removeState("statement");
+
+				return false;
+			}
+
+			if(atStringExpressions()) {
+				if(v == "(") addState("parenthesis");
+				if(v == ")") removeState("parenthesis");
+			}
+			if(atStatements()) {
+				if(v == "{") addState("brace");
+				if(v == "}") removeState("brace");
+			}
+
+			return false;
+		}},
+		{"'", [this](string v) {
+			if(atComments()) {
+				token()->value += v;
+
+				return false;
+			}
+
+			if(!atString()) {
+				helpers["finalizeOperator"]();
+				addToken("stringOpen");
+				addState("string");
+			} else {
+				addToken("stringClosed");
+				removeState("string");
+			}
+
+			return false;
+		}},
+		{";", [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			if(token()->type == "delimiter" && token()->generated) {
+				token()->generated = false;
+			} else {
+				addToken("delimiter");
+			}
+
+			return false;
+		}},
+		{"\n", [this](string v) {
+			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->type) || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			if(token()->type != "whitespace") {
+				addToken("whitespace", v);
+
+				if(atComments()) {
+					removeState("comment");
+				}
+			} else {
+				token()->value += v;
+			}
+
+			if(atStatement() && count(token()->value.begin(), token()->value.end(), '\n') == 1) {
+				auto braceOpen = [](string t, optional<string> v) { return t == "braceOpen"; };
+
+				if(atToken(braceOpen, ignorable)) {
+					addState("statementBody");
+				} else
+				if(!atState("brace", make_shared<set<string>>()) && !atFutureToken(braceOpen, ignorable)) {
+					removeState("statement");
+				}
+			}
+
+			return false;
+		}},
+		{regex("[^\\S\\n]+"), [this](string v) {
+			if(atComments() || atString() || token()->type == "whitespace") {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			addToken("whitespace", v);
+
+			return false;
+		}},
+		{regex("[0-9]+"), [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+			if(token()->type == "operatorPostfix" && token()->value == "." && getToken(-1)->type == "numberInteger") {
+				removeToken();
+				token()->type = "numberFloat";
+				token()->value += "."+v;
+
+				return false;
+			}
+
+			helpers["finalizeOperator"]();
+			addToken("numberInteger", v);
+
+			return false;
+		}},
+		{regex("[a-z_$][a-z0-9_$]*", regex_constants::icase), [this](string v) {
+			if(atComments() || atString()) {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			set<string> keywords = {
+				// Flow-related words (async, class, for, return...)
+				// Literals (false, nil, true...)
+				// Types (Any, bool, _, ...)
+
+				// Words as Self, arguments, metaSelf or self are not allowed because they all
+				// have dynamic values and it's logical to distinguish them at the interpretation stage
+
+				"Any",
+				"Class",
+				"Enumeration",
+				"Function",
+				"Namespace",
+				"Object",
+				"Protocol",
+				"Structure",
+				"any", "async", "await", "awaits",
+				"bool", "break",
+				"case", "catch", "class", "continue",
+				"dict", "do",
+				"else", "enum", "extension",
+				"fallthrough", "false", "final", "float", "for", "func",
+				"if", "import", "in", "infix", "inout", "int", "is",
+				"lazy",
+				"namespace", "nil",
+				"operator",
+				"postfix", "prefix", "private", "protected", "protocol", "public",
+				"return",
+				"static", "string", "struct",
+				"throw", "throws", "true", "try", "type",
+				"var", "virtual", "void",
+				"when", "where", "while",
+				"_"
+			};
+
+			helpers["specifyOperatorType"]();
+
+			string type = "identifier";
+			bool chain = atToken([](string t, string v) { return t.starts_with("operator") && !t.ends_with("Postfix") && v == "."; }, ignorable);
+
+			if(keywords.contains(v) && !chain) {  // Disable keywords in a chains
+				type = "keyword";
+
+				if(v == "_") {
+					type += "Underscore";
+				} else {
+					string capitalizedV = v;
+					capitalizedV[0] = toupper(capitalizedV[0]);
+
+					if(v[0] == capitalizedV[0]) {
+						type += "Capital";
+					}
+
+					type += capitalizedV;
+				}
+			}
+
+			if(atAngle() && type.starts_with("keyword")) {  // No keywords are allowed in generic types
+				helpers["mergeOperators"]();
+			}
+			addToken(type, v);
+
+			if(some(set<string> {"For", "If", "When", "While"}, [&type](string v) { return type.ends_with(v); })) {
+				addState("statement");
+			}
+
+			return false;
+		}},
+		{regex("."), [this](string v) {
+			if(atComments() || atString() || token()->type == "unsupported") {
+				helpers["continueString"]();
+				token()->value += v;
+
+				return false;
+			}
+
+			addToken("unsupported", v);
+
+			return false;
+		}}
+	};
+
+	map<string, function<void()>> helpers {
+		{"continueString", [this]() {
+			if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->type)) {
+				addToken("stringSegment", "");
+			}
+		}},
+		{"mergeOperators", [this]() {
+			removeState("angle", 2);
+
+			for(int i = tokens.size(); i >= 0; i--) {
+				if(
+					!token()->type.starts_with("operator") || token()->nonmergeable ||
+					!getToken(-1)->type.starts_with("operator") || getToken(-1)->nonmergeable
+				) {
+					break;
+				}
+
+				getToken(-1)->value += token()->value;
+				removeToken();
+			}
+		}},
+		{"specifyOperatorType", [this]() {
+			if(token()->type == "operator") {
+				token()->type = "operatorPrefix";
+			} else
+			if(token()->type == "operatorPostfix") {
+				token()->type = "operatorInfix";
+			}
+		}},
+		{"finalizeOperator", [this]() {
+			helpers["mergeOperators"]();
+			helpers["specifyOperatorType"]();
+		}}
+	};
+
+	bool codeEnd() {
+		return position >= code.length();
+	}
+
+	shared_ptr<Token> token() {
+		return getToken();
+	}
+
+	Location location() {
+		Location location = token()->location != nullptr ? *token()->location : Location();
+
+		for(int position = token()->position; position < this->position; position++) {
+			char character = code[position];
+
+			if(character == '\n') {
+				location.line++;
+				location.column = 0;
+			} else {
+				location.column += character == '\t' ? 4 : 1;
+			}
+		}
+
+		return location;
+	}
+
+	bool atComments() {
+		return atState("comment");
+	}
+
+	bool atString() {
+		return atState("string", make_shared<set<string>>());
+	}
+
+	bool atStringExpression() {
+		return atState("stringExpression", make_shared<set<string>>());
+	}
+
+	bool atStringExpressions() {
+		return atState("stringExpression");
+	}
+
+	bool atStatement() {
+		return atState("statement", make_shared<set<string>>(initializer_list<string> {"brace"}));
+	}
+
+	bool atStatements() {
+		return atState("statement");
+	}
+
+	bool atStatementBody() {
+		return atState("statementBody", make_shared<set<string>>());
+	}
+
+	bool atAngle() {
+		return atState("angle", make_shared<set<string>>());
+	}
+
+	function<bool(string, optional<string>)> ignorable = [](string t, optional<string> v = nullopt) {
+		return t == "whitespace" || t.starts_with("comment");
+	};
+
+	shared_ptr<Token> getToken(int offset = 0) {
+		return tokens.size() > tokens.size()-1+offset
+			 ? tokens[tokens.size()-1+offset]
+			 : make_shared<Token>(Token());
+	}
+
+	void addToken(string type, optional<string> value = nullopt) {
+		tokens.push_back(make_shared<Token>(Token {
+			position,
+			make_shared<Location>(location()),
+			type,
+			value.value_or(string(1, code[position]))
+		}));
+	}
+
+	void removeToken(int offset = 0) {
+		tokens.erase(tokens.begin()+tokens.size()-1+offset);
+	}
+
+	/*
+	 * Check for token(s) starting from rightmost (inclusively if no offset set), using combinations of type and value within predicate.
+	 *
+	 * Strict by default, additionally whitelist predicate can be set.
+	 *
+	 * Useful for complex token sequences check.
+	 */
+	bool atToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt, int offset = 0) {
+		for(int i = tokens.size()-1+offset; i >= 0; i--) {
+			shared_ptr<Token> token = tokens[i];
+			string type = token->type,
+				   value = token->value;
+
+			if(conforms(type, value)) {
+				return true;
+			}
+			if(whitelisted != nullopt && !(*whitelisted)(type, value)) {
+				return false;
+			}
+		}
+
+		return false;
+	}
+
+	/*
+	 * Future-time version of atToken(). Rightmost (at the moment) token is not included in a search.
+	 */
+	bool atFutureToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt) {
+		json save = getSave();
+		bool result = false;
+
+		position = token()->position+token()->value.length();  // Override allows nested calls
+
+		while(!codeEnd()) {
+			nextToken();
+
+			shared_ptr<Token> token = tokens.back();
+			string type = token != nullptr ? token->type : "",
+				   value = token != nullptr ? token->value : "";
+
+			if(conforms(type, value)) {
+				result = true;
+
+				break;
+			}
+			if(whitelisted != nullopt && !(*whitelisted)(type, value)) {
+				break;
+			}
+		}
+
+		restoreSave(save);
+
+		return result;
+	}
+
+	void addState(string type) {
+		states.push_back(type);
+	}
+
+	/*
+	 * 0 - Remove states starting from rightmost found (inclusively)
+	 * 1 - 0 with subtypes, ignoring nested
+	 * 2 - Remove found states globally
+	 */
+	void removeState(string type, int mode = 0) {
+		if(mode == 0) {
+			int i = -1;
+
+			for(int j = states.size()-1; j >= 0; --j) {
+				if(states[j] == type) {
+					i = j;
+
+					break;
+				}
+			}
+
+			if(i != -1) {
+				states.resize(i);
+			}
+		}
+		if(mode == 1) {
+			for(int i = states.size()-1; i >= 0; i--) {
+				string type_ = states[i];
+
+				if(type_.starts_with(type)) {
+					states.erase(states.begin()+i);
+				}
+				if(type_ == type) {
+					break;
+				}
+			}
+		}
+		if(mode == 2) {
+			states.erase(remove(states.begin(), states.end(), type), states.end());
+		}
+	}
+
+	/*
+	 * Check for state starting from rightmost (inclusively).
+	 *
+	 * Unstrict by default, additionaly whitelist can be set.
+	 */
+	bool atState(string type, shared_ptr<set<string>> whitelist = nullptr) {
+		for(int i = states.size()-1; i >= 0; i--) {
+			if(states[i] == type) {
+				return true;
+			}
+			if(whitelist != nullptr && !whitelist->contains(states[i])) {
+				return false;
+			}
+		}
+
+		return false;
+	}
+
+	json getSave() {
+		json save;
+
+		save["position"] = position;
+		save["tokens"] = tokens;
+		save["states"] = states;
+
+		return save;
+	}
+
+	void restoreSave(json save) {
+		position = save["position"].get<int>();
+		tokens = save["tokens"].get<vector<shared_ptr<Token>>>();
+		states = save["states"].get<vector<string>>();
+	}
+
+	void reset() {
+		code = "";
+		position = 0;
+		tokens = {};
+		states = {};
+			// angle - used to distinguish between common operator and generic type's closing >
+			// brace - used in statements
+			// parenthesis - used in string expressions
+	}
+
+	bool atSubstring(string substring) {
+		return code.find(substring, position) == position;
+	}
+
+	optional<string> atRegex(regex regex) {
+		smatch match;
+		string search_area = code.substr(position);
+
+		if(regex_search(search_area, match, regex) && match.position() == 0) {
+			return match.str(0);
+		}
+
+		return nullopt;
+	}
+
+	void nextToken() {
+		for(Rule rule : rules) {
+			auto triggers = rule.triggers;
+			auto actions = rule.actions;
+			bool plain = holds_alternative<string>(triggers),
+				 array = holds_alternative<vector<string>>(triggers),
+				 regex_ = holds_alternative<regex>(triggers);
+			optional<string> trigger = nullopt;
+
+			if(plain && atSubstring(get<string>(triggers))) {
+				trigger = get<string>(triggers);
+			}
+			if(array) {
+				for(string v : get<vector<string>>(triggers)) {
+					if(atSubstring(v)) {
+						trigger = v;
+
+						break;
+					}
+				}
+			}
+			if(regex_) {
+				trigger = atRegex(get<regex>(triggers));
+			}
+
+			if(trigger != nullopt && !actions(*trigger)) {  // Multiple rules can be executed on same position if some of them return true
+				position += (*trigger).length();  // Rules shouldn't explicitly set position
+
+				break;
+			}
+		}
+	}
+
+	struct Result {
+		vector<shared_ptr<Token>> rawTokens,
+								  tokens;
+	};
+
+	Result tokenize(string code) {
+		reset();
+
+		this->code = code;
+
+		while(!codeEnd()) {
+			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
+		//	cout << position << " / " << tokens.size() << " / " << token()->value << endl;
+		}
+
+		vector<shared_ptr<Token>> tokens_ = {};
+
+		for(int i = 0; i < tokens.size(); i++)
+			if(!ignorable(tokens[i]->type, nullopt))
+				tokens_.push_back(tokens[i]);
+
+		Result result = {
+			rawTokens: tokens,
+			tokens: tokens_
+		};
+
+		reset();
+
+		return result;
+	}
+};

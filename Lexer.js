@@ -216,7 +216,7 @@ class Lexer {
 				this.addToken('delimiter');
 			}
 		}],
-		[/\n/g, (v) => {
+		['\n', (v) => {
 			if(this.atComments && !['commentShebang', 'commentLine'].includes(this.token.type) || this.atString) {
 				this.helpers.continueString();
 				this.token.value += v;
@@ -550,9 +550,7 @@ class Lexer {
 			for(let i = this.states.length-1; i >= 0; i--) {
 				let type_ = this.states[i]
 
-				if(!type_.startsWith(type)) {
-					continue;
-				} else {
+				if(type_.startsWith(type)) {
 					this.states.splice(i, 1);
 				}
 				if(type_ === type) {
