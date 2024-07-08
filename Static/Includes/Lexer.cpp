@@ -5,7 +5,7 @@
 #include <variant>
 #include <unordered_map>
 #include <functional>
-#include "JSON.hpp"
+#include "json.hpp"
 
 using namespace std;
 using json = nlohmann::json;
@@ -237,7 +237,7 @@ public:
 			addToken(type);
 			removeState("angle", 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
 
-			if(v == "{" && atStatement() && atToken([](string t, string v) { return t == "whitespace" && v.contains("\n"); }, ignorable), -1) {
+			if(v == "{" && atStatement() && atToken([](string t, string v) { return t == "whitespace" && v.contains("\n"); }, ignorable, -1)) {
 				addState("statementBody");
 
 				return false;
@@ -620,6 +620,16 @@ public:
 
 	void addState(string type) {
 		states.push_back(type);
+
+		/*
+		if(type == "statementBody") {
+			cout << position << " / " << token()->value << endl;
+
+			for(string state : states) {
+				cout << state << endl;
+			}
+		}
+		*/
 	}
 
 	/*
@@ -631,7 +641,7 @@ public:
 		if(mode == 0) {
 			int i = -1;
 
-			for(int j = states.size()-1; j >= 0; --j) {
+			for(int j = states.size()-1; j >= 0; j--) {
 				if(states[j] == type) {
 					i = j;
 
@@ -639,7 +649,7 @@ public:
 				}
 			}
 
-			if(i != -1) {
+			if(i > -1) {
 				states.resize(i);
 			}
 		}
@@ -755,6 +765,8 @@ public:
 	struct Result {
 		vector<shared_ptr<Token>> rawTokens,
 								  tokens;
+
+		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Result, rawTokens, tokens);
 	};
 
 	Result tokenize(string code) {
@@ -764,7 +776,6 @@ public:
 
 		while(!codeEnd()) {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
-		//	cout << position << " / " << tokens.size() << " / " << token()->value << endl;
 		}
 
 		vector<shared_ptr<Token>> tokens_ = {};
