@@ -8,6 +8,8 @@ body {
 		'console console' 1fr
 		/ 6fr 5fr;
 
+	height: 100%;
+
 	margin: 0;
 }
 
@@ -71,7 +73,7 @@ body {
 	gap: 8px;
 }
 </style>
-<textarea id="input"></textarea>
+<textarea id="input" spellcheck="false"></textarea>
 <div id="output_lint"></div>
 <div id="output_trees">
 	<div id="buttons">
@@ -100,6 +102,7 @@ body {
 	async function tokenize() {
 		output_lint.innerHTML = '';
 
+		let start = Date.now();
 		let lexerResponse = await fetch(location.origin+'/lex', {
 			method: 'POST',
 			headers: {'Content-Type': 'text/plain'},
@@ -107,6 +110,9 @@ body {
 		});
 
 		lexerResult = await lexerResponse.json();
+ 		let end = Date.now();
+
+ 		console.log(`[Lexer] Taken ${end-start} ms by string(${input.value.length})`);
 
 		let tokens = lexerResult.rawTokens,
 			lintHTML = '';
@@ -194,6 +200,8 @@ body {
 		}
 
 		output_lint.innerHTML = lintHTML;
+		output_lint.scrollTop = input.scrollTop;
+		output_lint.scrollLeft = input.scrollLeft;
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 	}
 

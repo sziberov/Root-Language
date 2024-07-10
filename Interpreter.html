@@ -8,6 +8,8 @@ body {
 		'console console' 1fr
 		/ 6fr 5fr;
 
+	height: 100%;
+
 	margin: 0;
 }
 
@@ -71,7 +73,7 @@ body {
 	gap: 8px;
 }
 </style>
-<textarea id="input"></textarea>
+<textarea id="input" spellcheck="false"></textarea>
 <div id="output_lint"></div>
 <div id="output_trees">
 	<div id="buttons">
@@ -101,7 +103,11 @@ body {
 		interpreterResult;
 
 	function tokenize() {
+		let start = Date.now();
  		lexerResult = Lexer.tokenize(input.value);
+ 		let end = Date.now();
+
+ 		console.log(`[Lexer] Taken ${end-start} ms by string(${input.value.length})`);
 
  		let tokens = lexerResult.rawTokens,
  			lintHTML = '';

@@ -5,34 +5,14 @@
 #include <variant>
 #include <unordered_map>
 #include <functional>
-#include "json.hpp"
+#include "glaze/glaze.hpp"
 
 using namespace std;
-using json = nlohmann::json;
 
 template <typename Container, typename Predicate>
 bool some(const Container& container, Predicate predicate) {
 	return any_of(container.begin(), container.end(), predicate);
 }
-
-template <typename T>
-struct nlohmann::adl_serializer<shared_ptr<T>> {
-	static void to_json(json& j, const shared_ptr<T>& opt) {
-		if(opt) {
-			j = *opt;
-		} else {
-			j = nullptr;
-		}
-	}
-
-	static void from_json(const json& j, shared_ptr<T>& opt) {
-		if(j.is_null()) {
-			opt = nullptr;
-		} else {
-			opt.reset(new T(j.get<T>()));
-		}
-	}
-};
 
 // ----------------------------------------------------------------
 
@@ -41,8 +21,6 @@ public:
 	struct Location {
 		int line = 0,
 			column = 0;
-
-		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Location, line, column);
 	};
 
 	struct Token {
@@ -52,8 +30,6 @@ public:
 			   value = "";
 		bool nonmergeable = false,
 			 generated = false;
-
-		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Token, position, location, type, value, nonmergeable, generated);
 	};
 
 	struct Rule {
@@ -63,10 +39,10 @@ public:
 
 	string code;
 	int position;
-	vector<shared_ptr<Token>> tokens;
-	vector<string> states;
+	deque<shared_ptr<Token>> tokens;
+	deque<string> states;
 	vector<Rule> rules {
-		{"#!", [this](string v) {
+		{"#!", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -80,7 +56,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"/*", "*/"}, [this](string v) {
+		{vector<string> {"/*", "*/"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -98,7 +74,7 @@ public:
 
 			return false;
 		}},
-		{"//", [this](string v) {
+		{"//", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -109,7 +85,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"\\\\", "\\'", "\\(", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\"}, [this](string v) {
+		{vector<string> {"\\\\", "\\'", "\\(", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\"}, [this](const string& v) {
 			if(atComments()) {
 				token()->value += v;
 
@@ -125,21 +101,19 @@ public:
 			}
 
 			helpers["continueString"]();
-			token()->value += unordered_map<string, string> {
-				{"\\\\", "\\"},
-				{"\\'", "'"},
-				{"\\b", "\b"},
-				{"\\f", "\f"},
-				{"\\n", "\n"},
-				{"\\r", "\r"},
-				{"\\t", "\t"},
-				{"\\v", "\v"},
-				{"\\", ""}
-			}.find(v)->second;
+			token()->value +=
+				v == "\\\\" ? "\\" :
+				v == "\\'" ? "'" :
+				v == "\\b" ? "\b" :
+				v == "\\f" ? "\f" :
+				v == "\\n" ? "\n" :
+				v == "\\r" ? "\r" :
+				v == "\\t" ? "\t" :
+				v == "\\v" ? "\v" : "";
 
 			return false;
 		}},
-		{vector<string> {"\\(", ")"}, [this](string v) {
+		{vector<string> {"\\(", ")"}, [this](const string& v) {
 			if(atComments()) {
 				token()->value += v;
 
@@ -159,7 +133,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](string v) {
+		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -214,7 +188,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](string v) {
+		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -222,14 +196,13 @@ public:
 				return false;
 			}
 
-			string type = unordered_map<string, string> {
-				{"(", "parenthesisOpen"},
-				{")", "parenthesisClosed"},
-				{"[", "bracketOpen"},
-				{"]", "bracketClosed"},
-				{"{", "braceOpen"},
-				{"}", "braceClosed"}
-			}.find(v)->second;
+			string type =
+				v == "(" ? "parenthesisOpen" :
+				v == ")" ? "parenthesisClosed" :
+				v == "[" ? "bracketOpen" :
+				v == "]" ? "bracketClosed" :
+				v == "{" ? "braceOpen" :
+				v == "}" ? "braceClosed" : "";
 
 			if(type.ends_with("Open")) {
 				helpers["specifyOperatorType"]();
@@ -261,7 +234,7 @@ public:
 
 			return false;
 		}},
-		{"'", [this](string v) {
+		{"'", [this](const string& v) {
 			if(atComments()) {
 				token()->value += v;
 
@@ -279,7 +252,7 @@ public:
 
 			return false;
 		}},
-		{";", [this](string v) {
+		{";", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -295,7 +268,7 @@ public:
 
 			return false;
 		}},
-		{"\n", [this](string v) {
+		{"\n", [this](const string& v) {
 			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->type) || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -326,7 +299,7 @@ public:
 
 			return false;
 		}},
-		{regex("[^\\S\\n]+"), [this](string v) {
+		{regex("[^\\S\\n]+"), [this](const string& v) {
 			if(atComments() || atString() || token()->type == "whitespace") {
 				helpers["continueString"]();
 				token()->value += v;
@@ -338,7 +311,7 @@ public:
 
 			return false;
 		}},
-		{regex("[0-9]+"), [this](string v) {
+		{regex("[0-9]+"), [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -358,7 +331,7 @@ public:
 
 			return false;
 		}},
-		{regex("[a-z_$][a-z0-9_$]*", regex_constants::icase), [this](string v) {
+		{regex("[a-z_$][a-z0-9_$]*", regex_constants::icase), [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers["continueString"]();
 				token()->value += v;
@@ -434,7 +407,7 @@ public:
 
 			return false;
 		}},
-		{regex("."), [this](string v) {
+		{regex("."), [this](const string& v) {
 			if(atComments() || atString() || token()->type == "unsupported") {
 				helpers["continueString"]();
 				token()->value += v;
@@ -508,35 +481,35 @@ public:
 		return location;
 	}
 
-	bool atComments() {
+	inline bool atComments() {
 		return atState("comment");
 	}
 
-	bool atString() {
+	inline bool atString() {
 		return atState("string", make_shared<set<string>>());
 	}
 
-	bool atStringExpression() {
+	inline bool atStringExpression() {
 		return atState("stringExpression", make_shared<set<string>>());
 	}
 
-	bool atStringExpressions() {
+	inline bool atStringExpressions() {
 		return atState("stringExpression");
 	}
 
-	bool atStatement() {
+	inline bool atStatement() {
 		return atState("statement", make_shared<set<string>>(initializer_list<string> {"brace"}));
 	}
 
-	bool atStatements() {
+	inline bool atStatements() {
 		return atState("statement");
 	}
 
-	bool atStatementBody() {
+	inline bool atStatementBody() {
 		return atState("statementBody", make_shared<set<string>>());
 	}
 
-	bool atAngle() {
+	inline bool atAngle() {
 		return atState("angle", make_shared<set<string>>());
 	}
 
@@ -550,7 +523,7 @@ public:
 			 : make_shared<Token>(Token());
 	}
 
-	void addToken(string type, optional<string> value = nullopt) {
+	void addToken(const string& type, optional<string> value = nullopt) {
 		tokens.push_back(make_shared<Token>(Token {
 			position,
 			make_shared<Location>(location()),
@@ -591,7 +564,7 @@ public:
 	 * Future-time version of atToken(). Rightmost (at the moment) token is not included in a search.
 	 */
 	bool atFutureToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt) {
-		json save = getSave();
+		string save = getSave();
 		bool result = false;
 
 		position = token()->position+token()->value.length();  // Override allows nested calls
@@ -618,7 +591,7 @@ public:
 		return result;
 	}
 
-	void addState(string type) {
+	void addState(const string& type) {
 		states.push_back(type);
 
 		/*
@@ -637,7 +610,7 @@ public:
 	 * 1 - 0 with subtypes, ignoring nested
 	 * 2 - Remove found states globally
 	 */
-	void removeState(string type, int mode = 0) {
+	void removeState(const string& type, int mode = 0) {
 		if(mode == 0) {
 			int i = -1;
 
@@ -675,7 +648,7 @@ public:
 	 *
 	 * Unstrict by default, additionaly whitelist can be set.
 	 */
-	bool atState(string type, shared_ptr<set<string>> whitelist = nullptr) {
+	bool atState(const string& type, shared_ptr<set<string>> whitelist = nullptr) {
 		for(int i = states.size()-1; i >= 0; i--) {
 			if(states[i] == type) {
 				return true;
@@ -688,20 +661,32 @@ public:
 		return false;
 	}
 
-	json getSave() {
-		json save;
+	struct Save {
+		int position;
+		deque<shared_ptr<Token>> tokens;
+		deque<string> states;
+	};
 
-		save["position"] = position;
-		save["tokens"] = tokens;
-		save["states"] = states;
+	string getSave() {
+		string save;
+		auto error = glz::write_json(Save {
+			position,
+			tokens,
+			states
+		}, save);
 
 		return save;
 	}
 
-	void restoreSave(json save) {
-		position = save["position"].get<int>();
-		tokens = save["tokens"].get<vector<shared_ptr<Token>>>();
-		states = save["states"].get<vector<string>>();
+	Save restoreSave(const std::string& save) {
+		Save save_ = {};
+		auto error = glz::read_json<Save>(save_, save);
+
+		position = save_.position;
+		tokens = save_.tokens;
+		states = save_.states;
+
+    	return save_;
 	}
 
 	void reset() {
@@ -714,11 +699,11 @@ public:
 			// parenthesis - used in string expressions
 	}
 
-	bool atSubstring(string substring) {
+	bool atSubstring(const string& substring) {
 		return code.find(substring, position) == position;
 	}
 
-	optional<string> atRegex(regex regex) {
+	optional<string> atRegex(const regex& regex) {
 		smatch match;
 		string search_area = code.substr(position);
 
@@ -730,8 +715,8 @@ public:
 	}
 
 	void nextToken() {
-		for(Rule rule : rules) {
-			auto triggers = rule.triggers;
+		for(Rule& rule : rules) {
+			auto& triggers = rule.triggers;
 			auto actions = rule.actions;
 			bool plain = holds_alternative<string>(triggers),
 				 array = holds_alternative<vector<string>>(triggers),
@@ -742,7 +727,7 @@ public:
 				trigger = get<string>(triggers);
 			}
 			if(array) {
-				for(string v : get<vector<string>>(triggers)) {
+				for(string& v : get<vector<string>>(triggers)) {
 					if(atSubstring(v)) {
 						trigger = v;
 
@@ -763,13 +748,11 @@ public:
 	}
 
 	struct Result {
-		vector<shared_ptr<Token>> rawTokens,
-								  tokens;
-
-		NLOHMANN_DEFINE_TYPE_INTRUSIVE(Result, rawTokens, tokens);
+		deque<shared_ptr<Token>> rawTokens,
+								 tokens;
 	};
 
-	Result tokenize(string code) {
+	Result tokenize(const string& code) {
 		reset();
 
 		this->code = code;
@@ -778,16 +761,13 @@ public:
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		vector<shared_ptr<Token>> tokens_ = {};
+		deque<shared_ptr<Token>> tokens_ = {};
 
 		for(int i = 0; i < tokens.size(); i++)
 			if(!ignorable(tokens[i]->type, nullopt))
 				tokens_.push_back(tokens[i]);
 
-		Result result = {
-			rawTokens: tokens,
-			tokens: tokens_
-		};
+		Result result = {tokens, tokens_};
 
 		reset();
 
