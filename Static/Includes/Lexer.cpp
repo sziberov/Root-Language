@@ -1,3 +1,5 @@
+#pragma once
+
 #include <iostream>
 #include <regex>
 #include <set>
@@ -5,7 +7,6 @@
 #include <variant>
 #include <unordered_map>
 #include <functional>
-#include "glaze/glaze.hpp"
 
 using namespace std;
 
@@ -37,7 +38,7 @@ public:
 		function<bool(string)> actions;
 	};
 
-	string code;
+	string_view code;
 	int position;
 	deque<shared_ptr<Token>> tokens;
 	deque<string> states;
@@ -456,11 +457,11 @@ public:
 		}}
 	};
 
-	bool codeEnd() {
+	inline bool codeEnd() {
 		return position >= code.length();
 	}
 
-	shared_ptr<Token> token() {
+	inline shared_ptr<Token> token() {
 		return getToken();
 	}
 
@@ -564,7 +565,7 @@ public:
 	 * Future-time version of atToken(). Rightmost (at the moment) token is not included in a search.
 	 */
 	bool atFutureToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt) {
-		string save = getSave();
+		Save save = getSave();
 		bool result = false;
 
 		position = token()->position+token()->value.length();  // Override allows nested calls
@@ -593,16 +594,6 @@ public:
 
 	void addState(const string& type) {
 		states.push_back(type);
-
-		/*
-		if(type == "statementBody") {
-			cout << position << " / " << token()->value << endl;
-
-			for(string state : states) {
-				cout << state << endl;
-			}
-		}
-		*/
 	}
 
 	/*
@@ -667,26 +658,26 @@ public:
 		deque<string> states;
 	};
 
-	string getSave() {
-		string save;
-		auto error = glz::write_json(Save {
-			position,
-			tokens,
-			states
-		}, save);
+	Save getSave() {
+		Save save;
+
+		save.position = position;
+		for(auto& token : tokens) {
+			auto token_ = make_shared<Token>(*token);
+
+			token_->location = make_shared<Location>(*token_->location);
+
+            save.tokens.push_back(token_);
+        }
+        save.states = states;
 
 		return save;
 	}
 
-	Save restoreSave(const std::string& save) {
-		Save save_ = {};
-		auto error = glz::read_json<Save>(save_, save);
-
-		position = save_.position;
-		tokens = save_.tokens;
-		states = save_.states;
-
-    	return save_;
+	void restoreSave(Save save) {
+		position = save.position;
+		tokens = save.tokens;
+		states = save.states;
 	}
 
 	void reset() {
@@ -699,15 +690,15 @@ public:
 			// parenthesis - used in string expressions
 	}
 
-	bool atSubstring(const string& substring) {
+	inline bool atSubstring(const string& substring) {
 		return code.find(substring, position) == position;
 	}
 
 	optional<string> atRegex(const regex& regex) {
 		smatch match;
-		string search_area = code.substr(position);
+		string searchArea = string(code.substr(position));
 
-		if(regex_search(search_area, match, regex) && match.position() == 0) {
+		if(regex_search(searchArea, match, regex) && match.position() == 0) {
 			return match.str(0);
 		}
 
@@ -752,7 +743,7 @@ public:
 								 tokens;
 	};
 
-	Result tokenize(const string& code) {
+	Result tokenize(string_view code) {
 		reset();
 
 		this->code = code;
