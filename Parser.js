@@ -2934,10 +2934,8 @@ class Parser {
 		 * Useful for imprecise single enclosed(ing) nodes lookup.
 		 */
 		skippableNode: (type, opening, closing) => {
-			let node,
+			let node = this.rules[type]?.(),
 				scopeLevel = 1;
-
-			node = this.rules[type]?.();
 
 			if(node != null || closing() || this.tokensEnd) {
 				return node;

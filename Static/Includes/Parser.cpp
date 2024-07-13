@@ -3,8 +3,6 @@
 #include "Lexer.cpp"
 #include "Node.cpp"
 
-#include <any>
-
 using Location = Lexer::Location;
 using Token = Lexer::Token;
 
@@ -38,7 +36,7 @@ public:
 			if(!node.empty("label") && token()->type.starts_with("operator") && token()->value == ":") {
 				position()++;
 			} else {
-				position() = node.get<NodeRef>("range")->get<int>("start");
+				position() = node.get<NodeRef>("range")->get("start");
 				node.set("label", nullptr);
 			}
 
@@ -70,7 +68,7 @@ public:
 			));
 
 			if(token()->type != "bracketClosed") {
-				position() = node.get<NodeRef>("range")->get<int>("start");
+				position() = node.get<NodeRef>("range")->get("start");
 
 				return nullptr;
 			}
@@ -79,7 +77,78 @@ public:
 
 			return node;
 		} else
-		if(type == "arrayType") {}
+		if(type == "arrayType") {
+			Node node = Node {
+				{"type", "arrayType"},
+				{"range", Node {}},
+				{"value", NodeArray {}}
+			};
+
+			if(token()->type != "bracketOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position()++);
+			node.set("value", rules("type"));
+
+			if(token()->type != "bracketClosed") {
+				position() = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position()++);
+
+			return node;
+		} else
+		if(type == "asyncExpression") {
+			Node node = Node {
+				{"type", "asyncExpression"},
+				{"range", Node {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "keywordAsync") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position()++);
+			node.set("value", rules("expression"));
+
+			if(node.empty("value")) {
+				position()--;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position()-1);
+
+			return node;
+		} else
+		if(type == "awaitExpression") {
+			Node node = Node {
+				{"type", "awaitExpression"},
+				{"range", Node {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "keywordAwait") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position()++);
+			node.set("value", rules("expression"));
+
+			if(node.empty("value")) {
+				position()--;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position()-1);
+
+			return node;
+		}
 
 		return nullptr;
 	}
@@ -116,22 +185,22 @@ public:
 					n->set(bodyKey, body());
 				}
 			} else
-			if(n->get<string>("type") == "expressionsSequence") {
-				parse(n->get<NodeArray>("values").back());
+			if(n->get("type") == "expressionsSequence") {
+				parse(n->get<NodeArrayRef>("values")->back());
 			} else
-			if(n->get<string>("type") == "prefixExpression") {
+			if(n->get("type") == "prefixExpression") {
 				parse(n->get("value"));
 			} else
-			if(n->get<string>("type") == "inOperator") {
+			if(n->get("type") == "inOperator") {
 				parse(n->get("composite"));
 			} else
 			if(!n->empty("closure") && n->get<NodeRef>("closure")->empty("signature")) {
-				position() = n->get<NodeRef>("closure")->get<NodeRef>("range")->get<int>("start");
+				position() = n->get<NodeRef>("closure")->get<NodeRef>("range")->get("start");
 				n->set("closure", nullptr);
 				end = position()-1;
 
-				NodeRef lhs = n->get<NodeRef>("callee") ?: n->get<NodeRef>("composite");
-				bool exportable = lhs->get<NodeRef>("range")->get<int>("end") == end;
+				NodeRef lhs = n->get("callee") ?: n->get("composite");
+				bool exportable = lhs->get<NodeRef>("range")->get("end") == end;
 
 				if(exportable) {
 					for(const auto& [k, v] : *n)	n->remove(k);
@@ -175,7 +244,7 @@ public:
 
 			nodes.push_back(node);
 
-			if(subsequentialTypes != nullopt && !(*subsequentialTypes).contains(node->get<string>("type"))) {
+			if(subsequentialTypes != nullopt && !(*subsequentialTypes).contains(node->get("type"))) {
 				offset++;
 			}
 
@@ -201,10 +270,8 @@ public:
 	 * Useful for imprecise single enclosed(ing) nodes lookup.
 	 */
 	NodeRef helpers_skippableNode(const string& type, function<bool()> opening, function<bool()> closing) {
-		NodeRef node;
+		NodeRef node = rules(type);
 		int scopeLevel = 1;
-
-		node = rules(type);
 
 		if(node != nullptr || closing() || tokensEnd()) {
 			return node;
@@ -227,7 +294,7 @@ public:
 				break;
 			}
 
-			node->get<NodeArray>("tokens").push_back(token());
+			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
 			node->get<NodeRef>("range")->set("end", position()++);
 		}
 
@@ -261,7 +328,7 @@ public:
 		while(!tokensEnd()) {
 			NodeRef node;
 
-			if(!separating || nodes.empty() || nodes.back().get<NodeRef>()->get<string>("type") == "separator" || optionalSeparator) {
+			if(!separating || nodes.empty() || nodes.back().get<NodeRef>()->get("type") == "separator" || optionalSeparator) {
 				for(const string& type : types) {
 					node = rules(type);
 
@@ -281,7 +348,7 @@ public:
 				node = nodes.back();
 
 				if(node != nullptr) {
-					if(node->get<string>("type") != "separator") {
+					if(node->get("type") != "separator") {
 						node = make_shared<Node>(Node {
 							{"type", "separator"},
 							{"range", Node {
@@ -305,7 +372,7 @@ public:
 
 			node = nodes.back();
 
-			if(node != nullptr && node->get<string>("type") != "unsupported") {
+			if(node != nullptr && node->get("type") != "unsupported") {
 				node = make_shared<Node>(Node {
 					{"type", "unsupported"},
 					{"range", Node {
@@ -323,7 +390,7 @@ public:
 				break;
 			}
 
-			node->get<NodeArray>("tokens").push_back(token());
+			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
 			node->get<NodeRef>("range")->set("end", position()++);
 
 			if(node != nodes.back()) {
@@ -346,7 +413,7 @@ public:
 				if(range) {
 					report(0, start, type, "Sequence at range of tokens ["+to_string(start)+":"+to_string(end)+"].");
 				}
-				if(key == nodes.size() - 1) {
+				if(key == nodes.size()-1) {
 					report(0, start, type, "Excess at token ["+to_string(start)+"].");
 				}
 			}
@@ -357,7 +424,7 @@ public:
 			}
 		}
 
-		erase_if(nodes, [](NodeRef v) { return v->get<string>("type") == "separator"; });
+		erase_if(nodes, [](NodeRef v) { return v->get("type") == "separator"; });
 
 		return nodes;
 	}

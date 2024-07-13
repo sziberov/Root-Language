@@ -6,6 +6,7 @@
 #include <variant>
 #include <vector>
 #include <memory>
+#include <any>
 
 using namespace std;
 
@@ -18,7 +19,7 @@ using NodeArrayRef = shared_ptr<NodeArray>;
 
 class NodeValue {
 private:
-	variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef> value;
+	variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef, any> value;
 
 public:
 	NodeValue() : value(nullptr) {}
@@ -32,15 +33,16 @@ public:
 	NodeValue(const NodeRef& v) : value(v) {}
 	NodeValue(const NodeArray& v) : value(make_shared<NodeArray>(v)) {}
 	NodeValue(const NodeArrayRef& v) : value(v) {}
+	NodeValue(const any v) : value(v) {}
 
 	template<typename T>
 	T& get() {
-		return ::get<T>();
+		return ::get<T>(value);
 	}
 
 	template<typename T>
 	const T& get() const {
-		return ::get<T>();
+		return ::get<T>(value);
 	}
 
 	template<typename T>
@@ -74,7 +76,25 @@ public:
 
 	template<typename T>
 	operator T() const {
-		return ::get<T>();
+		return ::get<T>(value);
+	}
+
+	template<typename T>
+	bool operator==(const T& v) {
+		return ::get<T>(value) == v;
+	}
+
+	bool operator==(const char* v) {
+		return ::get<string>(value) == string(v);
+	}
+
+	template<typename T>
+	bool operator!=(const T& v) {
+		return ::get<T>(value) != v;
+	}
+
+	bool operator!=(const char* v) {
+		return ::get<string>(value) != string(v);
 	}
 
 	bool empty() const {
