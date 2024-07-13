@@ -35,17 +35,46 @@ public:
 
 	template<typename T>
 	T& get() {
-		return std::get<T>(value);
+		return ::get<T>();
 	}
 
 	template<typename T>
 	const T& get() const {
-		return std::get<T>(value);
+		return ::get<T>();
+	}
+
+	template<typename T>
+	auto casted() {
+		if constexpr(is_same_v<T, string>) {
+			if(holds_alternative<int>(value)) {
+				return to_string(get<int>());
+			} else
+			if(holds_alternative<double>(value)) {
+				return to_string(get<double>());
+			} else
+			if(holds_alternative<bool>(value)) {
+				return get<bool>() ? "true" : "false";
+			}
+		} else
+		if(holds_alternative<string>(value)) {
+			if constexpr(is_same_v<T, int>) {
+				return stoi(get<string>());
+			} else
+			if constexpr(is_same_v<T, double>) {
+				return stod(get<string>());
+			} else
+			if constexpr(is_same_v<T, bool>) {
+				return get<string>() == "true" ||
+					   get<string>() == "1";
+			}
+		}
+
+		return get<T>();
 	}
 
 	template<typename T>
 	operator T() const {
-		return std::get<T>(value);
+		return ::get<T>();
 	}
 
 	bool empty() const {
@@ -78,6 +107,24 @@ public:
 		return it != data.end() ? it->second.get<T>() : defaultValue;
 	}
 
+	auto get(const string& key) const {
+		auto it = data.find(key);
+
+		return it != data.end() ? it->second : NodeValue();
+	}
+
+	auto operator[](const string& key) const {
+		return get(key);
+	}
+
+	auto begin() const {
+		return data.begin();
+	}
+
+	auto end() const {
+		return data.end();
+	}
+
 	bool empty(const string& key) const {
 		auto it = data.find(key);
 
@@ -90,16 +137,6 @@ public:
 };
 
 /*
-class NodeArray : public vector<NodeValue> {
-public:
-	NodeArray(initializer_list<NodeValue> items) {
-		for(auto item : items) {
-			emplace_back(item);
-		}
-	}
-};
-*/
-
 int main() {
 	Node node = {
 		{"name", "John Doe"},
@@ -135,8 +172,8 @@ int main() {
 
 	// Adding a new child object
 	Node newAddress {
-	    {"city", "San Francisco"},
-	    {"zip", 94105}
+		{"city", "San Francisco"},
+		{"zip", 94105}
 	};
 	node.set("new_address", newAddress);
 
@@ -150,3 +187,4 @@ int main() {
 
 	return 0;
 }
+*/

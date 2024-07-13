@@ -2935,7 +2935,6 @@ class Parser {
 		 */
 		skippableNode: (type, opening, closing) => {
 			let node,
-				start = this.position,
 				scopeLevel = 1;
 
 			node = this.rules[type]?.();

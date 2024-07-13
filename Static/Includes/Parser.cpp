@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Lexer.cpp"
+#include "Node.cpp"
 
 #include <any>
 
@@ -20,49 +21,345 @@ public:
 	int _position;
 	deque<shared_ptr<Report>> reports;
 
-	using Node = unordered_map<string, any>;
-
-	struct Range {
-		int start = -1,
-			end = -1;
-	};
-
 	template<typename... Args>
-	any rules(const string& type, Args... args) {
+	NodeValue rules(const string& type, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(type == "argument") {
-			auto node = make_shared<Node>(Node {
+			Node node = Node {
 				{"type", "argument"},
-				{"range", make_shared<Range>(Range {
-					.start = position()
-				})},
+				{"range", Node {
+					{"start" , position()}
+				}},
 				{"label", rules("identifier")},
-				{"value", nullopt}
-			});
+				{"value", nullptr}
+			};
 
-			if((*node)["label"].type() != typeid(nullopt_t) && token()->type.starts_with("operator") && token()->value == ":") {
+			if(!node.empty("label") && token()->type.starts_with("operator") && token()->value == ":") {
 				position()++;
 			} else {
-				position() = any_cast<shared_ptr<Range>>((*node)["range"])->start;
-				(*node)["label"] = nullopt;
+				position() = node.get<NodeRef>("range")->get<int>("start");
+				node.set("label", nullptr);
 			}
 
-			(*node)["value"] = rules("expressionsSequence");
+			node.set("value", rules("expressionsSequence"));
 
-			if((*node)["label"].type() == typeid(nullopt_t) && (*node)["value"].type() == typeid(nullopt_t)) {
-				return nullopt;
+			if(node.empty("label") && node.empty("value")) {
+				return nullptr;
 			}
 
-			any_cast<shared_ptr<Range>>((*node)["range"])->end = position()-1;
+			node.get<NodeRef>("range")->set("end", position()-1);
 
 			return node;
 		} else
 		if(type == "arrayLiteral") {
+			Node node = Node {
+				{"type", "arrayLiteral"},
+				{"range", Node {}},
+				{"values", NodeArray {}}
+			};
 
+			if(token()->type != "bracketOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position()++);
+			node.set("values", helpers_sequentialNodes(
+				vector<string> {"expressionsSequence"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			));
+
+			if(token()->type != "bracketClosed") {
+				position() = node.get<NodeRef>("range")->get<int>("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position()++);
+
+			return node;
+		} else
+		if(type == "arrayType") {}
+
+		return nullptr;
+	}
+
+	/*
+	 * Trying to set the node's value and body basing on its value.
+	 *
+	 * Value that have unsignatured trailing closure will be divided to:
+	 * - Value - a left-hand-side (exported, if closure goes right after it).
+	 * - Body - the closure.
+	 *
+	 * Closures, nested into expressionsSequence, prefixExpression and inOperator, are also supported.
+	 *
+	 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
+	 */
+	NodeRef bodyTrailedValue(NodeRef node, const string& valueKey, const string& bodyKey, bool expressionTrailed = true, function<NodeRef()> body = nullptr) {
+		if(!body) {
+			body = [this]() { return rules("functionBody"); };
 		}
 
-		return nullopt;
+		node->set(bodyKey, body());
+
+		if(node->empty(valueKey) || !node->empty(bodyKey)) {
+			return nullptr;
+		}
+
+		int end = -1;
+
+		function<void(NodeRef)> parse = [&](NodeRef n) {
+			if(n == node) {
+				parse(n->get(valueKey));
+
+				if(end != -1) {
+					n->set(bodyKey, body());
+				}
+			} else
+			if(n->get<string>("type") == "expressionsSequence") {
+				parse(n->get<NodeArray>("values").back());
+			} else
+			if(n->get<string>("type") == "prefixExpression") {
+				parse(n->get("value"));
+			} else
+			if(n->get<string>("type") == "inOperator") {
+				parse(n->get("composite"));
+			} else
+			if(!n->empty("closure") && n->get<NodeRef>("closure")->empty("signature")) {
+				position() = n->get<NodeRef>("closure")->get<NodeRef>("range")->get<int>("start");
+				n->set("closure", nullptr);
+				end = position()-1;
+
+				NodeRef lhs = n->get<NodeRef>("callee") ?: n->get<NodeRef>("composite");
+				bool exportable = lhs->get<NodeRef>("range")->get<int>("end") == end;
+
+				if(exportable) {
+					for(const auto& [k, v] : *n)	n->remove(k);
+					for(const auto& [k, v] : *lhs)	n->set(k, v);
+				}
+			}
+
+			if(end != -1) {
+				n->get<NodeRef>("range")->set("end", end);
+			}
+		};
+
+		parse(node);
+
+		if(expressionTrailed && node->empty(bodyKey)) {
+			node->set(bodyKey, rules("expressionsSequence"));
+		}
+	}
+
+	/*
+	 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
+	 *
+	 * Additionally a separator between the nodes can be set.
+	 * Also types can be marked subsequential and therefore have no impact on offset in iterations.
+	 *
+	 * Stops when an unsupported type occurs.
+	 *
+	 * Useful for precise sequences lookup.
+	 */
+	NodeArray helpers_sequentialNodes(const vector<string>& types, function<bool()> separating = nullptr, optional<set<string>> subsequentialTypes = nullopt) {
+		NodeArray nodes;
+		int offset = 0;
+
+		while(!tokensEnd()) {
+			string type = types[offset%types.size()];
+			NodeRef node = rules(type);
+
+			if(node == nullptr) {
+				break;
+			}
+
+			nodes.push_back(node);
+
+			if(subsequentialTypes != nullopt && !(*subsequentialTypes).contains(node->get<string>("type"))) {
+				offset++;
+			}
+
+			if(separating && offset > 0) {
+				if(separating()) {
+					position()++;
+				} else {
+					break;
+				}
+			}
+		}
+
+		return nodes;
+	}
+
+	/*
+	 * Returns a node of the type or the "unsupported" node if not closed immediately.
+	 *
+	 * Stops if node found, at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
+	 *
+	 * Warns about "unsupported" nodes.
+	 *
+	 * Useful for imprecise single enclosed(ing) nodes lookup.
+	 */
+	NodeRef helpers_skippableNode(const string& type, function<bool()> opening, function<bool()> closing) {
+		NodeRef node;
+		int scopeLevel = 1;
+
+		node = rules(type);
+
+		if(node != nullptr || closing() || tokensEnd()) {
+			return node;
+		}
+
+		node = make_shared<Node>(Node {
+			{"type", "unsupported"},
+			{"range", Node {
+				{"start", position()},
+				{"end", position()}
+			}},
+			{"tokens", NodeArray {}}
+		});
+
+		while(!tokensEnd()) {
+			scopeLevel += opening();
+			scopeLevel -= closing();
+
+			if(scopeLevel == 0) {
+				break;
+			}
+
+			node->get<NodeArray>("tokens").push_back(token());
+			node->get<NodeRef>("range")->set("end", position()++);
+		}
+
+		NodeRef nodeRange = node->get("range");
+		string type_ = node->get("type");
+		int start = nodeRange->get("start"),
+			end = nodeRange->get("end");
+		bool range = start != end;
+		string message = range ? "range of tokens ["+to_string(start)+":"+to_string(end)+"]" : "token ["+to_string(start)+"]";
+
+		report(1, start, type_, "At "+message+".");
+
+		return node;
+	}
+
+	/*
+	 * Returns a list of nodes of the types, including the "unsupported" nodes if any occur.
+	 *
+	 * Additionally a (optional) separator between the nodes can be set.
+	 *
+	 * Stops at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
+	 *
+	 * Warns about invalid separators and "unsupported" nodes.
+	 *
+	 * Useful for imprecise multiple enclosed(ing) nodes lookup.
+	 */
+	NodeArray helpers_skippableNodes(const vector<string>& types, function<bool()> opening, function<bool()> closing, function<bool()> separating = nullptr, bool optionalSeparator = false) {
+		NodeArray nodes;
+		int scopeLevel = 1;
+
+		while(!tokensEnd()) {
+			NodeRef node;
+
+			if(!separating || nodes.empty() || nodes.back().get<NodeRef>()->get<string>("type") == "separator" || optionalSeparator) {
+				for(const string& type : types) {
+					node = rules(type);
+
+					if(node != nullptr) {
+						nodes.push_back(node);
+
+						break;
+					}
+				}
+			}
+
+			if(closing() && scopeLevel == 1 || tokensEnd()) {
+				break;
+			}
+
+			if(separating && separating()) {
+				node = nodes.back();
+
+				if(node != nullptr) {
+					if(node->get<string>("type") != "separator") {
+						node = make_shared<Node>(Node {
+							{"type", "separator"},
+							{"range", Node {
+								{"start", position()},
+								{"end", position()}
+							}}
+						});
+
+						nodes.push_back(node);
+					} else {
+						node->get<NodeRef>("range")->set("end", position());
+					}
+				}
+
+				position()++;
+			}
+
+			if(node != nullptr) {
+				continue;
+			}
+
+			node = nodes.back();
+
+			if(node != nullptr && node->get<string>("type") != "unsupported") {
+				node = make_shared<Node>(Node {
+					{"type", "unsupported"},
+					{"range", Node {
+						{"start", position()},
+						{"end", position()}
+					}},
+					{"tokens", NodeArray {}}
+				});
+			}
+
+			scopeLevel += opening();
+			scopeLevel -= closing();
+
+			if(scopeLevel == 0) {
+				break;
+			}
+
+			node->get<NodeArray>("tokens").push_back(token());
+			node->get<NodeRef>("range")->set("end", position()++);
+
+			if(node != nodes.back()) {
+				nodes.push_back(node);
+			}
+		}
+
+		for(int key = 0; key < nodes.size(); key++) {
+			NodeRef node = nodes[key];
+			string type = node->get("type");
+			NodeRef nodeRange = node->get("range");
+			int start = nodeRange->get("start"),
+				end = nodeRange->get("end");
+			bool range = start != end;
+
+			if(type == "separator") {
+				if(key == 0) {
+					report(0, start, type, "Met before any supported type at token ["+to_string(start)+"].");
+				}
+				if(range) {
+					report(0, start, type, "Sequence at range of tokens ["+to_string(start)+":"+to_string(end)+"].");
+				}
+				if(key == nodes.size() - 1) {
+					report(0, start, type, "Excess at token ["+to_string(start)+"].");
+				}
+			}
+			if(type == "unsupported") {
+				string message = range ? "range of tokens ["+to_string(start)+":"+to_string(end)+"]" : "token ["+to_string(start)+"]";
+
+				report(1, start, type, "At "+message+".");
+			}
+		}
+
+		erase_if(nodes, [](NodeRef v) { return v->get<string>("type") == "separator"; });
+
+		return nodes;
 	}
 
 	inline int& position() {
@@ -113,7 +410,7 @@ public:
 	}
 
 	struct Result {
-		shared_ptr<Node> tree;
+		NodeRef tree;
 		deque<shared_ptr<Report>> reports;
 	};
 
@@ -123,7 +420,7 @@ public:
 		tokens = lexerResult.tokens;
 
 		Result result = {
-			any_cast<shared_ptr<Node>>(rules("module")),
+			rules("module"),
 			reports
 		};
 
@@ -132,213 +429,3 @@ public:
 		return result;
 	}
 };
-
-/*
-class ASTNode;
-
-using NodeValue = variant<int, double, string, shared_ptr<ASTNode>, vector<shared_ptr<ASTNode>>, vector<shared_ptr<Token>>>;
-
-class ASTNode {
-public:
-	unordered_map<string, NodeValue> properties;
-
-	void setProperty(const string& key, NodeValue value) {
-		properties[key] = value;
-	}
-
-	template<typename T>
-	T getProperty(const string& key) const {
-		return get<T>(properties.at(key));
-	}
-};
-
-class Parser {
-public:
-	Parser(const vector<Token>& tokens) : tokens(tokens), current(0) {}
-
-	vector<shared_ptr<ASTNode>> skippableNodes(
-		const vector<string>& types,
-		function<bool()> opening,
-		function<bool()> closing,
-		function<bool()> separating,
-		bool optionalSeparator = false
-	) {
-		vector<shared_ptr<ASTNode>> nodes;
-		int scopeLevel = 1;
-
-		while (!tokensEnd()) {
-			shared_ptr<ASTNode> node;
-
-			if (separating == nullptr || nodes.empty() || nodes.back()->getProperty<string>("type") == "separator" || optionalSeparator) {
-				for (const auto& type : types) {
-					node = parseNode(type);
-					if (node != nullptr) {
-						nodes.push_back(node);
-						break;
-					}
-				}
-			}
-
-			if (closing() && scopeLevel == 1 || tokensEnd()) {
-				break;
-			}
-
-			if (separating()) {
-				node = nodes.back();
-				if (node->getProperty<string>("type") != "separator") {
-					node = make_shared<ASTNode>();
-					node->setProperty("type", string("separator"));
-					node->setProperty("rangeStart", current);
-					node->setProperty("rangeEnd", current);
-					nodes.push_back(node);
-				} else {
-					node->setProperty("rangeEnd", current);
-				}
-				current++;
-			}
-
-			if (node != nullptr) {
-				continue;
-			}
-
-			node = nodes.back();
-			if (node->getProperty<string>("type") != "unsupported") {
-				node = make_shared<ASTNode>();
-				node->setProperty("type", string("unsupported"));
-				node->setProperty("rangeStart", current);
-				node->setProperty("rangeEnd", current);
-				node->setProperty("tokens", vector<shared_ptr<Token>>{});
-			}
-
-			scopeLevel += opening() ? 1 : 0;
-			scopeLevel -= closing() ? 1 : 0;
-
-			if (scopeLevel == 0) {
-				break;
-			}
-
-			auto tokens = node->getProperty<vector<Token>>("tokens");
-			tokens.push_back(this->tokens[current]);
-			node->setProperty("tokens", tokens);
-			node->setProperty("rangeEnd", current++);
-
-			if (node != nodes.back()) {
-				nodes.push_back(node);
-			}
-		}
-
-		// Process the nodes for reporting
-		for (size_t i = 0; i < nodes.size(); ++i) {
-			auto node = nodes[i];
-			bool range = node->getProperty<int>("rangeStart") != node->getProperty<int>("rangeEnd");
-
-			if (node->getProperty<string>("type") == "separator") {
-				if (i == 0) {
-					report(0, node->getProperty<int>("rangeStart"), node->getProperty<string>("type"), "Met before any supported type at token [" + to_string(node->getProperty<int>("rangeStart")) + "].");
-				}
-				if (range) {
-					report(0, node->getProperty<int>("rangeStart"), node->getProperty<string>("type"), "Sequence at range of tokens [" + to_string(node->getProperty<int>("rangeStart")) + ":" + to_string(node->getProperty<int>("rangeEnd")) + "].");
-				}
-				if (i == nodes.size() - 1) {
-					report(0, node->getProperty<int>("rangeStart"), node->getProperty<string>("type"), "Excess at token [" + to_string(node->getProperty<int>("rangeStart")) + "].");
-				}
-			}
-			if (node->getProperty<string>("type") == "unsupported") {
-				string message = range ? "range of tokens [" + to_string(node->getProperty<int>("rangeStart")) + ":" + to_string(node->getProperty<int>("rangeEnd")) + "]" : "token [" + to_string(node->getProperty<int>("rangeStart")) + "]";
-				report(1, node->getProperty<int>("rangeStart"), node->getProperty<string>("type"), "At " + message + ".");
-			}
-		}
-
-		// Remove separator nodes from the list
-		nodes.erase(remove_if(nodes.begin(), nodes.end(), [](const shared_ptr<ASTNode>& node) {
-			return node->getProperty<string>("type") == "separator";
-		}), nodes.end());
-
-		return nodes;
-	}
-
-private:
-	vector<Token> tokens;
-	size_t current;
-
-	shared_ptr<ASTNode> parseNode(const string& type, const unordered_map<string, NodeValue>& params = {}) {
-		auto node = make_shared<ASTNode>();
-		node->setProperty("type", type);
-
-		if (type == "chainDeclaration") {
-			// Process tokens specific to ChainDeclarationNode
-			current++;
-		} else if (type == "classDeclaration") {
-			// Process tokens specific to ClassDeclarationNode
-			current++;
-		} else if (type == "deinitializerDeclaration") {
-			// Process tokens specific to DeinitializerDeclarationNode
-			current++;
-		} else if (type == "arrayLiteral") {
-			// Process tokens specific to ArrayLiteralNode
-			current++;
-			while (current < tokens.size() && tokens[current].type != "RBRACKET") {
-				current++;
-			}
-			current++;
-		} else if (type == "dictionaryLiteral") {
-			// Process tokens specific to DictionaryLiteralNode
-			current++;
-			while (current < tokens.size() && tokens[current].type != "RBRACKET") {
-				current++;
-			}
-			current++;
-		} else {
-			return nullptr;
-		}
-
-		for (const auto& param : params) {
-			node->setProperty(param.first, param.second);
-		}
-
-		return node;
-	}
-
-	bool tokensEnd() const {
-		return current >= tokens.size();
-	}
-
-	void report(int level, int position, const string& type, const string& message) {
-		cerr << "Level " << level << " [" << position << "]: " << type << " - " << message << endl;
-	}
-};
-
-// Example usage
-int main() {
-	// Example tokens
-	vector<Token> tokens = {
-		{"CHAIN_DECLARATION", "chain1"},
-		{"UNKNOWN", "unknown1"},
-		{"CLASS_DECLARATION", "class1"},
-		{"LBRACKET", "["},
-		{"RBRACKET", "]"},
-		{"UNKNOWN", "unknown2"},
-		{"LBRACKET", "["},
-		{"COLON", ":"},
-		{"RBRACKET", "]"},
-		{"DEINITIALIZER_DECLARATION", "deinit1"},
-		{"UNKNOWN", "unknown3"}
-	};
-
-	// Create the parser and parse the tokens into an AST
-	Parser parser(tokens);
-	vector<shared_ptr<ASTNode>> ast = parser.skippableNodes(
-		{"chainDeclaration", "classDeclaration", "deinitializerDeclaration"},
-		[]() { return false; },  // Example opening condition
-		[]() { return false; },  // Example closing condition
-		[]() { return false; }   // Example separating condition
-	);
-
-	// Print the AST node types
-	for (const auto& node : ast) {
-		cout << "Node type: " << node->getProperty<string>("type") << endl;
-	}
-
-	return 0;
-}
-*/
