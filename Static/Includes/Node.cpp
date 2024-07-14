@@ -115,10 +115,16 @@ public:
 		}
 	}
 
-	template<typename T>
-	void set(const string& key, const T& value) {
-		data[key] = NodeValue(value);
+	void set(const string& key, const NodeValue& value) {
+		data[key] = value;
 	}
+
+	/*
+	template<typename... Keys, typename T>
+	void set(const Keys&... keys, const NodeValue& value) {
+		(set(keys, value), ...);
+	}
+	*/
 
 	template<typename T>
 	T get(const string& key, const T& defaultValue = T()) const {
@@ -133,9 +139,15 @@ public:
 		return it != data.end() ? it->second : NodeValue();
 	}
 
-	auto operator[](const string& key) const {
+	/*
+	auto operator[](const string& key) {
 		return get(key);
 	}
+
+	const auto operator[](const string& key) const {
+		return get(key);
+	}
+	*/
 
 	auto begin() const {
 		return data.begin();

@@ -27,16 +27,16 @@ public:
 			Node node = Node {
 				{"type", "argument"},
 				{"range", Node {
-					{"start" , position()}
+					{"start" , position}
 				}},
 				{"label", rules("identifier")},
 				{"value", nullptr}
 			};
 
 			if(!node.empty("label") && token()->type.starts_with("operator") && token()->value == ":") {
-				position()++;
+				position++;
 			} else {
-				position() = node.get<NodeRef>("range")->get("start");
+				position = node.get<NodeRef>("range")->get("start");
 				node.set("label", nullptr);
 			}
 
@@ -46,7 +46,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position()-1);
+			node.get<NodeRef>("range")->set("end", position-1);
 
 			return node;
 		} else
@@ -61,19 +61,19 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position()++);
+			node.get<NodeRef>("range")->set("start", position++);
 			node.set("values", helpers_sequentialNodes(
 				vector<string> {"expressionsSequence"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 
 			if(token()->type != "bracketClosed") {
-				position() = node.get<NodeRef>("range")->get("start");
+				position = node.get<NodeRef>("range")->get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position()++);
+			node.get<NodeRef>("range")->set("end", position++);
 
 			return node;
 		} else
@@ -81,23 +81,23 @@ public:
 			Node node = Node {
 				{"type", "arrayType"},
 				{"range", Node {}},
-				{"value", NodeArray {}}
+				{"value", nullptr}
 			};
 
 			if(token()->type != "bracketOpen") {
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position()++);
+			node.get<NodeRef>("range")->set("start", position++);
 			node.set("value", rules("type"));
 
 			if(token()->type != "bracketClosed") {
-				position() = node.get<NodeRef>("range")->get("start");
+				position = node.get<NodeRef>("range")->get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position()++);
+			node.get<NodeRef>("range")->set("end", position++);
 
 			return node;
 		} else
@@ -112,16 +112,16 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position()++);
+			node.get<NodeRef>("range")->set("start", position++);
 			node.set("value", rules("expression"));
 
 			if(node.empty("value")) {
-				position()--;
+				position--;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position()-1);
+			node.get<NodeRef>("range")->set("end", position-1);
 
 			return node;
 		} else
@@ -136,18 +136,472 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position()++);
+			node.get<NodeRef>("range")->set("start", position++);
 			node.set("value", rules("expression"));
 
 			if(node.empty("value")) {
-				position()--;
+				position--;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position()-1);
+			node.get<NodeRef>("range")->set("end", position-1);
 
 			return node;
+		} else
+		if(type == "body") {
+			string type = any_cast<string>(arguments[0]);
+			Node node = Node {
+				{"type", type+"Body"},
+				{"range", Node {}},
+				{"statements", NodeArray {}}
+			};
+
+			if(token()->type != "braceOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("statements", rules(type+"Statements"));
+
+			if(node.get<NodeArrayRef>("statements")->empty()) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
+			}
+
+			if(!tokensEnd()) {
+				node.get<NodeRef>("range")->set("end", position++);
+			} else {
+				node.get<NodeRef>("range")->set("end", position-1);
+
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
+			}
+
+			return node;
+		} else
+		if(type == "booleanLiteral") {
+			Node node = Node {
+				{"type", "booleanLiteral"},
+				{"range", Node {}},
+				{"value", nullptr}
+			};
+
+			if(!set<string> {"keywordFalse", "keywordTrue"}.contains(token()->type)) {
+				return nullptr;
+			}
+
+			node.set("value", token()->value);
+			node.get<NodeRef>("range")->set("start", position);
+			node.get<NodeRef>("range")->set("end", position++);
+
+			return node;
+		} else
+		if(type == "breakStatement") {
+			Node node = Node {
+				{"type", "breakStatement"},
+				{"range", Node {}},
+				{"label", nullptr}
+			};
+
+			if(token()->type != "keywordBreak") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("label", rules("identifier"));
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "callExpression") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = Node {
+				{"type", "callExpression"},
+				{"range", Node {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"callee", node_},
+				{"genericArguments", NodeArray {}},
+				{"arguments", NodeArray {}},
+				{"closure", nullptr}
+			};
+
+			if(token()->type.starts_with("operator") && token()->value == "<") {
+				position++;
+				node.set("genericArguments", helpers_sequentialNodes(
+					vector<string> {"type"},
+					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				));
+
+				if(token()->type.starts_with("operator") && token()->value == ">") {
+					position++;
+				} else {
+					position = node_->get<NodeRef>("range")->get<int>("end")+1;
+				}
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			if(token()->type == "parenthesisOpen") {
+				position++;
+				node.set("arguments", helpers_skippableNodes(
+					vector<string> {"argument"},
+					[this]() { return token()->type == "parenthesisOpen"; },
+					[this]() { return token()->type == "parenthesisClosed"; },
+					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				));
+
+				if(token()->type == "parenthesisClosed") {
+					position++;
+				} else {
+					node.get<NodeRef>("range")->set("end", position-1);
+
+					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+
+					return node;
+				}
+			}
+
+			node.set("closure", rules("closureExpression"));
+
+			if(node.empty("closure") && node.get<NodeRef>("range")->get("end") == position-1) {
+				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "caseDeclaration") {
+			Node node = Node {
+				{"type", "caseDeclaration"},
+				{"range", Node {}},
+				{"identifiers", NodeArray {}}
+			};
+
+			if(token()->type != "keywordCase") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("identifiers", helpers_sequentialNodes(
+				vector<string> {"identifier"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			));
+
+			if(node.get<NodeArrayRef>("identifiers")->empty()) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifiers(s).");
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "catchClause") {
+			Node node = Node {
+				{"type", "catchClause"},
+				{"range", Node {}},
+				{"typeIdentifiers", NodeArray {}},
+				{"body", nullptr},
+				{"catch", nullptr}
+			};
+
+			if(token()->type != "keywordCatch") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("typeIdentifiers", helpers_sequentialNodes(
+				vector<string> {"typeIdentifier"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			));
+			node.set("body", rules("functionBody"));
+			node.set("catch", rules("catchClause"));
+
+			if(node.get<NodeArrayRef>("typeIdentifiers")->empty()) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No type identifiers.");
+			}
+			if(node.empty("body")) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "chainDeclaration") {
+			Node node = Node {
+				{"type", "chainDeclaration"},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "identifier" || token()->value != "chain") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("body", rules("observersBody"));
+
+			if(some(node.get<NodeArrayRef>("modifiers"), [](auto& v) { return v != "static"; })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Can only have specific modifier (static).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "chainExpression") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = Node {
+				{"type", "chainExpression"},
+				{"range", Node {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"composite", node_},
+				{"member", nullptr}
+			};
+
+			if(!set<string> {"operator", "operatorInfix"}.contains(token()->type) || token()->value != ".") {
+				return nullptr;
+			}
+
+			position++;
+			node.set("member", rules("identifier") ?:
+							   rules("stringLiteral"));
+
+			if(node.empty("member")) {
+				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", node.get<NodeRef>("member")->get<NodeRef>("range")->get("end"));
+
+			return node;
+		} else
+		if(type == "chainIdentifier") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = Node {
+				{"type", "chainIdentifier"},
+				{"range", Node {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"supervalue", node_},
+				{"value", nullptr}
+			};
+
+			if(!set<string> {"operatorPrefix", "operatorInfix"}.contains(token()->type) || token()->value != ".") {
+				return nullptr;
+			}
+
+			position++;
+			node.set("value", rules("identifier"));
+
+			if(node.empty("value")) {
+				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", node.get<NodeRef>("value")->get<NodeRef>("range")->get("end"));
+
+			return node;
+		} else
+		if(type == "chainStatements") {
+			return rules("statements", vector<string> {"observerDeclaration"});
+		} else
+		if(type == "classBody") {
+			return rules("body", "class");
+		} else
+		if(type == "classDeclaration") {
+			bool anonymous = !arguments.empty() && any_cast<bool>(arguments[0]);
+			Node node = {
+				{"type", string("class")+(!anonymous ? "Declaration" : "Expression")},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"identifier", nullptr},
+				{"genericParameters", nullptr},
+				{"inheritedTypes", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordClass") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("identifier", rules("identifier"));
+
+			if(anonymous) {
+				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				node.remove("modifiers");
+				node.remove("identifier");
+			} else
+			if(node.empty("identifier")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+			}
+
+			node.set("genericParameters", rules("genericParametersClause"));
+			node.set("inheritedTypes", rules("inheritedTypesClause"));
+			node.set("body", rules("classBody"));
+
+			if(!node.empty("modifiers") && some(node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Can only have specific modifier (static).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "classExpression") {
+			return rules("classDeclaration", true);
+		} else
+		if(type == "classStatements") {
+			return rules("statements", vector<string> {
+				"chainDeclaration",
+				"classDeclaration",
+				"deinitializerDeclaration",
+				"enumerationDeclaration",
+				"functionDeclaration",
+				"initializerDeclaration",
+				"namespaceDeclaration",
+				"protocolDeclaration",
+				"structureDeclaration",
+				"subscriptDeclaration",
+				"variableDeclaration"
+			});
+		} else
+		if(type == "closureExpression") {
+			Node node = {
+				{"type", "closureExpression"},
+				{"range", Node {}},
+				{"signature", nullptr},
+				{"statements", NodeArray {}}
+			};
+
+			if(token()->type != "braceOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("signature", rules("functionSignature"));
+
+			if(!node.empty("signature")) {
+				if(token()->type != "keywordIn") {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				position++;
+			} else {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+			}
+
+			node.set("statements", rules("functionStatements"));
+
+			if(node.get<NodeArrayRef>("statements")->empty()) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
+			}
+
+			if(!tokensEnd()) {
+				node.get<NodeRef>("range")->set("end", position++);
+			} else {
+				node.get<NodeRef>("range")->set("end", position-1);
+
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
+			}
+
+			return node;
+		} else
+		if(type == "conditionalOperator") {
+			Node node = {
+				{"type", "conditionalOperator"},
+				{"range", Node {}},
+				{"expression", nullptr}
+			};
+
+			if(!token()->type.starts_with("operator") || token()->value != "?") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("expression", rules("expressionsSequence"));
+
+			if(!token()->type.starts_with("operator") || token()->value != ":") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end", position++);
+
+			return node;
+		} else
+		if(type == "continueStatement") {
+			Node node = {
+				{"type", "continueStatement"},
+				{"range", Node {}},
+				{"label", nullptr}
+			};
+
+			if(token()->type != "keywordContinue") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start", position++);
+			node.set("label", rules("identifier"));
+			node.get<NodeRef>("range")->set("end", position-1);
+
+			return node;
+		} else
+		if(type == "controlTransferStatement") {
+			return (
+				rules("breakStatement") ?:
+				rules("continueStatement") ?:
+				rules("fallthroughStatement") ?:
+				rules("returnStatement") ?:
+				rules("throwStatement")
+			);
+		} else
+		if(type == "declaration") {
+			return (
+				rules("chainDeclaration") ?:
+				rules("classDeclaration") ?:
+				rules("deinitializerDeclaration") ?:
+				rules("enumerationDeclaration") ?:
+				rules("functionDeclaration") ?:
+				rules("importDeclaration") ?:
+				rules("initializerDeclaration") ?:
+				rules("namespaceDeclaration") ?:
+				rules("operatorDeclaration") ?:
+				rules("protocolDeclaration") ?:
+				rules("structureDeclaration") ?:
+				rules("subscriptDeclaration") ?:
+				rules("variableDeclaration")
+			);
 		}
 
 		return nullptr;
@@ -195,9 +649,9 @@ public:
 				parse(n->get("composite"));
 			} else
 			if(!n->empty("closure") && n->get<NodeRef>("closure")->empty("signature")) {
-				position() = n->get<NodeRef>("closure")->get<NodeRef>("range")->get("start");
+				position = n->get<NodeRef>("closure")->get<NodeRef>("range")->get("start");
 				n->set("closure", nullptr);
-				end = position()-1;
+				end = position-1;
 
 				NodeRef lhs = n->get("callee") ?: n->get("composite");
 				bool exportable = lhs->get<NodeRef>("range")->get("end") == end;
@@ -250,7 +704,7 @@ public:
 
 			if(separating && offset > 0) {
 				if(separating()) {
-					position()++;
+					position++;
 				} else {
 					break;
 				}
@@ -280,8 +734,8 @@ public:
 		node = make_shared<Node>(Node {
 			{"type", "unsupported"},
 			{"range", Node {
-				{"start", position()},
-				{"end", position()}
+				{"start", position},
+				{"end", position}
 			}},
 			{"tokens", NodeArray {}}
 		});
@@ -295,7 +749,7 @@ public:
 			}
 
 			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end", position()++);
+			node->get<NodeRef>("range")->set("end", position++);
 		}
 
 		NodeRef nodeRange = node->get("range");
@@ -352,18 +806,18 @@ public:
 						node = make_shared<Node>(Node {
 							{"type", "separator"},
 							{"range", Node {
-								{"start", position()},
-								{"end", position()}
+								{"start", position},
+								{"end", position}
 							}}
 						});
 
 						nodes.push_back(node);
 					} else {
-						node->get<NodeRef>("range")->set("end", position());
+						node->get<NodeRef>("range")->set("end", position);
 					}
 				}
 
-				position()++;
+				position++;
 			}
 
 			if(node != nullptr) {
@@ -376,8 +830,8 @@ public:
 				node = make_shared<Node>(Node {
 					{"type", "unsupported"},
 					{"range", Node {
-						{"start", position()},
-						{"end", position()}
+						{"start", position},
+						{"end", position}
 					}},
 					{"tokens", NodeArray {}}
 				});
@@ -391,7 +845,7 @@ public:
 			}
 
 			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end", position()++);
+			node->get<NodeRef>("range")->set("end", position++);
 
 			if(node != nodes.back()) {
 				nodes.push_back(node);
@@ -429,26 +883,86 @@ public:
 		return nodes;
 	}
 
-	inline int& position() {
-		return _position;
-	}
+	struct Position {
+	private:
+		Parser& self;
+		int value;
 
-	void setPosition(int value) {
-		if(value < _position) {  // Rollback global changes
-			erase_if(reports, [&](auto v) { return v->position >= value; });
+		void update(int previous) {
+			if(value < previous) {  // Rollback global changes
+				erase_if(self.reports, [&](auto v) { return v->position >= value; });
+			}
 		}
 
-		_position = value;
-	}
+	public:
+		Position(Parser& s, int v = 0) : self(s), value(v) {}
+
+		template <typename T>
+		operator T() const {
+			return value;
+		}
+
+		operator int() const {
+			return value;
+		}
+
+		template <typename T>
+		Position& operator=(const T& v) {
+			int previous = value;
+			value = v;
+			update(previous);
+			return *this;
+		}
+
+		Position& operator+=(int v) {
+			value += v;
+			update(value-v);
+			return *this;
+		}
+
+		Position& operator-=(int v) {
+			value -= v;
+			update(value+v);
+			return *this;
+		}
+
+		Position& operator++() {  // Prefix
+			value++;
+			update(value-1);
+			return *this;
+		}
+
+		Position& operator--() {  // Prefix
+			value--;
+			update(value+1);
+			return *this;
+		}
+
+		Position operator++(int) {  // Postfix
+			Position previous = *this;
+			value++;
+			update(previous);
+			return previous;
+		}
+
+		Position operator--(int) {  // Postfix
+			Position previous = *this;
+			value--;
+			update(previous);
+			return previous;
+		}
+	};
+
+	Position position;
 
 	shared_ptr<Token> token() {
-		return tokens.size() > position()
-			 ? tokens[position()]
+		return tokens.size() > position
+			 ? tokens[position]
 			 : make_shared<Token>(Token());
 	}
 
 	inline bool tokensEnd() {
-		return position() == tokens.size();
+		return position == tokens.size();
 	}
 
 	void report(int level, int position, const string& type, const string& string) {
