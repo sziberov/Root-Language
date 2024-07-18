@@ -8,6 +8,8 @@
 #include <memory>
 #include <any>
 
+#include "glaze/glaze.hpp"
+
 using namespace std;
 
 class Node;
@@ -35,6 +37,11 @@ public:
 	NodeValue(const NodeArrayRef& v) : value(v) {}
 	NodeValue(const any v) : value(v) {}
 
+	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(make_shared<Node>(v)) {}
+
+	template <bool prioritize = false>
+	NodeValue(initializer_list<NodeValue> v) : value(make_shared<NodeArray>(v)) {}
+
 	template<typename T>
 	T& get() {
 		return ::get<T>(value);
@@ -48,26 +55,26 @@ public:
 	template<typename T>
 	auto casted() {
 		if constexpr(is_same_v<T, string>) {
+			if(holds_alternative<bool>(value)) {
+				return get<bool>() ? "true" : "false";
+			} else
 			if(holds_alternative<int>(value)) {
 				return to_string(get<int>());
 			} else
 			if(holds_alternative<double>(value)) {
 				return to_string(get<double>());
-			} else
-			if(holds_alternative<bool>(value)) {
-				return get<bool>() ? "true" : "false";
 			}
 		} else
 		if(holds_alternative<string>(value)) {
+			if constexpr(is_same_v<T, bool>) {
+				return get<string>() == "true" ||
+					   get<string>() == "1";
+			} else
 			if constexpr(is_same_v<T, int>) {
 				return stoi(get<string>());
 			} else
 			if constexpr(is_same_v<T, double>) {
 				return stod(get<string>());
-			} else
-			if constexpr(is_same_v<T, bool>) {
-				return get<string>() == "true" ||
-					   get<string>() == "1";
 			}
 		}
 
@@ -87,25 +94,43 @@ public:
 	}
 
 	template<typename T>
-	bool operator==(const T& v) {
+	bool operator==(const T& v) const {
 		return ::get<T>(value) == v;
 	}
 
-	bool operator==(const char* v) {
-		return ::get<string>(value) == string(v);
-	}
-
 	template<typename T>
-	bool operator!=(const T& v) {
-		return ::get<T>(value) != v;
+	bool operator!=(const T& v) const {
+		return !(*this == v);
 	}
 
-	bool operator!=(const char* v) {
-		return ::get<string>(value) != string(v);
+	bool operator==(const char* v) const {
+		return ::get<string>(value) == v;
 	}
+
+	bool operator!=(const char* v) const {
+		return !(*this == v);
+	}
+
+	/*
+	bool operator==(const NodeValue& v) const {
+		if(!holds_alternative<any>(value) && !holds_alternative<any>(v.value)) {
+			return value == v.value;
+		}
+
+		return false;
+	}
+
+	bool operator!=(const NodeValue& v) const {
+		return !(*this == v);
+	}
+	*/
 
 	bool empty() const {
 		return holds_alternative<nullptr_t>(value);
+	}
+
+	int type() const {
+		return value.index();
 	}
 };
 
@@ -141,7 +166,17 @@ public:
 	T get(const string& key, const T& defaultValue = T()) const {
 		auto it = data.find(key);
 
-		return it != data.end() ? it->second.get<T>() : defaultValue;
+		if(it != data.end()) {
+			try {
+				return it->second.get<T>();
+			} catch(const bad_variant_access& e) {
+				cout << "Invalid type chosen to access with key \"" << key << "\" ([" << typeid(T).name() << "]), factual is [" << it->second.type() << "]" << endl;
+
+				throw;
+			}
+		}
+
+		return defaultValue;
 	}
 
 	auto get(const string& key) const {
@@ -179,31 +214,120 @@ public:
 	}
 };
 
+string to_string(const NodeValue& value) {
+	string result = "";
+
+	switch(value.type()) {
+		case 1: result += value.get<bool>() ? "true" : "false";		break;
+		case 2: result += to_string(value.get<int>());				break;
+		case 3: result += to_string(value.get<double>());			break;
+		case 4: result += "\""+value.get<string>()+"\"";			break;
+		case 5: result += to_string(*value.get<NodeRef>());			break;
+		case 6: result += to_string(*value.get<NodeArrayRef>());	break;
+	}
+
+	return result;
+}
+
+string to_string(const Node& node) {
+	string result = "{";
+	auto it = node.begin();
+
+	while(it != node.end()) {
+		auto& [k, v] = *it;
+		string s = to_string(v);
+
+		if(!s.empty()) {
+			result += k+": "+s;
+
+			if(next(it) != node.end()) {
+				result += ", ";
+			}
+		}
+
+		it++;
+	}
+
+	result += "}";
+
+	return result;
+}
+
+string to_string(const NodeArray& node) {
+	string result = "[";
+	auto it = node.begin();
+
+	while(it != node.end()) {
+		auto& v = *it;
+		string s = to_string(v);
+
+		if(!s.empty()) {
+			result += s;
+
+			if(next(it) != node.end()) {
+				result += ", ";
+			}
+		}
+
+		it++;
+	}
+
+	result += "]";
+
+	return result;
+}
+
+namespace glz::detail
+{
+	/*
+	template <>
+	struct from_json<Node>
+	{
+		template <auto Opts>
+		static void op(Node& node, auto&&... args)
+		{
+			read<json>::op<Opts>(node.human_readable, args...);
+			node.data = std::stoi(node.human_readable);
+		}
+	};
+	*/
+
+	template <>
+	struct to_json<Node>
+	{
+		template <auto Opts>
+		static void op(Node& node, auto&&... args) noexcept
+		{
+			write<json>::op<Opts>(to_string(node), args...);
+		}
+	};
+}
+
 /*
 int main() {
 	Node node = {
 		{"name", "John Doe"},
 		{"age", 30},
 		{"is_student", false},
-		{"address", Node {
+		{"address", {
 			{"city", "New York"},
 			{"zip", 10001},
-			{"a", NodeArray {1, "2", 3.4, true}}
+			{"a", {1, "2", 3.4, true}}
 		}},
-		{"friends", NodeArray {"Alice", "Bob"}}
+		{"friends", {"Alice", "Bob"}}
 	};
 
 	// Accessing values
 	cout << "Name: " << node.get<string>("name") << endl;
 	cout << "Age: " << node.get<int>("age") << endl;
-	cout << "Is student: " << (node.get<bool>("is_student") ? "true" : "false") << endl;
+	cout << "Is student: " << (node.get("is_student") ? "true" : "false") << endl;
 	cout << "City: " << node.get<NodeRef>("address")->get<string>("city") << endl;
 	cout << "Zip: " << node.get<NodeRef>("address")->get<int>("zip") << endl;
 
-	NodeArrayRef friendsRetrieved = node.get<NodeArrayRef>("friends");
+	NodeArrayRef friendsRetrieved = node.get("friends");
 	cout << "Friends: ";
-	for(const auto& friendName : *friendsRetrieved) {
-		cout << friendName.get<string>() << " ";
+	for(const string& friendName : *friendsRetrieved) {
+		cout << friendName << " ";
 	}
 	cout << endl;
 
@@ -218,7 +342,7 @@ int main() {
 		{"city", "San Francisco"},
 		{"zip", 94105}
 	};
-	node.set("new_address", newAddress);
+	node.set("new_address") = newAddress;
 
 	cout << "New city: " << node.get<NodeRef>("new_address")->get<string>("city") << endl;
 	cout << "New zip: " << node.get<NodeRef>("new_address")->get<int>("zip") << endl;

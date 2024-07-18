@@ -706,13 +706,13 @@ class Parser {
 				this.position++;
 			}
 
-			if(this.token.type === 'bracketClosed') {
-				node.range.end = this.position++;
-			} else {
+			if(this.token.type !== 'bracketClosed') {
 				this.position = node.range.start;
 
 				return;
 			}
+
+			node.range.end = this.position++;
 
 			return node;
 		},
@@ -806,6 +806,7 @@ class Parser {
 				key: this.rules.expressionsSequence(),
 				value: undefined
 			}
+
 			if(node.key == null || !this.token.type.startsWith('operator') || this.token.value !== ':') {
 				this.position = node.range.start;
 
@@ -1491,7 +1492,7 @@ class Parser {
 			if(node.signature == null) {
 				this.report(0, node.range.start, node.type, 'No signature.');
 			} else
-			if(node.signature.return != null) {
+			if(node.signature.returnType != null) {
 				this.report(1, node.range.start, node.type, 'Signature shouldn\'t have a return type.');
 			}
 			if(node.body == null) {
