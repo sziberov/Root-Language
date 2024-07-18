@@ -80,6 +80,13 @@ public:
 	}
 
 	template<typename T>
+	NodeValue& operator=(T&& v) {
+		value = NodeValue(forward<T>(v)).value;
+
+		return *this;
+	}
+
+	template<typename T>
 	bool operator==(const T& v) {
 		return ::get<T>(value) == v;
 	}
@@ -117,6 +124,10 @@ public:
 
 	void set(const string& key, const NodeValue& value) {
 		data[key] = value;
+	}
+
+	NodeValue& set(const string& key) {
+		return data[key];
 	}
 
 	/*

@@ -6,6 +6,15 @@
 using Location = Lexer::Location;
 using Token = Lexer::Token;
 
+template<typename T, typename UnaryPredicate>
+vector<T> filter(const vector<T>& container, UnaryPredicate predicate) {
+    vector<T> result;
+    copy_if(container.begin(), container.end(), back_inserter(result), predicate);
+    return result;
+}
+
+// ----------------------------------------------------------------
+
 class Parser {
 public:
 	struct Report {
@@ -37,16 +46,16 @@ public:
 				position++;
 			} else {
 				position = node.get<NodeRef>("range")->get("start");
-				node.set("label", nullptr);
+				node.set("label") = nullptr;
 			}
 
-			node.set("value", rules("expressionsSequence"));
+			node.set("value") = rules("expressionsSequence");
 
 			if(node.empty("label") && node.empty("value")) {
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -61,7 +70,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
+			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("values", helpers_sequentialNodes(
 				vector<string> {"expressionsSequence"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -73,7 +82,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position++);
+			node.get<NodeRef>("range")->set("end") = position++;
 
 			return node;
 		} else
@@ -88,8 +97,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("value", rules("type"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("type");
 
 			if(token()->type != "bracketClosed") {
 				position = node.get<NodeRef>("range")->get("start");
@@ -97,7 +106,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position++);
+			node.get<NodeRef>("range")->set("end") = position++;
 
 			return node;
 		} else
@@ -112,8 +121,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("value", rules("expression"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
 				position--;
@@ -121,7 +130,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -136,8 +145,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("value", rules("expression"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
 				position--;
@@ -145,7 +154,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -161,17 +170,17 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("statements", rules(type+"Statements"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("statements") = rules(type+"Statements");
 
 			if(node.get<NodeArrayRef>("statements")->empty()) {
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<NodeRef>("range")->set("end", position++);
+				node.get<NodeRef>("range")->set("end") = position++;
 			} else {
-				node.get<NodeRef>("range")->set("end", position-1);
+				node.get<NodeRef>("range")->set("end") = position-1;
 
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
@@ -189,9 +198,9 @@ public:
 				return nullptr;
 			}
 
-			node.set("value", token()->value);
-			node.get<NodeRef>("range")->set("start", position);
-			node.get<NodeRef>("range")->set("end", position++);
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
 
 			return node;
 		} else
@@ -206,9 +215,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("label", rules("identifier"));
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("label") = rules("identifier");
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -239,7 +248,7 @@ public:
 				}
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			if(token()->type == "parenthesisOpen") {
 				position++;
@@ -253,7 +262,7 @@ public:
 				if(token()->type == "parenthesisClosed") {
 					position++;
 				} else {
-					node.get<NodeRef>("range")->set("end", position-1);
+					node.get<NodeRef>("range")->set("end") = position-1;
 
 					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 
@@ -261,7 +270,7 @@ public:
 				}
 			}
 
-			node.set("closure", rules("closureExpression"));
+			node.set("closure") = rules("closureExpression");
 
 			if(node.empty("closure") && node.get<NodeRef>("range")->get("end") == position-1) {
 				position = node_->get<NodeRef>("range")->get<int>("end")+1;
@@ -269,7 +278,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -284,7 +293,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
+			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("identifiers", helpers_sequentialNodes(
 				vector<string> {"identifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -294,7 +303,7 @@ public:
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifiers(s).");
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -311,13 +320,13 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
+			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("typeIdentifiers", helpers_sequentialNodes(
 				vector<string> {"typeIdentifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
-			node.set("body", rules("functionBody"));
-			node.set("catch", rules("catchClause"));
+			node.set("body") = rules("functionBody");
+			node.set("catch") = rules("catchClause");
 
 			if(node.get<NodeArrayRef>("typeIdentifiers")->empty()) {
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No type identifiers.");
@@ -326,7 +335,7 @@ public:
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -346,8 +355,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("body", rules("observersBody"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("body") = rules("observersBody");
 
 			if(some(node.get<NodeArrayRef>("modifiers"), [](auto& v) { return v != "static"; })) {
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Can only have specific modifier (static).");
@@ -356,7 +365,7 @@ public:
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -385,7 +394,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", node.get<NodeRef>("member")->get<NodeRef>("range")->get("end"));
+			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("member")->get<NodeRef>("range")->get("end");
 
 			return node;
 		} else
@@ -405,7 +414,7 @@ public:
 			}
 
 			position++;
-			node.set("value", rules("identifier"));
+			node.set("value") = rules("identifier");
 
 			if(node.empty("value")) {
 				position = node_->get<NodeRef>("range")->get<int>("end")+1;
@@ -413,7 +422,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", node.get<NodeRef>("value")->get<NodeRef>("range")->get("end"));
+			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
 
 			return node;
 		} else
@@ -444,7 +453,7 @@ public:
 			}
 
 			position++;
-			node.set("identifier", rules("identifier"));
+			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
@@ -460,18 +469,18 @@ public:
 				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.set("genericParameters", rules("genericParametersClause"));
-			node.set("inheritedTypes", rules("inheritedTypesClause"));
-			node.set("body", rules("classBody"));
+			node.set("genericParameters") = rules("genericParametersClause");
+			node.set("inheritedTypes") = rules("inheritedTypesClause");
+			node.set("body") = rules("classBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Can only have specific modifier (static).");
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -505,8 +514,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("signature", rules("functionSignature"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("signature") = rules("functionSignature");
 
 			if(!node.empty("signature")) {
 				if(token()->type != "keywordIn") {
@@ -520,16 +529,16 @@ public:
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
 			}
 
-			node.set("statements", rules("functionStatements"));
+			node.set("statements") = rules("functionStatements");
 
 			if(node.get<NodeArrayRef>("statements")->empty()) {
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<NodeRef>("range")->set("end", position++);
+				node.get<NodeRef>("range")->set("end") = position++;
 			} else {
-				node.get<NodeRef>("range")->set("end", position-1);
+				node.get<NodeRef>("range")->set("end") = position-1;
 
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
@@ -547,8 +556,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("expression", rules("expressionsSequence"));
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("expression") = rules("expressionsSequence");
 
 			if(!token()->type.starts_with("operator") || token()->value != ":") {
 				position = node.get<NodeRef>("range")->get("start");
@@ -556,7 +565,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end", position++);
+			node.get<NodeRef>("range")->set("end") = position++;
 
 			return node;
 		} else
@@ -571,9 +580,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start", position++);
-			node.set("label", rules("identifier"));
-			node.get<NodeRef>("range")->set("end", position-1);
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("label") = rules("identifier");
+			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
@@ -602,7 +611,389 @@ public:
 				rules("subscriptDeclaration") ?:
 				rules("variableDeclaration")
 			);
-		}
+		} else
+		if(type == "declarator") {
+			NodeRef node = make_shared<Node>(Node {
+				{"type", "declarator"},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"identifier", rules("identifier")},
+				{"type_", nullptr},
+				{"value", nullptr},
+				{"body", nullptr}
+			});
+
+			if(node->empty("identifier")) {
+				return nullptr;
+			}
+
+			node->set("type_") = rules("typeClause");
+			node->set("value") = rules("initializerClause");
+
+			helpers_bodyTrailedValue(node, "value", "body", false, [this]() { return rules("observersBody", true) ?: rules("functionBody"); });
+
+			node->get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "defaultExpression") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = Node {
+				{"type", "defaultExpression"},
+				{"range", Node {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"value", node_}
+			};
+
+			if(token()->type != "operatorPostfix" || token()->value != "!") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "defaultType") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = Node {
+				{"type", "defaultType"},
+				{"range", Node {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"value", node_}
+			};
+
+			if(token()->type != "operatorPostfix" || token()->value != "!") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "deinitializerDeclaration") {
+			Node node = Node {
+				{"type", "deinitializerDeclaration"},
+				{"range", Node {}},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "identifier" || token()->value != "deinit") {
+				return nullptr;
+			}
+
+			position++;
+			node.set("body") = rules("functionBody");
+
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "deleteExpression") {
+			Node node = Node {
+				{"type", "deleteExpression"},
+				{"range", Node {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "identifier" || token()->value != "delete") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("expression");
+
+			if(node.empty("body")) {
+				position--;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "dictionaryLiteral") {
+			Node node = Node {
+				{"type", "dictionaryLiteral"},
+				{"range", Node {}},
+				{"entries", NodeArray {}}
+			};
+
+			if(token()->type != "bracketOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("entries", helpers_sequentialNodes(
+				vector<string> {"entry"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			));
+
+			if(node.get<NodeArrayRef>("entries")->empty() && token()->type.starts_with("operator") && token()->value == ":") {
+				position++;
+			}
+
+			if(token()->type != "bracketClosed") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "dictionaryType") {
+			Node node = Node {
+				{"type", "dictionaryType"},
+				{"range", Node {}},
+				{"key", nullptr},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "bracketOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("key") = rules("type");
+
+			if(!token()->type.starts_with("operator") || token()->value != ":") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("key") = rules("type");
+
+
+			if(token()->type != "bracketClosed") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "doStatement") {
+			Node node = Node {
+				{"type", "doStatement"},
+				{"range", Node {}},
+				{"body", nullptr},
+				{"catch", nullptr}
+			};
+
+			if(token()->type != "keywordDo") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("body") = rules("functionBody");
+			node.set("catch") = rules("catchClause");
+
+			if(node.empty("body")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+			if(node.empty("catch")) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No catch.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "elseClause") {
+			NodeRef node;
+			int start = position;
+
+			if(token()->type != "keywordElse") {
+				return nullptr;
+			}
+
+			position++;
+			node =
+				rules("functionBody") ?:
+				rules("expressionsSequence") ?:
+				rules("ifStatement");
+
+			if(node == nullptr) {
+				report(0, start, "elseClause", "No value.");
+			}
+
+			return node;
+		} else
+		if(type == "entry") {
+			Node node = Node {
+				{"type", "entry"},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"key", rules("expressionsSequence")},
+				{"value", nullptr}
+			};
+
+			if(node.empty("key") || !token()->type.starts_with("operator") || token()->value != ":") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("value") = rules("expressionsSequence");
+
+			if(node.empty("value")) {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "enumerationBody") {
+			return rules("body", "enumeration");
+		} else
+		if(type == "enumerationDeclaration") {
+			bool anonymous = !arguments.empty() && any_cast<bool>(arguments[0]);
+			Node node = {
+				{"type", string("enumeration")+(!anonymous ? "Declaration" : "Expression")},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"identifier", nullptr},
+				{"inheritedTypes", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordEnum") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("identifier") = rules("identifier");
+
+			if(anonymous) {
+				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				node.remove("modifiers");
+				node.remove("identifier");
+			} else
+			if(node.empty("identifier")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+			}
+
+			node.set("inheritedTypes") = rules("inheritedTypesClause");
+			node.set("body") = rules("enumerationBody");
+
+			if(!node.empty("modifiers") && some(node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "enumerationExpression") {
+			return rules("enumerationDeclaration", true);
+		} else
+		if(type == "enumerationStatements") {
+			return rules("statements", vector<string> {
+				"caseDeclaration",
+				"enumerationDeclaration"
+			});
+		} else
+		if(type == "expression") {
+			return (
+				rules("asyncExpression") ?:
+				rules("awaitExpression") ?:
+				rules("deleteExpression") ?:
+				rules("tryExpression") ?:
+				rules("prefixExpression")
+			);
+		} else
+		if(type == "expressionsSequence") {
+			Node node = {
+				{"type", "expressionsSequence"},
+				{"range", Node {
+					{"start", position}
+				}},
+				{"values", NodeArray {}}
+			};
+
+			set<string> subsequentialTypes = {"inOperator", "isOperator"};
+			NodeArrayRef values = node.set("values") = helpers_sequentialNodes(vector<string> {"expression", "infixExpression"}, nullptr, subsequentialTypes);
+
+			if(values->empty()) {
+				return nullptr;
+			}
+			if(filter(*values, [&](const NodeRef& v) { return !subsequentialTypes.contains(v->get("type")); }).size()%2 == 0) {
+				position = values->back().get<NodeRef>()->get<NodeRef>("range")->get("start");
+
+				values->pop_back();
+			}
+			if(values->size() == 1) {
+				return values->at(0);
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "fallthroughStatement") {
+			Node node = {
+				{"type", "fallthroughStatement"},
+				{"range", Node {}},
+				{"label", nullptr}
+			};
+
+			if(token()->type != "keywordFallthrough") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("label") = rules("identifier");
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "floatLiteral") {
+			Node node = {
+				{"type", "floatLiteral"},
+				{"range", Node {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "numberFloat") {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
 
 		return nullptr;
 	}
@@ -618,7 +1009,7 @@ public:
 	 *
 	 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 	 */
-	NodeRef bodyTrailedValue(NodeRef node, const string& valueKey, const string& bodyKey, bool expressionTrailed = true, function<NodeRef()> body = nullptr) {
+	NodeRef helpers_bodyTrailedValue(NodeRef node, const string& valueKey, const string& bodyKey, bool expressionTrailed = true, function<NodeRef()> body = nullptr) {
 		if(!body) {
 			body = [this]() { return rules("functionBody"); };
 		}
@@ -650,7 +1041,7 @@ public:
 			} else
 			if(!n->empty("closure") && n->get<NodeRef>("closure")->empty("signature")) {
 				position = n->get<NodeRef>("closure")->get<NodeRef>("range")->get("start");
-				n->set("closure", nullptr);
+				n->set("closure") = nullptr;
 				end = position-1;
 
 				NodeRef lhs = n->get("callee") ?: n->get("composite");
@@ -663,7 +1054,7 @@ public:
 			}
 
 			if(end != -1) {
-				n->get<NodeRef>("range")->set("end", end);
+				n->get<NodeRef>("range")->set("end") = end;
 			}
 		};
 
@@ -749,7 +1140,7 @@ public:
 			}
 
 			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end", position++);
+			node->get<NodeRef>("range")->set("end") = position++;
 		}
 
 		NodeRef nodeRange = node->get("range");
@@ -813,7 +1204,7 @@ public:
 
 						nodes.push_back(node);
 					} else {
-						node->get<NodeRef>("range")->set("end", position);
+						node->get<NodeRef>("range")->set("end") = position;
 					}
 				}
 
@@ -845,7 +1236,7 @@ public:
 			}
 
 			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end", position++);
+			node->get<NodeRef>("range")->set("end") = position++;
 
 			if(node != nodes.back()) {
 				nodes.push_back(node);
@@ -908,48 +1299,31 @@ public:
 
 		template <typename T>
 		Position& operator=(const T& v) {
-			int previous = value;
-			value = v;
-			update(previous);
-			return *this;
+			int previous = value; value = v; update(previous); return *this;
 		}
 
 		Position& operator+=(int v) {
-			value += v;
-			update(value-v);
-			return *this;
+			value += v; update(value-v); return *this;
 		}
 
 		Position& operator-=(int v) {
-			value -= v;
-			update(value+v);
-			return *this;
+			value -= v; update(value+v); return *this;
 		}
 
 		Position& operator++() {  // Prefix
-			value++;
-			update(value-1);
-			return *this;
+			value++; update(value-1); return *this;
 		}
 
 		Position& operator--() {  // Prefix
-			value--;
-			update(value+1);
-			return *this;
+			value--; update(value+1); return *this;
 		}
 
 		Position operator++(int) {  // Postfix
-			Position previous = *this;
-			value++;
-			update(previous);
-			return previous;
+			Position previous = *this; value++; update(previous); return previous;
 		}
 
 		Position operator--(int) {  // Postfix
-			Position previous = *this;
-			value--;
-			update(previous);
-			return previous;
+			Position previous = *this; value--; update(previous); return previous;
 		}
 	};
 
@@ -986,7 +1360,7 @@ public:
 
 	void reset() {
 		tokens = {};
-		_position = 0;
+		position = 0;
 		reports = {};
 	}
 
