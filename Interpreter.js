@@ -520,6 +520,7 @@ class Interpreter {
 				return;
 			}
 
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
 				condition,
 				elseif = n.else?.type === 'ifStatement';
@@ -535,7 +536,7 @@ class Interpreter {
 				if(branch?.type === 'functionBody') {
 					this.executeNodes(branch.statements);
 				} else {
-					this.setControlTransfer(this.executeNode(branch));
+					this.setControlTransfer(this.executeNode(branch), this.controlTransfer?.type);
 				}
 			}
 
@@ -998,6 +999,7 @@ class Interpreter {
 				return;
 			}
 
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
 				condition;
 
@@ -1016,7 +1018,7 @@ class Interpreter {
 				if(n.value?.type === 'functionBody') {
 					this.executeNodes(n.value.statements);
 				} else {
-					this.setControlTransfer(this.executeNode(n.value));
+					this.setControlTransfer(this.executeNode(n.value), this.controlTransfer?.type);
 				}
 
 				let CTT = this.controlTransfer?.type;

@@ -788,8 +788,7 @@ class Parser {
 			this.position++;
 			node =
 				this.rules.functionBody() ??
-				this.rules.expressionsSequence() ??
-				this.rules.ifStatement();
+				this.rules.functionStatement();
 
 			if(node == null) {
 				this.report(0, start, 'elseClause', 'No value.');
@@ -1117,8 +1116,19 @@ class Parser {
 
 			return node;
 		},
-		functionStatements: () => {
-			return this.rules.statements([
+		functionStatement: () => {
+			let types = this.rules.functionStatements(true);
+
+			for(let type of types) {
+				let node = this.rules[type]?.();
+
+				if(node != null) {
+					return node;
+				}
+			}
+		},
+		functionStatements: (list) => {
+			let types = [
 				'expressionsSequence',  // Expressions must be parsed first as they may include (anonymous) declarations
 				'declaration',
 				'controlTransferStatement',
@@ -1126,7 +1136,9 @@ class Parser {
 				'forStatement',
 				'ifStatement',
 				'whileStatement'
-			]);
+			]
+
+			return !list ? this.rules.statements(types) : types;
 		},
 		functionType: () => {
 			let node = {
@@ -1856,7 +1868,7 @@ class Parser {
 		observersBody: (strict) => {
 			let node = this.rules.body('observers');
 
-			if(node != null && strict && !node?.statements.some(v => v.type !== 'unsupported')) {
+			if(node != null && strict && !node.statements.some(v => v.type !== 'unsupported')) {
 				this.position = node.range.start;
 
 				return;
@@ -2831,7 +2843,7 @@ class Parser {
 		 *
 		 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 		 */
-		bodyTrailedValue: (node, valueKey, bodyKey, expressionTrailed = true, body) => {
+		bodyTrailedValue: (node, valueKey, bodyKey, statementTrailed = true, body) => {
 			body ??= this.rules.functionBody;
 			node[bodyKey] = body();
 
@@ -2882,8 +2894,8 @@ class Parser {
 
 			parse(node);
 
-			if(expressionTrailed) {
-				node[bodyKey] ??= this.rules.expressionsSequence();
+			if(statementTrailed) {
+				node[bodyKey] ??= this.rules.functionStatement();
 			}
 		},
 		/*

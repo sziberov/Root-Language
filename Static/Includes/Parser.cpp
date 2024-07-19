@@ -1160,8 +1160,20 @@ public:
 
 			return node;
 		} else
+		if(type == "functionStatement") {
+			NodeArrayRef types = rules("functionStatements", true);
+
+			for(const string& type : *types) {
+				NodeRef node = rules(type);
+
+				if(node != nullptr) {
+					return node;
+				}
+			}
+		} else
 		if(type == "functionStatements") {
-			return rules("statements", vector<string> {
+			bool list = !arguments.empty() && any_cast<bool>(arguments[0]);
+			NodeValue types = {
 				"expressionsSequence",  // Expressions must be parsed first as they may include (anonymous) declarations
 				"declaration",
 				"controlTransferStatement",
@@ -1169,7 +1181,9 @@ public:
 				"forStatement",
 				"ifStatement",
 				"whileStatement"
-			});
+			};
+
+			return !list ? rules("statements", types) : types;
 		} else
 		if(type == "functionType") {
 			Node node = {
@@ -1756,6 +1770,237 @@ public:
 			node.get<NodeRef>("range")->set("end") = !node.get<NodeArrayRef>("statements")->empty() ? position-1 : 0;
 
 			return node;
+		} else
+		if(type == "namespaceBody") {
+			return rules("body", "namespace");
+		} else
+		if(type == "namespaceDeclaration") {
+			bool anonymous = !arguments.empty() && any_cast<bool>(arguments[0]);
+			Node node = {
+				{"type", string("namespace")+(!anonymous ? "Declaration" : "Expression")},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"identifier", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordNamespace") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("identifier") = rules("identifier");
+
+			if(anonymous) {
+				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				node.remove("modifiers");
+				node.remove("identifier");
+			} else
+			if(node.empty("identifier")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+			}
+
+			node.set("body") = rules("enumerationBody");
+
+			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "namespaceExpression") {
+			return rules("namespaceDeclaration", true);
+		} else
+		if(type == "namespaceStatements") {
+			return rules("statements", vector<string> {"declaration"});
+		} else
+		if(type == "nillableExpression") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = {
+				{"type", "nillableExpression"},
+				{"range", {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"value", node_}
+			};
+
+			if(!set<string> {"operatorInfix", "operatorPostfix"}.contains(token()->type) || token()->value != "?") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "nillableType") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = {
+				{"type", "nillableType"},
+				{"range", {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"value", node_}
+			};
+
+			if(token()->type != "operatorPostfix" || token()->value != "?") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "nilLiteral") {
+			Node node = {
+				{"type", "nilLiteral"},
+				{"range", {}}
+			};
+
+			if(token()->type != "keywordNil") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "observerDeclaration") {
+			Node node = {
+				{"type", "observerDeclaration"},
+				{"range", {
+					{"start", position}
+				}},
+				{"identifier", rules("identifier")},
+				{"body", nullptr}
+			};
+
+			NodeRef identifier = node.get("identifier");
+
+			if(!set<string> {
+				"willGet",
+				"get",
+				"didGet",
+				"willSet",
+				"set",
+				"didSet",
+				"willDelete",
+				"delete",
+				"didDelete"
+			}.contains(identifier != nullptr ? identifier->get("value") : "")) {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.set("body") = rules("functionBody");
+
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "observersBody") {
+			bool strict = !arguments.empty() && any_cast<bool>(arguments[0]);
+			NodeRef node = rules("body", "observers");
+
+			if(node != nullptr && strict && !some(*node->get<NodeArrayRef>("statements"), [](const NodeRef& v) { return v->get("type") != "unsupported"; })) {
+				position = node->get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			return node;
+		} else
+		if(type == "observersStatements") {
+			return rules("statements", vector<string> {"observerDeclaration"});
+		} else
+		if(type == "operator") {
+			Node node = {
+				{"type", "operator"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(!token()->type.starts_with("operator")) {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "operatorBody") {
+			return rules("body", "operator");
+		} else
+		if(type == "operatorDeclaration") {
+			Node node = {
+				{"type", "operatorDeclaration"},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"operator", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordOperator") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("operator") = rules("operator");
+			node.set("body") = rules("operatorBody");
+
+			/*
+			if(!some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "Should have specific modifier (infix, postfix, prefix).");
+			}
+			if(node.empty("operator")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No operator.");
+			}
+			if(node.empty("body")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			} else {
+				
+			}
+			*/
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "statements") {
+			vector<string> types = any_cast<vector<string>>(arguments[0]);
+
+			return helpers_skippableNodes(
+				types,
+				[this]() { return token()->type == "braceOpen"; },
+				[this]() { return token()->type == "braceClosed"; },
+				[this]() { return token()->type == "delimiter"; },
+				true
+			);
 		}
 
 		return nullptr;
@@ -1772,7 +2017,7 @@ public:
 	 *
 	 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 	 */
-	void helpers_bodyTrailedValue(NodeRef node, const string& valueKey, const string& bodyKey, bool expressionTrailed = true, function<NodeRef()> body = nullptr) {
+	void helpers_bodyTrailedValue(NodeRef node, const string& valueKey, const string& bodyKey, bool statementTrailed = true, function<NodeRef()> body = nullptr) {
 		if(!body) {
 			body = [this]() { return rules("functionBody"); };
 		}
@@ -1823,8 +2068,8 @@ public:
 
 		parse(node);
 
-		if(expressionTrailed && node->empty(bodyKey)) {
-			node->set(bodyKey, rules("expressionsSequence"));
+		if(statementTrailed && node->empty(bodyKey)) {
+			node->set(bodyKey, rules("functionStatement"));
 		}
 	}
 
