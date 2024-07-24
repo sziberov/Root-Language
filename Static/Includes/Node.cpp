@@ -83,12 +83,25 @@ public:
 
 	template<typename T>
 	operator T() const {
+		/*
+		if constexpr(is_same_v<T, vector<string>>) {
+			auto values = ::get<NodeArrayRef>(value);
+			T values_;
+
+			for(const NodeValue& value : *values) {
+				values_.push_back(value);
+			}
+
+			return values_;
+		}
+		*/
+
 		return ::get<T>(value);
 	}
 
 	template<typename T>
 	NodeValue& operator=(T&& v) {
-		value = NodeValue(forward<T>(v)).value;
+		value = NodeValue(v).value;
 
 		return *this;
 	}

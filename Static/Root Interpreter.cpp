@@ -45,7 +45,7 @@ int main() {
 		return parserResultString;
 	});
 
-	app.port(3007).multithreaded().run();
+	app.port(3007)/*.multithreaded()*/.run();
 
 	return 0;
 }

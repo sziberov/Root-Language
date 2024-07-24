@@ -8,14 +8,14 @@ using Token = Lexer::Token;
 
 template<typename T, typename UnaryPredicate>
 vector<T> filter(const vector<T>& container, UnaryPredicate predicate) {
-    vector<T> result;
-    copy_if(container.begin(), container.end(), back_inserter(result), predicate);
-    return result;
+	vector<T> result;
+	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
+	return result;
 }
 
 template<typename Container, typename T>
 bool contains(const Container& container, const T& value) {
-    return find(container.begin(), container.end(), value) != container.end();
+	return find(container.begin(), container.end(), value) != container.end();
 }
 
 // ----------------------------------------------------------------
@@ -32,7 +32,6 @@ public:
 	};
 
 	deque<shared_ptr<Token>> tokens;
-	int _position;
 	deque<shared_ptr<Report>> reports;
 
 	template<typename... Args>
@@ -79,7 +78,7 @@ public:
 
 			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("values", helpers_sequentialNodes(
-				vector<string> {"expressionsSequence"},
+				{"expressionsSequence"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 
@@ -244,7 +243,7 @@ public:
 			if(token()->type.starts_with("operator") && token()->value == "<") {
 				position++;
 				node.set("genericArguments", helpers_sequentialNodes(
-					vector<string> {"type"},
+					{"type"},
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 				));
 
@@ -260,7 +259,7 @@ public:
 			if(token()->type == "parenthesisOpen") {
 				position++;
 				node.set("arguments", helpers_skippableNodes(
-					vector<string> {"argument"},
+					{"argument"},
 					[this]() { return token()->type == "parenthesisOpen"; },
 					[this]() { return token()->type == "parenthesisClosed"; },
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -302,7 +301,7 @@ public:
 
 			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("identifiers", helpers_sequentialNodes(
-				vector<string> {"identifier"},
+				{"identifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 
@@ -329,7 +328,7 @@ public:
 
 			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("typeIdentifiers", helpers_sequentialNodes(
-				vector<string> {"typeIdentifier"},
+				{"typeIdentifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 			node.set("body") = rules("functionBody");
@@ -739,7 +738,7 @@ public:
 
 			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("entries", helpers_sequentialNodes(
-				vector<string> {"entry"},
+				{"entry"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 
@@ -949,7 +948,7 @@ public:
 			};
 
 			set<string> subsequentialTypes = {"inOperator", "isOperator"};
-			NodeArrayRef values = node.set("values") = helpers_sequentialNodes(vector<string> {"expression", "infixExpression"}, nullptr, subsequentialTypes);
+			NodeArrayRef values = node.set("values") = helpers_sequentialNodes({"expression", "infixExpression"}, nullptr, subsequentialTypes);
 
 			if(values->empty()) {
 				return nullptr;
@@ -1119,7 +1118,7 @@ public:
 			if(token()->type == "parenthesisOpen") {
 				position++;
 				node.set("arguments", helpers_skippableNodes(
-					vector<string> {"parameter"},
+					{"parameter"},
 					[this]() { return token()->type == "parenthesisOpen"; },
 					[this]() { return token()->type == "parenthesisClosed"; },
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -1202,7 +1201,7 @@ public:
 			if(token()->type.starts_with("operator") && token()->value == "<") {
 				position++;
 				node.set("genericParameterTypes", helpers_sequentialNodes(
-					vector<string> {"type"},
+					{"type"},
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 				));
 
@@ -1223,7 +1222,7 @@ public:
 
 			position++;
 			node.set("parameterTypes", helpers_sequentialNodes(
-				vector<string> {"type"},
+				{"type"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			));
 
@@ -1302,7 +1301,7 @@ public:
 
 			position++;
 			nodes = helpers_skippableNodes(
-				vector<string> {"genericParameter"},
+				{"genericParameter"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == "<"; },
 				[this]() { return token()->type.starts_with("operator") && token()->value == ">"; },
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -1488,7 +1487,7 @@ public:
 
 			position++;
 			nodes = helpers_sequentialNodes(
-				vector<string> {"typeIdentifier"},
+				{"typeIdentifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			);
 
@@ -1659,7 +1658,7 @@ public:
 					{"start", position}
 				}},
 				{"subtypes", helpers_sequentialNodes(
-					vector<string> {"postfixType"},
+					{"postfixType"},
 					[this]() { return token()->type.starts_with("operator") && token()->value == "&"; }
 				)}
 			};
@@ -1973,26 +1972,438 @@ public:
 			node.set("operator") = rules("operator");
 			node.set("body") = rules("operatorBody");
 
-			/*
-			if(!some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
+			if(!some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
 				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "Should have specific modifier (infix, postfix, prefix).");
 			}
 			if(node.empty("operator")) {
 				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No operator.");
 			}
 			if(node.empty("body")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
 			} else {
-				
+				string type = node.get("type");
+
+				for(const NodeRef& entry : filter(*node.get<NodeRef>("body")->get<NodeArrayRef>("statements"), [](const NodeRef& v) { return v->get("type") == "entry"; })) {
+					NodeRef key = entry->get("key"),
+							value = entry->get("value"),
+							entryRange = entry->get("range");
+					int start = entryRange->get("start"),
+						end = entryRange->get("end");
+
+					if(key->get("type") != "identifier" || !set<string> {"associativity", "precedence"}.contains(key->get("value"))) {
+						report(1, start, type, "Should have only identifiers as keys (associativity, precedence).");
+					} else {
+						if(key->get("value") == "associativity") {
+							if(value->get("type") != "identifier") {
+								report(2, start, type, "Associativity value should be identifier.");
+							}
+							if(!set<string> {"left", "right", "none"}.contains(value->get("value"))) {
+								report(2, start, type, "Associativity accepts only one of following values: left, right, none.");
+							}
+						}
+						if(key->get("value") == "precedence" && value->get("type") != "integerLiteral") {
+							report(2, start, type, "Precedence value should be integer.");
+						}
+					}
+				}
 			}
-			*/
 
 			node.get<NodeRef>("range")->set("end") = position-1;
 
 			return node;
 		} else
+		if(type == "operatorStatements") {
+			return rules("statements", vector<string> {"entry"});
+		} else
+		if(type == "parameter") {
+			Node node = {
+				{"type", "parameter"},
+				{"range", {
+					{"start", position}
+				}},
+				{"label", rules("identifier")},
+				{"identifier", nullptr},
+				{"type_", nullptr},
+				{"value", nullptr}
+			};
+
+			if(node.empty("label")) {
+				return nullptr;
+			}
+
+			node.set("identifier") = rules("identifier");
+
+			if(node.empty("identifier")) {
+				node.set("identifier") = node.get("label");
+				node.set("label") = nullptr;
+			}
+
+			node.set("type_") = rules("typeClause");
+			node.set("value") = rules("initializerClause");
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "parenthesizedExpression") {
+			Node node = {
+				{"type", "parenthesizedExpression"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "parenthesisOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = helpers_skippableNode(
+				"expressionsSequence",
+				[this]() { return token()->type == "parenthesisOpen"; },
+				[this]() { return token()->type == "parenthesisClosed"; }
+			);
+
+			if(token()->type == "parenthesisClosed") {
+				node.get<NodeRef>("range")->set("end") = position++;
+			} else
+			if(tokensEnd()) {
+				node.get<NodeRef>("range")->set("end") = position-1;
+
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+			} else {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			return node;
+		} else
+		if(type == "parenthesizedType") {
+			Node node = {
+				{"type", "parenthesizedType"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "parenthesisOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("type");
+
+			if(token()->type != "parenthesisClosed") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "postfixExpression") {
+			Node node = {
+				{"type", "postfixExpression"},
+				{"range", {
+					{"start", position}
+				}},
+				{"value", rules("primaryExpression")},
+				{"operator", nullptr}
+			};
+
+			if(node.empty("value")) {
+				return nullptr;
+			}
+
+			while(!tokensEnd()) {
+				NodeRef value = node.get("value"),
+						node_ =
+					rules("callExpression", value) ?:
+					rules("chainExpression", value) ?:
+					rules("defaultExpression", value) ?:
+					rules("nillableExpression", value) ?:
+					rules("subscriptExpression", value);
+
+				if(node_ == nullptr) {
+					break;
+				}
+
+				node.set("value") = node_;
+			}
+
+			node.set("operator") = rules("postfixOperator");
+
+			if(node.empty("operator")) {
+				return node.get("value");
+			}
+
+			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("operator")->get<NodeRef>("range")->get("end");
+
+			return node;
+		} else
+		if(type == "postfixOperator") {
+			Node node = {
+				{"type", "postfixOperator"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			set<string> exceptions = {",", ":"};  // Enclosing nodes can use trailing operators from the list
+
+			if(token()->type != "operatorPostfix" || exceptions.contains(token()->value)) {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "postfixType") {
+			NodeRef node = rules("primaryType");
+
+			if(node == nullptr) {
+				return nullptr;
+			}
+
+			while(!tokensEnd()) {
+				NodeRef node_ =
+					rules("defaultType", node) ?:
+					rules("nillableType", node);
+
+				if(node_ == nullptr) {
+					break;
+				}
+
+				node = node_;
+			}
+
+			return node;
+		} else
+		if(type == "predefinedType") {
+			Node node = {
+				{"type", "predefinedType"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(!set<string> {
+				"keywordUnderscore",
+				"keywordVoid",
+
+				"keywordAny",
+				"keywordBool",
+				"keywordDict",
+				"keywordFloat",
+				"keywordInt",
+				"keywordString",
+				"keywordType",
+
+				"keywordCapitalAny",
+				"keywordCapitalClass",
+				"keywordCapitalEnumeration",
+				"keywordCapitalFunction",
+				"keywordCapitalNamespace",
+				"keywordCapitalObject",
+				"keywordCapitalProtocol",
+				"keywordCapitalStructure"
+			}.contains(token()->type)) {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "prefixExpression") {
+			Node node = {
+				{"type", "prefixExpression"},
+				{"range", {
+					{"start", position}
+				}},
+				{"operator", rules("prefixOperator")},
+				{"value", nullptr}
+			};
+
+			node.set("value") = rules("postfixExpression");
+
+			if(node.empty("value")) {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+			if(node.empty("operator")) {
+				return node.get("value");
+			}
+
+			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
+
+			return node;
+		} else
+		if(type == "prefixOperator") {
+			Node node = {
+				{"type", "prefixOperator"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			set<string> exceptions = {"&", "."};  // primaryExpressions can start with operators from the list
+
+			if(token()->type != "operatorPrefix" || exceptions.contains(token()->value)) {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "primaryExpression") {
+			return (
+				rules("classExpression") ?:
+				rules("closureExpression") ?:
+				rules("enumerationExpression") ?:
+				rules("functionExpression") ?:
+				rules("identifier") ?:
+				rules("implicitChainExpression") ?:
+				rules("inoutExpression") ?:
+				rules("literalExpression") ?:
+				rules("namespaceExpression") ?:
+				rules("parenthesizedExpression") ?:
+				rules("protocolExpression") ?:
+				rules("structureExpression") ?:
+				rules("typeExpression")
+			);
+		} else
+		if(type == "primaryType") {
+			return (
+				rules("arrayType") ?:
+				rules("dictionaryType") ?:
+				rules("functionType") ?:
+				rules("parenthesizedType") ?:
+				rules("predefinedType") ?:
+				rules("protocolType") ?:
+				rules("typeIdentifier")
+			);
+		} else
+		if(type == "protocolBody") {
+			return rules("body", "protocol");
+		} else
+		if(type == "protocolDeclaration") {
+			bool anonymous = !arguments.empty() && any_cast<bool>(arguments[0]);
+			Node node = {
+				{"type", string("protocol")+(anonymous ? "Expression" : "Declaration")},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"identifier", nullptr},
+				{"inheritedTypes", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordProtocol") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("identifier") = rules("identifier");
+
+			if(anonymous) {
+				if(!node.get<NodeArrayRef>("modifiers")->empty() || node.empty("identifier")) {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				node.remove("modifiers");
+				node.remove("identifier");
+			} else
+			if(node.empty("identifier")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+			}
+
+			node.set("inheritedTypes") = rules("inheritedTypesClause");
+			node.set("body") = rules("protocolBody");
+
+			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string>{"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "protocolExpression") {
+			return rules("protocolDeclaration", true);
+		} else
+		if(type == "protocolStatements") {
+			return rules("statements", vector<string> {
+				"classDeclaration",
+				"enumerationDeclaration",
+				"functionDeclaration",
+				"namespaceDeclaration",
+				"protocolDeclaration",
+				"structureDeclaration",
+				"variableDeclaration"
+			});
+		} else
+		if(type == "protocolType") {
+			Node node = {
+				{"type", "protocolType"},
+				{"range", {
+					{"start", position}
+				}},
+				{"body", rules("protocolBody")}
+			};
+
+			if(node.empty("body")) {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "returnStatement") {
+			Node node = {
+				{"type", "returnStatement"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "keywordReturn") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("expressionsSequence");
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
 		if(type == "statements") {
-			vector<string> types = any_cast<vector<string>>(arguments[0]);
+			vector<string> types;
+
+			if(arguments[0].type() == typeid(vector<string>)) {
+				types = any_cast<vector<string>>(arguments[0]);
+			}
+			if(arguments[0].type() == typeid(NodeValue)) {
+				NodeArrayRef types_ = any_cast<NodeValue>(arguments[0]);
+
+				for(const string& type : *types_) {
+					types.push_back(type);
+				}
+			}
 
 			return helpers_skippableNodes(
 				types,
@@ -2001,7 +2412,504 @@ public:
 				[this]() { return token()->type == "delimiter"; },
 				true
 			);
+		} else
+		if(type == "stringExpression") {
+			Node node = {
+				{"type", "stringExpression"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "stringExpressionOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = helpers_skippableNode(
+				"expressionsSequence",
+				[this]() { return token()->type == "stringExpressionOpen"; },
+				[this]() { return token()->type == "stringExpressionClosed"; }
+			);
+
+			if(token()->type == "stringExpressionClosed") {
+				node.get<NodeRef>("range")->set("end") = position++;
+			} else
+			if(tokensEnd()) {
+				node.get<NodeRef>("range")->set("end") = position-1;
+
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+			} else {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			return node;
+		} else
+		if(type == "stringLiteral") {
+			Node node = {
+				{"type", "stringLiteral"},
+				{"range", {}},
+				{"segments", NodeArray{}}
+			};
+
+			if(token()->type != "stringOpen") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("segments") = helpers_skippableNodes(
+				{"stringSegment", "stringExpression"},
+				[this]() { return token()->type == "stringOpen"; },
+				[this]() { return token()->type == "stringClosed"; }
+			);
+
+			if(token()->type == "stringClosed") {
+				node.get<NodeRef>("range")->set("end") = position++;
+			} else {
+				node.get<NodeRef>("range")->set("end") = position-1;
+
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing apostrophe and decided to be autoclosed at the end of stream.");
+			}
+
+			return node;
+		} else
+		if(type == "stringSegment") {
+			Node node = {
+				{"type", "stringSegment"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "stringSegment") {
+				return nullptr;
+			}
+
+			node.set("value") = token()->value;
+			node.get<NodeRef>("range")->set("start") =
+			node.get<NodeRef>("range")->set("end") = position++;
+
+			return node;
+		} else
+		if(type == "structureBody") {
+			return rules("body", "structure");
+		} else
+		if(type == "structureDeclaration") {
+			bool anonymous = !arguments.empty() && any_cast<bool>(arguments[0]);
+			Node node = {
+				{"type", string("structure")+(!anonymous ? "Declaration" : "Expression")},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"identifier", nullptr},
+				{"genericParameters", nullptr},
+				{"inheritedTypes", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "keywordStruct") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("identifier") = rules("identifier");
+
+			if(anonymous) {
+				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
+					position = node.get<NodeRef>("range")->get("start");
+
+					return nullptr;
+				}
+
+				node.remove("modifiers");
+				node.remove("identifier");
+			} else
+			if(node.empty("identifier")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+			}
+
+			node.set("genericParameters") = rules("genericParametersClause");
+			node.set("inheritedTypes") = rules("inheritedTypesClause");
+			node.set("body") = rules("structureBody");
+
+			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "structureExpression") {
+			return rules("structureDeclaration", true);
+		} else
+		if(type == "structureStatements") {
+			return rules("statements", vector<string> {
+				"chainDeclaration",
+				"classDeclaration",
+				"deinitializerDeclaration",
+				"enumerationDeclaration",
+				"functionDeclaration",
+				"initializerDeclaration",
+				"namespaceDeclaration",
+				"protocolDeclaration",
+				"structureDeclaration",
+				"subscriptDeclaration",
+				"variableDeclaration"
+			});
+		} else
+		if(type == "subscriptDeclaration") {
+			Node node = {
+				{"type", "subscriptDeclaration"},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"signature", nullptr},
+				{"body", nullptr}
+			};
+
+			if(token()->type != "identifier" || token()->value != "subscript") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("body") = rules("functionSignature");
+			node.set("body") = rules("observersBody", true) ?: rules("functionBody");
+
+			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.empty("signature")) {
+				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+			}
+			if(node.empty("body")) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "subscriptExpression") {
+			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			Node node = {
+				{"type", "subscriptExpression"},
+				{"range", {
+					{"start", node_->get<NodeRef>("range")->get("start")}
+				}},
+				{"composite", node_},
+				{"arguments", nullptr},
+				{"closure", nullptr}
+			};
+
+			if(token()->type.starts_with("operator") && token()->value == "<") {
+				position++;
+				node.set("genericArguments") = helpers_sequentialNodes(
+					{"type"},
+					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				);
+
+				if(token()->type.starts_with("operator") && token()->value == ">") {
+					position++;
+				} else {
+					position = node_->get<NodeRef>("range")->get<int>("end")+1;
+				}
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			if(token()->type == "bracketOpen") {
+				position++;
+				node.set("arguments") = helpers_skippableNodes(
+					{"argument"},
+					[this]() { return token()->type == "bracketOpen"; },
+					[this]() { return token()->type == "bracketClosed"; },
+					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				);
+
+				if(token()->type == "bracketClosed") {
+					position++;
+				} else {
+					node.get<NodeRef>("range")->set("end") = position-1;
+
+					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing bracket and was decided to be autoclosed at the end of stream.");
+
+					return node;
+				}
+			}
+
+			node.set("closure") = rules("closureExpression");
+
+			if(node.empty("closure") && node.get<NodeRef>("range")->get("end") == position-1) {
+				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "throwStatement") {
+			Node node = {
+				{"type", "throwStatement"},
+				{"range", {}},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "keywordThrow") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+			node.set("value") = rules("expressionsSequence");
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "tryExpression") {
+			Node node = {
+				{"type", "tryExpression"},
+				{"range", {}},
+				{"nillable", false},
+				{"value", nullptr}
+			};
+
+			if(token()->type != "keywordTry") {
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("start") = position++;
+
+			if(token()->type == "operatorPostfix" && token()->value == "?") {
+				position++;
+				node.set("nillable") = true;
+			}
+
+			node.set("value") = rules("expression");
+
+			if(node.empty("value")) {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "type") {
+			return (
+				rules("variadicType") ?:
+				rules("inoutType") ?:
+				rules("unionType")
+			);
+		} else
+		if(type == "typeClause") {
+			NodeRef node;
+			int start = position;
+
+			if(!token()->type.starts_with("operator") || token()->value != ":") {
+				return nullptr;
+			}
+
+			position++;
+			node = rules("type");
+
+			if(node == nullptr) {
+				report(0, start, "typeClause", "No value.");
+			}
+
+			return node;
+		} else
+		if(type == "typeExpression") {
+			Node node = {
+				{"type", "typeExpression"},
+				{"range", {
+					{"start", position}
+				}},
+				{"type_", nullptr}
+			};
+
+			if(token()->type != "keywordType") {
+				return nullptr;
+			}
+
+			position++;
+			node.set("type_") = rules("type");
+
+			if(node.empty("type_")) {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "typeIdentifier") {
+			Node node = {
+				{"type", "typeIdentifier"},
+				{"range", {
+					{"start", position}
+				}},
+				{"identifier",
+					rules("identifier") ?:
+					rules("implicitChainIdentifier")
+				},
+				{"genericArguments", NodeArray {}}
+			};
+
+			if(node.empty("identifier")) {
+				return nullptr;
+			}
+
+			while(!tokensEnd()) {
+				NodeRef node_ = rules("chainIdentifier", node.get<NodeRef>("identifier"));
+
+				if(node_ == nullptr) {
+					break;
+				}
+
+				node.set("identifier") = node_;
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			if(!token()->type.starts_with("operator") || token()->value != "<") {
+				return node;
+			}
+
+			position++;
+			node.set("genericArguments") = helpers_sequentialNodes(
+				{"type"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			);
+
+			if(!token()->type.starts_with("operator") || token()->value != ">") {
+				position = node.get<NodeRef>("range")->get<int>("end")+1;
+				node.set("genericArguments") = NodeArray();
+			} else {
+				node.get<NodeRef>("range")->set("end") = position++;
+			}
+
+			return node;
+		} else
+		if(type == "unionType") {
+			Node node = {
+				{"type", "unionType"},
+				{"range", {
+					{"start", position}
+				}},
+				{"subtypes", helpers_sequentialNodes(
+					{"intersectionType"},
+					[this]() { return token()->type.starts_with("operator") && token()->value == "|"; }
+				)}
+			};
+
+			NodeArrayRef subtypes = node.get("subtypes");
+
+			if(subtypes->empty()) {
+				return nullptr;
+			}
+			if(subtypes->size() == 1) {
+				return subtypes->at(0);
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "variableDeclaration") {
+			Node node = {
+				{"type", "variableDeclaration"},
+				{"range", {
+					{"start", position}
+				}},
+				{"modifiers", rules("modifiers")},
+				{"declarators", NodeArray {}}
+			};
+
+			if(token()->type != "keywordVar") {
+				position = node.get<NodeRef>("range")->get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.set("declarators") = helpers_sequentialNodes(
+				{"declarator"},
+				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+			);
+
+			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "final", "lazy", "static", "virtual"}.contains(v); })) {
+				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			}
+			if(node.get<NodeArrayRef>("declarators")->empty()) {
+				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No declarator(s).");
+			}
+
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "variadicType") {
+			Node node = {
+				{"type", "variadicType"},
+				{"range", {
+					{"start", position}
+				}},
+				{"value", rules("inoutType") ?: rules("unionType")}
+			};
+
+			if(!token()->type.starts_with("operator") || token()->value != "...") {
+				return node.get("value");
+			}
+
+			position++;
+			node.get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
+		} else
+		if(type == "whileStatement") {
+			NodeRef node = make_shared<Node>(Node {
+				{"type", "whileStatement"},
+				{"range", {}},
+				{"condition", nullptr},
+				{"value", nullptr}
+			});
+
+			if(token()->type != "keywordWhile") {
+				return nullptr;
+			}
+
+			node->get<NodeRef>("range")->set("start") = position++;
+			node->set("condition") = rules("expressionsSequence");
+
+			helpers_bodyTrailedValue(node, "condition", "value");
+
+			if(node->get<NodeRef>("condition") == nullptr) {
+				report(2, node->get<NodeRef>("range")->get("start"), node->get("type"), "No condition.");
+			}
+			if(node->get<NodeRef>("value") == nullptr) {
+				report(0, node->get<NodeRef>("range")->get("start"), node->get("type"), "No value.");
+			}
+
+			node->get<NodeRef>("range")->set("end") = position-1;
+
+			return node;
 		}
+
 
 		return nullptr;
 	}
@@ -2296,8 +3204,7 @@ public:
 	public:
 		Position(Parser& s, int v = 0) : self(s), value(v) {}
 
-		template <typename T>
-		operator T() const {
+		operator NodeValue() const {
 			return value;
 		}
 
