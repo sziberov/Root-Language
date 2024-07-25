@@ -28,7 +28,7 @@ public:
 		int level,
 			position;
 		shared_ptr<Location> location;
-		string string;
+		::string string;
 	};
 
 	deque<shared_ptr<Token>> tokens;
@@ -68,7 +68,7 @@ public:
 		if(type == "arrayLiteral") {
 			Node node = {
 				{"type", "arrayLiteral"},
-				{"range", {}},
+				{"range", Node {}},
 				{"values", NodeArray {}}
 			};
 
@@ -95,7 +95,7 @@ public:
 		if(type == "arrayType") {
 			Node node = {
 				{"type", "arrayType"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -119,7 +119,7 @@ public:
 		if(type == "asyncExpression") {
 			Node node = {
 				{"type", "asyncExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -143,7 +143,7 @@ public:
 		if(type == "awaitExpression") {
 			Node node = {
 				{"type", "awaitExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -165,10 +165,10 @@ public:
 			return node;
 		} else
 		if(type == "body") {
-			string type = any_cast<string>(arguments[0]);
+			string type = any_cast<const char*>(arguments[0]);
 			Node node = {
 				{"type", type+"Body"},
-				{"range", {}},
+				{"range", Node {}},
 				{"statements", NodeArray {}}
 			};
 
@@ -196,7 +196,7 @@ public:
 		if(type == "booleanLiteral") {
 			Node node = {
 				{"type", "booleanLiteral"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -213,7 +213,7 @@ public:
 		if(type == "breakStatement") {
 			Node node = {
 				{"type", "breakStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"label", nullptr}
 			};
 
@@ -291,7 +291,7 @@ public:
 		if(type == "caseDeclaration") {
 			Node node = {
 				{"type", "caseDeclaration"},
-				{"range", {}},
+				{"range", Node {}},
 				{"identifiers", NodeArray {}}
 			};
 
@@ -316,7 +316,7 @@ public:
 		if(type == "catchClause") {
 			Node node = {
 				{"type", "catchClause"},
-				{"range", {}},
+				{"range", Node {}},
 				{"typeIdentifiers", NodeArray {}},
 				{"body", nullptr},
 				{"catch", nullptr}
@@ -511,7 +511,7 @@ public:
 		if(type == "closureExpression") {
 			Node node = {
 				{"type", "closureExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"signature", nullptr},
 				{"statements", NodeArray {}}
 			};
@@ -554,7 +554,7 @@ public:
 		if(type == "conditionalOperator") {
 			Node node = {
 				{"type", "conditionalOperator"},
-				{"range", {}},
+				{"range", Node {}},
 				{"expression", nullptr}
 			};
 
@@ -578,7 +578,7 @@ public:
 		if(type == "continueStatement") {
 			Node node = {
 				{"type", "continueStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"label", nullptr}
 			};
 
@@ -682,7 +682,7 @@ public:
 		if(type == "deinitializerDeclaration") {
 			Node node = {
 				{"type", "deinitializerDeclaration"},
-				{"range", {}},
+				{"range", Node {}},
 				{"body", nullptr}
 			};
 
@@ -704,7 +704,7 @@ public:
 		if(type == "deleteExpression") {
 			Node node = {
 				{"type", "deleteExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -728,7 +728,7 @@ public:
 		if(type == "dictionaryLiteral") {
 			Node node = {
 				{"type", "dictionaryLiteral"},
-				{"range", {}},
+				{"range", Node {}},
 				{"entries", NodeArray {}}
 			};
 
@@ -759,7 +759,7 @@ public:
 		if(type == "dictionaryType") {
 			Node node = {
 				{"type", "dictionaryType"},
-				{"range", {}},
+				{"range", Node {}},
 				{"key", nullptr},
 				{"value", nullptr}
 			};
@@ -794,7 +794,7 @@ public:
 		if(type == "doStatement") {
 			Node node = {
 				{"type", "doStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"body", nullptr},
 				{"catch", nullptr}
 			};
@@ -969,7 +969,7 @@ public:
 		if(type == "fallthroughStatement") {
 			Node node = {
 				{"type", "fallthroughStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"label", nullptr}
 			};
 
@@ -986,7 +986,7 @@ public:
 		if(type == "floatLiteral") {
 			Node node = {
 				{"type", "floatLiteral"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1003,7 +1003,7 @@ public:
 		if(type == "forStatement") {
 			NodeRef node = make_shared<Node>(Node {
 				{"type", "forStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"identifier", nullptr},
 				{"in", nullptr},
 				{"where", nullptr},
@@ -1320,7 +1320,7 @@ public:
 		if(type == "identifier") {
 			Node node = {
 				{"type", "identifier"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1337,7 +1337,7 @@ public:
 		if(type == "ifStatement") {
 			NodeRef node = make_shared<Node>(Node {
 				{"type", "ifStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"condition", nullptr},
 				{"then", nullptr},
 				{"else", nullptr}
@@ -1368,7 +1368,7 @@ public:
 		if(type == "implicitChainExpression") {
 			Node node = {
 				{"type", "implicitChainExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"member", nullptr}
 			};
 
@@ -1394,7 +1394,7 @@ public:
 		if(type == "implicitChainIdentifier") {
 			Node node = {
 				{"type", "implicitChainIdentifier"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1418,7 +1418,7 @@ public:
 		if(type == "importDeclaration") {
 			Node node = {
 				{"type", "importDeclaration"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1461,7 +1461,7 @@ public:
 		if(type == "infixOperator") {
 			Node node = {
 				{"type", "infixOperator"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1596,7 +1596,7 @@ public:
 		if(type == "inoutExpression") {
 			Node node = {
 				{"type", "inoutExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1620,7 +1620,7 @@ public:
 		if(type == "inoutType") {
 			Node node = {
 				{"type", "inoutType"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1637,7 +1637,7 @@ public:
 		if(type == "integerLiteral") {
 			Node node = {
 				{"type", "integerLiteral"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -1866,7 +1866,7 @@ public:
 		if(type == "nilLiteral") {
 			Node node = {
 				{"type", "nilLiteral"},
-				{"range", {}}
+				{"range", Node {}}
 			};
 
 			if(token()->type != "keywordNil") {
@@ -1934,7 +1934,7 @@ public:
 		if(type == "operator") {
 			Node node = {
 				{"type", "operator"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2047,7 +2047,7 @@ public:
 		if(type == "parenthesizedExpression") {
 			Node node = {
 				{"type", "parenthesizedExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2080,7 +2080,7 @@ public:
 		if(type == "parenthesizedType") {
 			Node node = {
 				{"type", "parenthesizedType"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2144,7 +2144,7 @@ public:
 		if(type == "postfixOperator") {
 			Node node = {
 				{"type", "postfixOperator"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2184,7 +2184,7 @@ public:
 		if(type == "predefinedType") {
 			Node node = {
 				{"type", "predefinedType"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2246,7 +2246,7 @@ public:
 		if(type == "prefixOperator") {
 			Node node = {
 				{"type", "prefixOperator"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2377,7 +2377,7 @@ public:
 		if(type == "returnStatement") {
 			Node node = {
 				{"type", "returnStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2416,7 +2416,7 @@ public:
 		if(type == "stringExpression") {
 			Node node = {
 				{"type", "stringExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2449,8 +2449,8 @@ public:
 		if(type == "stringLiteral") {
 			Node node = {
 				{"type", "stringLiteral"},
-				{"range", {}},
-				{"segments", NodeArray{}}
+				{"range", Node {}},
+				{"segments", NodeArray {}}
 			};
 
 			if(token()->type != "stringOpen") {
@@ -2477,7 +2477,7 @@ public:
 		if(type == "stringSegment") {
 			Node node = {
 				{"type", "stringSegment"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2662,7 +2662,7 @@ public:
 		if(type == "throwStatement") {
 			Node node = {
 				{"type", "throwStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"value", nullptr}
 			};
 
@@ -2679,7 +2679,7 @@ public:
 		if(type == "tryExpression") {
 			Node node = {
 				{"type", "tryExpression"},
-				{"range", {}},
+				{"range", Node {}},
 				{"nillable", false},
 				{"value", nullptr}
 			};
@@ -2884,7 +2884,7 @@ public:
 		if(type == "whileStatement") {
 			NodeRef node = make_shared<Node>(Node {
 				{"type", "whileStatement"},
-				{"range", {}},
+				{"range", Node {}},
 				{"condition", nullptr},
 				{"value", nullptr}
 			});

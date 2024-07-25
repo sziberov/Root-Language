@@ -205,9 +205,17 @@ body {
 		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
 	}
 
-	function interpret() {
-		parserResult = Parser.parse(lexerResult); // <--------------------------------
-		interpreterResult = Interpreter.interpret(lexerResult, parserResult); // <--------------------------------
+	async function interpret() {
+		let start = Date.now();
+		let parserResponse = await fetch(location.origin+'/parse', {
+			method: 'GET',
+			headers: {'Content-Type': 'text/plain'}
+		});
+
+		parserResult = await parserResponse.json();
+ 		let end = Date.now();
+
+	//	interpreterResult = Interpreter.interpret(lexerResult, parserResult); // <--------------------------------
 
 		let consoleHTML = '';
 
@@ -240,9 +248,10 @@ body {
 		}
 
 		logReports(parserResult.reports, true);
-		logReports(interpreterResult.reports);
+	//	logReports(interpreterResult.reports);
 
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
+		/*
 		output_composites.innerText = JSON.stringify(interpreterResult.composites, (k, v) => {
 			if(v instanceof Map) {
 				return {
@@ -256,6 +265,7 @@ body {
 				return v;
 			}
 		}, 4);
+		*/
 		output_console.innerHTML = consoleHTML;
 	}
 

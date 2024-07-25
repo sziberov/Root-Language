@@ -44,6 +44,10 @@
 			"selector": "source.c++",
 			"variants": [
 				{
+					"name": "Linux",
+					"shell_cmd": "g++ -std=c++23 -I \"${file_path}\" -I \"${file_path}/Includes\" -I \"${folder}/Static/Includes\" \"${file}\" -g -o \"${file_path}/${file_base_name}\""
+				},
+				{
 					"name": "Run",
 					"shell_cmd": "${file_path}/${file_base_name}"
 				}
@@ -52,10 +56,18 @@
 	],
 	"debugger_configurations": [
 		{
-			"name": "C++ (Console)",
+			"name": "Windows",
 			"type": "lldb",
 			"request": "launch",
 			"program": "${project_path}/Static/Root Interpreter.exe",
+			"cwd": "${project_path}/Static",
+			"terminal": "console"
+		},
+		{
+			"name": "Linux",
+			"type": "lldb",
+			"request": "launch",
+			"program": "${project_path}/Static/Root Interpreter",
 			"cwd": "${project_path}/Static",
 			"terminal": "console"
 		}

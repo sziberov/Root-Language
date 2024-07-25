@@ -83,6 +83,11 @@ public:
 
 	template<typename T>
 	operator T() const {
+		if constexpr(is_same_v<T, bool>) {
+			if(holds_alternative<nullptr_t>(value))		return false;
+			if(holds_alternative<NodeRef>(value))		return !!::get<NodeRef>(value);
+			if(holds_alternative<NodeArrayRef>(value))	return !!::get<NodeArrayRef>(value);
+		}
 		/*
 		if constexpr(is_same_v<T, vector<string>>) {
 			auto values = ::get<NodeArrayRef>(value);
@@ -96,7 +101,16 @@ public:
 		}
 		*/
 
-		return ::get<T>(value);
+		if(!holds_alternative<T>(value) &&
+			holds_alternative<nullptr_t>(value)) return T();
+
+		try {
+			return ::get<T>(value);
+		} catch(const bad_variant_access& e) {
+			cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
+
+			throw;
+		}
 	}
 
 	template<typename T>
@@ -183,7 +197,7 @@ public:
 			try {
 				return it->second.get<T>();
 			} catch(const bad_variant_access& e) {
-				cout << "Invalid type chosen to access with key \"" << key << "\" ([" << typeid(T).name() << "]), factual is [" << it->second.type() << "]" << endl;
+				cout << "Invalid type chosen to access value with key \"" << key << "\" ([" << typeid(T).name() << "]), factual is [" << it->second.type() << "]" << endl;
 
 				throw;
 			}
@@ -227,6 +241,9 @@ public:
 	}
 };
 
+string to_string(const Node& node);
+string to_string(const NodeArray& node);
+
 string to_string(const NodeValue& value) {
 	string result = "";
 
@@ -251,7 +268,7 @@ string to_string(const Node& node) {
 		string s = to_string(v);
 
 		if(!s.empty()) {
-			result += k+": "+s;
+			result += "\""+k+"\": "+s;
 
 			if(next(it) != node.end()) {
 				result += ", ";
@@ -311,7 +328,11 @@ namespace glz::detail
 		template <auto Opts>
 		static void op(Node& node, auto&&... args) noexcept
 		{
-			write<json>::op<Opts>(to_string(node), args...);
+			constexpr glz::opts opts {
+				.raw = true
+			};
+
+			write<json>::op<opts>(to_string(node), args...);
 		}
 	};
 }
