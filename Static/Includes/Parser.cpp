@@ -6,13 +6,6 @@
 using Location = Lexer::Location;
 using Token = Lexer::Token;
 
-template<typename T, typename UnaryPredicate>
-vector<T> filter(const vector<T>& container, UnaryPredicate predicate) {
-	vector<T> result;
-	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
-	return result;
-}
-
 template<typename Container, typename T>
 bool contains(const Container& container, const T& value) {
 	return find(container.begin(), container.end(), value) != container.end();
@@ -715,7 +708,7 @@ public:
 			node.get<NodeRef>("range")->set("start") = position++;
 			node.set("value") = rules("expression");
 
-			if(node.empty("body")) {
+			if(node.empty("value")) {
 				position--;
 
 				return nullptr;
@@ -1026,7 +1019,7 @@ public:
 				node->set("where") = rules("expressionsSequence");
 			}
 
-			helpers_bodyTrailedValue(node, node->empty("where") ? "where" : "in", "value");
+			helpers_bodyTrailedValue(node, !node->empty("where") ? "where" : "in", "value");
 
 			if(node->empty("identifier")) {
 				report(1, node->get<NodeRef>("range")->get("start"), node->get("type"), "No identifier.");
@@ -1117,7 +1110,7 @@ public:
 
 			if(token()->type == "parenthesisOpen") {
 				position++;
-				node.set("arguments") = helpers_skippableNodes(
+				node.set("parameters") = helpers_skippableNodes(
 					{"parameter"},
 					[this]() { return token()->type == "parenthesisOpen"; },
 					[this]() { return token()->type == "parenthesisClosed"; },
@@ -1440,12 +1433,10 @@ public:
 
 					node.set("value") = node_;
 				}
+
+				node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
 			} else {
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No value.");
-			}
-
-			if(!node.empty("value")) {
-				node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
 			}
 
 			return node;
@@ -1808,7 +1799,7 @@ public:
 				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.set("body") = rules("enumerationBody");
+			node.set("body") = rules("namespaceBody");
 
 			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
@@ -2582,7 +2573,7 @@ public:
 			}
 
 			node.get<NodeRef>("range")->set("start") = position++;
-			node.set("body") = rules("functionSignature");
+			node.set("signature") = rules("functionSignature");
 			node.set("body") = rules("observersBody", true) ?: rules("functionBody");
 
 			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static"}.contains(v); })) {
@@ -3008,7 +2999,7 @@ public:
 
 			nodes.push_back(node);
 
-			if(subsequentialTypes != nullopt && !(*subsequentialTypes).contains(node->get("type"))) {
+			if(subsequentialTypes == nullopt || !subsequentialTypes->contains(node->get("type"))) {
 				offset++;
 			}
 

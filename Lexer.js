@@ -342,6 +342,8 @@ class Lexer {
 			}
 			this.addToken(type, v);
 
+			// Blocks in some statements can be treated by parser like expressions first, which can lead to false inclusion of futher tokens into that expression and late closing
+			// This can be fixed by tracking and closing them beforehand at lexing stage
 			if(['For', 'If', 'When', 'While'].some(v => type.endsWith(v))) {
 				this.addState('statement');
 			}

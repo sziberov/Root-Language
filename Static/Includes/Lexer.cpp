@@ -18,6 +18,13 @@ bool some(const Container& container, Predicate predicate) {
 	return any_of(container.begin(), container.end(), predicate);
 }
 
+template<typename Container, typename UnaryPredicate>
+Container filter(const Container& container, UnaryPredicate predicate) {
+	Container result;
+	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
+	return result;
+}
+
 // ----------------------------------------------------------------
 
 class Lexer {
@@ -219,7 +226,7 @@ public:
 
 				return false;
 			}
-			if(v == "}" && atStatementBody() && !atFutureToken([](string t, string v) { return (set<string> {"keywordElse", "keywordWhere"}).contains(t); }, ignorable)) {
+			if(v == "}" && atStatementBody() && !atFutureToken([](string t, string v) { return set<string> {"keywordElse", "keywordWhere"}.contains(t); }, ignorable)) {
 				addToken("delimiter", ";");
 				token()->generated = true;
 				removeState("statement");
@@ -296,7 +303,7 @@ public:
 				if(atToken(braceOpen, ignorable)) {
 					addState("statementBody");
 				} else
-				if(!atState("brace", make_shared<set<string>>()) && !atFutureToken(braceOpen, ignorable)) {
+				if(!atState("brace", set<string>()) && !atFutureToken(braceOpen, ignorable)) {
 					removeState("statement");
 				}
 			}
@@ -405,6 +412,8 @@ public:
 			}
 			addToken(type, v);
 
+			// Blocks in some statements can be treated by parser like expressions first, which can lead to false inclusion of futher tokens into that expression and late closing
+			// This can be fixed by tracking and closing them beforehand at lexing stage
 			if(some(set<string> {"For", "If", "When", "While"}, [&type](string v) { return type.ends_with(v); })) {
 				addState("statement");
 			}
@@ -490,11 +499,11 @@ public:
 	}
 
 	inline bool atString() {
-		return atState("string", make_shared<set<string>>());
+		return atState("string", set<string>());
 	}
 
 	inline bool atStringExpression() {
-		return atState("stringExpression", make_shared<set<string>>());
+		return atState("stringExpression", set<string>());
 	}
 
 	inline bool atStringExpressions() {
@@ -502,7 +511,7 @@ public:
 	}
 
 	inline bool atStatement() {
-		return atState("statement", make_shared<set<string>>(initializer_list<string> {"brace"}));
+		return atState("statement", set<string> {"brace"});
 	}
 
 	inline bool atStatements() {
@@ -510,11 +519,11 @@ public:
 	}
 
 	inline bool atStatementBody() {
-		return atState("statementBody", make_shared<set<string>>());
+		return atState("statementBody", set<string>());
 	}
 
 	inline bool atAngle() {
-		return atState("angle", make_shared<set<string>>());
+		return atState("angle", set<string>());
 	}
 
 	function<bool(string, optional<string>)> ignorable = [](string t, optional<string> v = nullopt) {
@@ -642,12 +651,12 @@ public:
 	 *
 	 * Unstrict by default, additionaly whitelist can be set.
 	 */
-	bool atState(const string& type, shared_ptr<set<string>> whitelist = nullptr) {
+	bool atState(const string& type, optional<set<string>> whitelist = nullopt) {
 		for(int i = states.size()-1; i >= 0; i--) {
 			if(states[i] == type) {
 				return true;
 			}
-			if(whitelist != nullptr && !whitelist->contains(states[i])) {
+			if(whitelist != nullopt && !whitelist->contains(states[i])) {
 				return false;
 			}
 		}
@@ -734,7 +743,7 @@ public:
 			}
 
 			if(trigger != nullopt && !actions(*trigger)) {  // Multiple rules can be executed on same position if some of them return true
-				position += (*trigger).length();  // Rules shouldn't explicitly set position
+				position += trigger->length();  // Rules shouldn't explicitly set position
 
 				break;
 			}
@@ -755,13 +764,10 @@ public:
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		deque<shared_ptr<Token>> tokens_ = {};
-
-		for(int i = 0; i < tokens.size(); i++)
-			if(!ignorable(tokens[i]->type, nullopt))
-				tokens_.push_back(tokens[i]);
-
-		Result result = {tokens, tokens_};
+		Result result = {
+			tokens,
+			filter(tokens, [this](auto& v) { return !ignorable(v->type, nullopt); })
+		};
 
 		reset();
 

@@ -5,20 +5,6 @@
 		}
 	],
 	"settings": {
-		"SublimeLinter.linters.clang++.I": [
-			"${file_path}",
-			"${file_path}/Includes",
-			"${folder}/Static/Includes"
-		],
-		"SublimeLinter.linters.clang++.args": [
-			"-fsyntax-only",
-			"-fno-caret-diagnostics",
-			"-std=c++23"
-		],
-		"SublimeLinter.linters.clang++.disable": true,
-		"SublimeLinter.linters.clang++.excludes": [],
-		"SublimeLinter.linters.clang++.executable": ["clang++"],
-		"SublimeLinter.linters.clang.disable": true,
 		"SublimeLinter.linters.g++.I": [
 			"${file_path}",
 			"${file_path}/Includes",
@@ -26,7 +12,6 @@
 		],
 		"SublimeLinter.linters.g++.args": [
 			"-fsyntax-only",
-			"-fdiagnostics-all-candidates",
 			"-std=c++23"
 		],
 		"SublimeLinter.linters.g++.disable": false,
@@ -45,7 +30,7 @@
 			"variants": [
 				{
 					"name": "Linux",
-					"shell_cmd": "g++ -std=c++23 -I \"${file_path}\" -I \"${file_path}/Includes\" -I \"${folder}/Static/Includes\" \"${file}\" -g -o \"${file_path}/${file_base_name}\""
+					"shell_cmd": "g++ -std=c++23 -I \"${file_path}\" -I \"${file_path}/Includes\" -I \"${folder}/Static/Includes\" \"${file}\" -O2 -o \"${file_path}/${file_base_name}\""
 				},
 				{
 					"name": "Run",

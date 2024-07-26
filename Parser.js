@@ -1396,13 +1396,11 @@ class Parser {
 
 					node.value = node_;
 				}
+
+				node.range.end = node.value.range.end;
 			} else {
 				this.report(1, node.range.start, node.type, 'No value.');
 			}
-
-			node.range.end =
-				node.value?.range.end ??
-				node.range.end;
 
 			return node;
 		},
