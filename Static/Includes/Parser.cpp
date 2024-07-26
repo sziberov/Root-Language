@@ -77,10 +77,10 @@ public:
 			}
 
 			node.get<NodeRef>("range")->set("start") = position++;
-			node.set("values", helpers_sequentialNodes(
+			node.set("values") = helpers_sequentialNodes(
 				{"expressionsSequence"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-			));
+			);
 
 			if(token()->type != "bracketClosed") {
 				position = node.get<NodeRef>("range")->get("start");
@@ -242,10 +242,10 @@ public:
 
 			if(token()->type.starts_with("operator") && token()->value == "<") {
 				position++;
-				node.set("genericArguments", helpers_sequentialNodes(
+				node.set("genericArguments") = helpers_sequentialNodes(
 					{"type"},
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-				));
+				);
 
 				if(token()->type.starts_with("operator") && token()->value == ">") {
 					position++;
@@ -258,12 +258,12 @@ public:
 
 			if(token()->type == "parenthesisOpen") {
 				position++;
-				node.set("arguments", helpers_skippableNodes(
+				node.set("arguments") = helpers_skippableNodes(
 					{"argument"},
 					[this]() { return token()->type == "parenthesisOpen"; },
 					[this]() { return token()->type == "parenthesisClosed"; },
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-				));
+				);
 
 				if(token()->type == "parenthesisClosed") {
 					position++;
@@ -300,10 +300,10 @@ public:
 			}
 
 			node.get<NodeRef>("range")->set("start") = position++;
-			node.set("identifiers", helpers_sequentialNodes(
+			node.set("identifiers") = helpers_sequentialNodes(
 				{"identifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-			));
+			);
 
 			if(node.get<NodeArrayRef>("identifiers")->empty()) {
 				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifiers(s).");
@@ -327,10 +327,10 @@ public:
 			}
 
 			node.get<NodeRef>("range")->set("start") = position++;
-			node.set("typeIdentifiers", helpers_sequentialNodes(
+			node.set("typeIdentifiers") = helpers_sequentialNodes(
 				{"typeIdentifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-			));
+			);
 			node.set("body") = rules("functionBody");
 			node.set("catch") = rules("catchClause");
 
@@ -391,8 +391,8 @@ public:
 			}
 
 			position++;
-			node.set("member", rules("identifier") ?:
-							   rules("stringLiteral"));
+			node.set("member") = rules("identifier") ?:
+							     rules("stringLiteral");
 
 			if(node.empty("member")) {
 				position = node_->get<NodeRef>("range")->get<int>("end")+1;
@@ -737,10 +737,10 @@ public:
 			}
 
 			node.get<NodeRef>("range")->set("start") = position++;
-			node.set("entries", helpers_sequentialNodes(
+			node.set("entries") = helpers_sequentialNodes(
 				{"entry"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-			));
+			);
 
 			if(node.get<NodeArrayRef>("entries")->empty() && token()->type.starts_with("operator") && token()->value == ":") {
 				position++;
@@ -1117,12 +1117,12 @@ public:
 
 			if(token()->type == "parenthesisOpen") {
 				position++;
-				node.set("arguments", helpers_skippableNodes(
+				node.set("arguments") = helpers_skippableNodes(
 					{"parameter"},
 					[this]() { return token()->type == "parenthesisOpen"; },
 					[this]() { return token()->type == "parenthesisClosed"; },
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-				));
+				);
 
 				if(token()->type == "parenthesisClosed") {
 					position++;
@@ -1200,10 +1200,10 @@ public:
 
 			if(token()->type.starts_with("operator") && token()->value == "<") {
 				position++;
-				node.set("genericParameterTypes", helpers_sequentialNodes(
+				node.set("genericParameterTypes") = helpers_sequentialNodes(
 					{"type"},
 					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-				));
+				);
 
 				if(token()->type.starts_with("operator") && token()->value == ">") {
 					node.get<NodeRef>("range")->set("end") = position++;
@@ -1221,10 +1221,10 @@ public:
 			}
 
 			position++;
-			node.set("parameterTypes", helpers_sequentialNodes(
+			node.set("parameterTypes") = helpers_sequentialNodes(
 				{"type"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
-			));
+			);
 
 			if(token()->type != "parenthesisClosed") {
 				position = node.get<NodeRef>("range")->get("start");
@@ -2930,7 +2930,7 @@ public:
 			body = [this]() { return rules("functionBody"); };
 		}
 
-		node->set(bodyKey, body());
+		node->set(bodyKey) = body();
 
 		if(node->empty(valueKey) || !node->empty(bodyKey)) {
 			return;
@@ -2943,7 +2943,7 @@ public:
 				parse(n->get(valueKey));
 
 				if(end != -1) {
-					n->set(bodyKey, body());
+					n->set(bodyKey) = body();
 				}
 			} else
 			if(n->get("type") == "expressionsSequence") {
@@ -2964,8 +2964,11 @@ public:
 				bool exportable = lhs->get<NodeRef>("range")->get("end") == end;
 
 				if(exportable) {
-					for(const auto& [k, v] : *n)	n->remove(k);
-					for(const auto& [k, v] : *lhs)	n->set(k, v);
+					n->clear();
+
+					for(const auto& [k, v] : *lhs) {
+						n->set(k) = v;
+					}
 				}
 			}
 
@@ -2977,7 +2980,7 @@ public:
 		parse(node);
 
 		if(statementTrailed && node->empty(bodyKey)) {
-			node->set(bodyKey, rules("functionStatement"));
+			node->set(bodyKey) = rules("functionStatement");
 		}
 	}
 
@@ -3106,7 +3109,7 @@ public:
 			}
 
 			if(separating && separating()) {
-				node = nodes.back();
+				node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
 
 				if(node != nullptr) {
 					if(node->get("type") != "separator") {
@@ -3131,9 +3134,9 @@ public:
 				continue;
 			}
 
-			node = nodes.back();
+			node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
 
-			if(node != nullptr && node->get("type") != "unsupported") {
+			if(node == nullptr || node->get("type") != "unsupported") {
 				node = make_shared<Node>(Node {
 					{"type", "unsupported"},
 					{"range", {
@@ -3154,7 +3157,7 @@ public:
 			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
 			node->get<NodeRef>("range")->set("end") = position++;
 
-			if(node != nodes.back()) {
+			if(node != (!nodes.empty() ? nodes.back().get<NodeRef>() : nullptr)) {
 				nodes.push_back(node);
 			}
 		}

@@ -21,7 +21,7 @@ using NodeArrayRef = shared_ptr<NodeArray>;
 
 class NodeValue {
 private:
-	variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef, any> value;
+	mutable variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef, any> value;
 
 public:
 	NodeValue() : value(nullptr) {}
@@ -32,9 +32,9 @@ public:
 	NodeValue(const char* v) : value(string(v)) {}
 	NodeValue(const string& v) : value(v) {}
 	NodeValue(const Node& v) : value(make_shared<Node>(v)) {}
-	NodeValue(const NodeRef& v) : value(v) {}
+	NodeValue(const NodeRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const NodeArray& v) : value(make_shared<NodeArray>(v)) {}
-	NodeValue(const NodeArrayRef& v) : value(v) {}
+	NodeValue(const NodeArrayRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const any v) : value(v) {}
 
 	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(make_shared<Node>(v)) {}
@@ -53,40 +53,23 @@ public:
 	}
 
 	template<typename T>
-	auto casted() {
-		if constexpr(is_same_v<T, string>) {
-			if(holds_alternative<bool>(value)) {
-				return get<bool>() ? "true" : "false";
-			} else
-			if(holds_alternative<int>(value)) {
-				return to_string(get<int>());
-			} else
-			if(holds_alternative<double>(value)) {
-				return to_string(get<double>());
-			}
-		} else
-		if(holds_alternative<string>(value)) {
-			if constexpr(is_same_v<T, bool>) {
-				return get<string>() == "true" ||
-					   get<string>() == "1";
-			} else
-			if constexpr(is_same_v<T, int>) {
-				return stoi(get<string>());
-			} else
-			if constexpr(is_same_v<T, double>) {
-				return stod(get<string>());
-			}
-		}
-
-		return get<T>();
-	}
-
-	template<typename T>
 	operator T() const {
 		if constexpr(is_same_v<T, bool>) {
 			if(holds_alternative<nullptr_t>(value))		return false;
+			if(holds_alternative<string>(value))		return ::get<string>(value) == "true" || ::get<string>(value) == "1";
 			if(holds_alternative<NodeRef>(value))		return !!::get<NodeRef>(value);
 			if(holds_alternative<NodeArrayRef>(value))	return !!::get<NodeArrayRef>(value);
+		}
+		if constexpr(is_same_v<T, int>) {
+			if(holds_alternative<string>(value))		return stoi(::get<string>(value));
+		}
+		if constexpr(is_same_v<T, double>) {
+			if(holds_alternative<string>(value))		return stod(::get<string>(value));
+		}
+		if constexpr(is_same_v<T, string>) {
+			if(holds_alternative<bool>(value))			return ::get<bool>(value) ? "true" : "false";
+			if(holds_alternative<int>(value))			return to_string(::get<int>(value));
+			if(holds_alternative<double>(value))		return to_string(::get<double>(value));
 		}
 		/*
 		if constexpr(is_same_v<T, vector<string>>) {
@@ -140,11 +123,7 @@ public:
 
 	/*
 	bool operator==(const NodeValue& v) const {
-		if(!holds_alternative<any>(value) && !holds_alternative<any>(v.value)) {
-			return value == v.value;
-		}
-
-		return false;
+		return !holds_alternative<any>(value) && !holds_alternative<any>(v.value) && value == v.value;
 	}
 
 	bool operator!=(const NodeValue& v) const {
@@ -238,6 +217,10 @@ public:
 
 	void remove(const string& key) {
 		data.erase(key);
+	}
+
+	void clear() {
+		data.clear();
 	}
 };
 
