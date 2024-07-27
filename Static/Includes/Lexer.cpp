@@ -10,6 +10,7 @@
 #include <optional>
 #include <deque>
 #include <map>
+#include <execution>
 
 using namespace std;
 
@@ -30,17 +31,17 @@ Container filter(const Container& container, UnaryPredicate predicate) {
 class Lexer {
 public:
 	struct Location {
-		int line = 0,
-			column = 0;
+		int line,
+			column;
 	};
 
 	struct Token {
-		int position = 0;
-		shared_ptr<Location> location = nullptr;
-		string type = "",
-			   value = "";
-		bool nonmergeable = false,
-			 generated = false;
+		int position;
+		shared_ptr<Location> location;
+		string type,
+			   value;
+		bool nonmergeable,
+			 generated;
 	};
 
 	struct Rule {
@@ -55,7 +56,7 @@ public:
 	vector<Rule> rules {
 		{"#!", [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 			} else
 			if(position == 0) {
@@ -69,7 +70,7 @@ public:
 		}},
 		{vector<string> {"/*", "*/"}, [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 			} else
 			if(v == "/*") {
@@ -87,7 +88,7 @@ public:
 		}},
 		{"//", [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 			} else {
 				addToken("commentLine", v);
@@ -111,7 +112,7 @@ public:
 				return true;
 			}
 
-			helpers["continueString"]();
+			helpers_continueString();
 			token()->value +=
 				v == "\\\\" ? "\\" :
 				v == "\\'" ? "'" :
@@ -146,7 +147,7 @@ public:
 		}},
 		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -161,7 +162,7 @@ public:
 				 generic = generics.contains(v);
 
 			if(!generic) {
-				helpers["mergeOperators"]();
+				helpers_mergeOperators();
 			}
 
 			bool closingAngle = atAngle() && v == ">";
@@ -186,7 +187,7 @@ public:
 					type += "Postfix";
 				}
 
-				helpers["specifyOperatorType"]();
+				helpers_specifyOperatorType();
 			}
 
 			addToken(type);
@@ -201,7 +202,7 @@ public:
 		}},
 		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -216,7 +217,7 @@ public:
 				v == "}" ? "braceClosed" : "";
 
 			if(type.ends_with("Open")) {
-				helpers["specifyOperatorType"]();
+				helpers_specifyOperatorType();
 			}
 			addToken(type);
 			removeState("angle", 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
@@ -253,7 +254,7 @@ public:
 			}
 
 			if(!atString()) {
-				helpers["finalizeOperator"]();
+				helpers_finalizeOperator();
 				addToken("stringOpen");
 				addState("string");
 			} else {
@@ -265,7 +266,7 @@ public:
 		}},
 		{";", [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -281,7 +282,7 @@ public:
 		}},
 		{"\n", [this](const string& v) {
 			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->type) || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -312,7 +313,7 @@ public:
 		}},
 		{regex("[^\\S\\n]+"), [this](const string& v) {
 			if(atComments() || atString() || token()->type == "whitespace") {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -324,7 +325,7 @@ public:
 		}},
 		{regex("[0-9]+"), [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -337,14 +338,14 @@ public:
 				return false;
 			}
 
-			helpers["finalizeOperator"]();
+			helpers_finalizeOperator();
 			addToken("numberInteger", v);
 
 			return false;
 		}},
 		{regex("[a-z_$][a-z0-9_$]*", regex_constants::icase), [this](const string& v) {
 			if(atComments() || atString()) {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -385,7 +386,7 @@ public:
 				"_"
 			};
 
-			helpers["specifyOperatorType"]();
+			helpers_specifyOperatorType();
 
 			string type = "identifier";
 			bool chain = atToken([](string t, string v) { return t.starts_with("operator") && !t.ends_with("Postfix") && v == "."; }, ignorable);
@@ -408,7 +409,7 @@ public:
 			}
 
 			if(atAngle() && type.starts_with("keyword")) {  // No keywords are allowed in generic types
-				helpers["mergeOperators"]();
+				helpers_mergeOperators();
 			}
 			addToken(type, v);
 
@@ -422,7 +423,7 @@ public:
 		}},
 		{regex("."), [this](const string& v) {
 			if(atComments() || atString() || token()->type == "unsupported") {
-				helpers["continueString"]();
+				helpers_continueString();
 				token()->value += v;
 
 				return false;
@@ -434,40 +435,41 @@ public:
 		}}
 	};
 
-	map<string, function<void()>> helpers {
-		{"continueString", [this]() {
-			if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->type)) {
-				addToken("stringSegment", "");
-			}
-		}},
-		{"mergeOperators", [this]() {
-			removeState("angle", 2);
+	void helpers_continueString() {
+		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->type)) {
+			addToken("stringSegment", "");
+		}
+	}
 
-			for(int i = tokens.size(); i >= 0; i--) {
-				if(
-					!token()->type.starts_with("operator") || token()->nonmergeable ||
-					!getToken(-1)->type.starts_with("operator") || getToken(-1)->nonmergeable
-				) {
-					break;
-				}
+	void helpers_mergeOperators() {
+		removeState("angle", 2);
 
-				getToken(-1)->value += token()->value;
-				removeToken();
+		for(int i = tokens.size(); i >= 0; i--) {
+			if(
+				!token()->type.starts_with("operator") || token()->nonmergeable ||
+				!getToken(-1)->type.starts_with("operator") || getToken(-1)->nonmergeable
+			) {
+				break;
 			}
-		}},
-		{"specifyOperatorType", [this]() {
-			if(token()->type == "operator") {
-				token()->type = "operatorPrefix";
-			} else
-			if(token()->type == "operatorPostfix") {
-				token()->type = "operatorInfix";
-			}
-		}},
-		{"finalizeOperator", [this]() {
-			helpers["mergeOperators"]();
-			helpers["specifyOperatorType"]();
-		}}
-	};
+
+			getToken(-1)->value += token()->value;
+			removeToken();
+		}
+	}
+
+	void helpers_specifyOperatorType() {
+		if(token()->type == "operator") {
+			token()->type = "operatorPrefix";
+		} else
+		if(token()->type == "operatorPostfix") {
+			token()->type = "operatorInfix";
+		}
+	}
+
+	void helpers_finalizeOperator() {
+		helpers_mergeOperators();
+		helpers_specifyOperatorType();
+	}
 
 	inline bool codeEnd() {
 		return position >= code.length();
@@ -674,14 +676,15 @@ public:
 		Save save;
 
 		save.position = position;
-		for(auto& token : tokens) {
+		save.tokens.resize(tokens.size());
+		transform(execution::par, tokens.begin(), tokens.end(), save.tokens.begin(), [](auto& token) {
 			auto token_ = make_shared<Token>(*token);
 
 			token_->location = make_shared<Location>(*token_->location);
 
-            save.tokens.push_back(token_);
-        }
-        save.states = states;
+			return token_;
+		});
+		save.states = states;
 
 		return save;
 	}
@@ -721,9 +724,9 @@ public:
 		for(Rule& rule : rules) {
 			auto& triggers = rule.triggers;
 			auto actions = rule.actions;
-			bool plain = holds_alternative<string>(triggers),
-				 array = holds_alternative<vector<string>>(triggers),
-				 regex_ = holds_alternative<regex>(triggers);
+			bool plain = triggers.index() == 0,
+				 array = triggers.index() == 1,
+				 regex = triggers.index() == 2;
 			optional<string> trigger = nullopt;
 
 			if(plain && atSubstring(get<string>(triggers))) {
@@ -738,8 +741,8 @@ public:
 					}
 				}
 			}
-			if(regex_) {
-				trigger = atRegex(get<regex>(triggers));
+			if(regex) {
+				trigger = atRegex(get<::regex>(triggers));
 			}
 
 			if(trigger != nullopt && !actions(*trigger)) {  // Multiple rules can be executed on same position if some of them return true
