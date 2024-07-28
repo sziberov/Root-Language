@@ -153,9 +153,9 @@ public:
 				return false;
 			}
 
-			set<string> initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
-						singletons = {"!", "?"},									// Create new token if current (postfix operator) token matches any value in the list
-						generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
+			static set<string> initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+							   singletons = {"!", "?"},										// Create new token if current (postfix operator) token matches any value in the list
+							   generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
 
 			bool initializer = initializers.contains(v) && !token()->value.starts_with(v),
 				 singleton = token()->type == "operatorPostfix" && singletons.contains(token()->value),
@@ -351,7 +351,7 @@ public:
 				return false;
 			}
 
-			set<string> keywords = {
+			static set<string> keywords = {
 				// Flow-related words (async, class, for, return...)
 				// Literals (false, nil, true...)
 				// Types (Any, bool, _, ...)
@@ -705,8 +705,12 @@ public:
 			// parenthesis - used in string expressions
 	}
 
-	inline bool atSubstring(const string& substring) {
-		return code.find(substring, position) == position;
+	bool atSubstring(const string& substring) {
+	    if(position+substring.size() > code.size()) {
+	        return false;
+	    }
+
+	    return equal(substring.begin(), substring.end(), code.begin()+position);
 	}
 
 	optional<string> atRegex(const regex& regex) {

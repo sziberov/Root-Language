@@ -215,6 +215,8 @@ body {
 		parserResult = await parserResponse.json();
  		let end = Date.now();
 
+ 		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
+
 	//	interpreterResult = Interpreter.interpret(lexerResult, parserResult); // <--------------------------------
 
 		let consoleHTML = '';

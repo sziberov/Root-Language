@@ -147,11 +147,7 @@ private:
 public:
 	Node() {}
 
-	Node(initializer_list<pair<const string, NodeValue>> items) {
-		for(auto& item : items) {
-			data[item.first] = item.second;
-		}
-	}
+	Node(initializer_list<pair<const string, NodeValue>> items) : data(items) {}
 
 	void set(const string& key, const NodeValue& value) {
 		data[key] = value;

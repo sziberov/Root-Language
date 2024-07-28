@@ -199,7 +199,12 @@ body {
 	}
 
 	function interpret() {
+		let start = Date.now();
 		parserResult = Parser.parse(lexerResult);
+ 		let end = Date.now();
+
+ 		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
+
 		interpreterResult = Interpreter.interpret(lexerResult, parserResult);
 
 		let consoleHTML = '';
