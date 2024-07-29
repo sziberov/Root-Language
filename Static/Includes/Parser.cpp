@@ -44,7 +44,7 @@ public:
 			if(!node.empty("label") && token()->type.starts_with("operator") && token()->value == ":") {
 				position++;
 			} else {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 				node.set("label") = nullptr;
 			}
 
@@ -54,7 +54,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -69,19 +69,19 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("values") = helpers_sequentialNodes(
 				{"expressionsSequence"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			);
 
 			if(token()->type != "bracketClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -96,16 +96,16 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("type");
 
 			if(token()->type != "bracketClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -120,7 +120,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
@@ -129,7 +129,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -144,7 +144,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
@@ -153,7 +153,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -169,19 +169,19 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("statements") = rules(type+"Statements");
 
-			if(node.get<NodeArrayRef>("statements")->empty()) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
+			if(node.get<NodeArray>("statements").empty()) {
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			} else {
-				node.get<NodeRef>("range")->set("end") = position-1;
+				node.get<Node>("range").set("end") = position-1;
 
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
 
 			return node;
@@ -198,8 +198,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -214,9 +214,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("label") = rules("identifier");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -225,7 +225,7 @@ public:
 			Node node = {
 				{"type", "callExpression"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"callee", node_},
 				{"genericArguments", NodeArray {}},
@@ -243,11 +243,11 @@ public:
 				if(token()->type.starts_with("operator") && token()->value == ">") {
 					position++;
 				} else {
-					position = node_->get<NodeRef>("range")->get<int>("end")+1;
+					position = node_->get<Node>("range").get<int>("end")+1;
 				}
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			if(token()->type == "parenthesisOpen") {
 				position++;
@@ -261,9 +261,9 @@ public:
 				if(token()->type == "parenthesisClosed") {
 					position++;
 				} else {
-					node.get<NodeRef>("range")->set("end") = position-1;
+					node.get<Node>("range").set("end") = position-1;
 
-					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+					report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 
 					return node;
 				}
@@ -271,13 +271,13 @@ public:
 
 			node.set("closure") = rules("closureExpression");
 
-			if(node.empty("closure") && node.get<NodeRef>("range")->get("end") == position-1) {
-				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+			if(node.empty("closure") && node.get<Node>("range").get("end") == position-1) {
+				position = node_->get<Node>("range").get<int>("end")+1;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -292,17 +292,17 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("identifiers") = helpers_sequentialNodes(
 				{"identifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			);
 
-			if(node.get<NodeArrayRef>("identifiers")->empty()) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifiers(s).");
+			if(node.get<NodeArray>("identifiers").empty()) {
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No identifiers(s).");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -319,7 +319,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("typeIdentifiers") = helpers_sequentialNodes(
 				{"typeIdentifier"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
@@ -327,14 +327,14 @@ public:
 			node.set("body") = rules("functionBody");
 			node.set("catch") = rules("catchClause");
 
-			if(node.get<NodeArrayRef>("typeIdentifiers")->empty()) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No type identifiers.");
+			if(node.get<NodeArray>("typeIdentifiers").empty()) {
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No type identifiers.");
 			}
 			if(node.empty("body")) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -349,22 +349,22 @@ public:
 			};
 
 			if(token()->type != "identifier" || token()->value != "chain") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("body") = rules("observersBody");
 
-			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return v != "static"; })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Can only have specific modifier (static).");
+			if(some(node.get<NodeArray>("modifiers"), [](auto& v) { return v != "static"; })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Can only have specific modifier (static).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -373,7 +373,7 @@ public:
 			Node node = {
 				{"type", "chainExpression"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"composite", node_},
 				{"member", nullptr}
@@ -388,12 +388,12 @@ public:
 							     rules("stringLiteral");
 
 			if(node.empty("member")) {
-				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+				position = node_->get<Node>("range").get<int>("end")+1;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("member")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("member").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -402,7 +402,7 @@ public:
 			Node node = {
 				{"type", "chainIdentifier"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"supervalue", node_},
 				{"value", nullptr}
@@ -416,12 +416,12 @@ public:
 			node.set("value") = rules("identifier");
 
 			if(node.empty("value")) {
-				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+				position = node_->get<Node>("range").get<int>("end")+1;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("value").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -446,7 +446,7 @@ public:
 			};
 
 			if(token()->type != "keywordClass") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -455,8 +455,8 @@ public:
 			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || !node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -465,21 +465,21 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("genericParameters") = rules("genericParametersClause");
 			node.set("inheritedTypes") = rules("inheritedTypesClause");
 			node.set("body") = rules("classBody");
 
-			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(!node.empty("modifiers") && some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -513,33 +513,33 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("signature") = rules("functionSignature");
 
 			if(!node.empty("signature")) {
 				if(token()->type != "keywordIn") {
-					position = node.get<NodeRef>("range")->get("start");
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
 
 				position++;
 			} else {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No signature.");
 			}
 
 			node.set("statements") = rules("functionStatements");
 
-			if(node.get<NodeArrayRef>("statements")->empty()) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No statements.");
+			if(node.get<NodeArray>("statements").empty()) {
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			} else {
-				node.get<NodeRef>("range")->set("end") = position-1;
+				node.get<Node>("range").set("end") = position-1;
 
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
 
 			return node;
@@ -555,16 +555,16 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("expression") = rules("expressionsSequence");
 
 			if(!token()->type.starts_with("operator") || token()->value != ":") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -579,9 +579,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("label") = rules("identifier");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -632,7 +632,7 @@ public:
 
 			helpers_bodyTrailedValue(node, "value", "body", false, [this]() { return rules("observersBody", true) ?: rules("functionBody"); });
 
-			node->get<NodeRef>("range")->set("end") = position-1;
+			node->get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -641,7 +641,7 @@ public:
 			Node node = {
 				{"type", "defaultExpression"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"value", node_}
 			};
@@ -650,7 +650,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -659,7 +659,7 @@ public:
 			Node node = {
 				{"type", "defaultType"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"value", node_}
 			};
@@ -668,7 +668,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -687,10 +687,10 @@ public:
 			node.set("body") = rules("functionBody");
 
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -705,7 +705,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
@@ -714,7 +714,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -729,23 +729,23 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("entries") = helpers_sequentialNodes(
 				{"entry"},
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			);
 
-			if(node.get<NodeArrayRef>("entries")->empty() && token()->type.starts_with("operator") && token()->value == ":") {
+			if(node.get<NodeArray>("entries").empty() && token()->type.starts_with("operator") && token()->value == ":") {
 				position++;
 			}
 
 			if(token()->type != "bracketClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -761,11 +761,11 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("key") = rules("type");
 
 			if(!token()->type.starts_with("operator") || token()->value != ":") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -775,12 +775,12 @@ public:
 
 
 			if(token()->type != "bracketClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -796,18 +796,18 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("body") = rules("functionBody");
 			node.set("catch") = rules("catchClause");
 
 			if(node.empty("body")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 			if(node.empty("catch")) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No catch.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "No catch.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -842,7 +842,7 @@ public:
 			};
 
 			if(node.empty("key") || !token()->type.starts_with("operator") || token()->value != ":") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -851,12 +851,12 @@ public:
 			node.set("value") = rules("expressionsSequence");
 
 			if(node.empty("value")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -877,7 +877,7 @@ public:
 			};
 
 			if(token()->type != "keywordEnum") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -886,8 +886,8 @@ public:
 			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || !node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -896,20 +896,20 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("inheritedTypes") = rules("inheritedTypesClause");
 			node.set("body") = rules("enumerationBody");
 
-			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(!node.empty("modifiers") && some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -947,7 +947,7 @@ public:
 				return nullptr;
 			}
 			if(filter(*values, [&](const NodeRef& v) { return !subsequentialTypes.contains(v->get("type")); }).size()%2 == 0) {
-				position = values->back().get<NodeRef>()->get<NodeRef>("range")->get("start");
+				position = values->back().get<NodeRef>()->get<Node>("range").get("start");
 
 				values->pop_back();
 			}
@@ -955,7 +955,7 @@ public:
 				return values->at(0);
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -970,9 +970,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("label") = rules("identifier");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -988,8 +988,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1007,7 +1007,7 @@ public:
 				return nullptr;
 			}
 
-			node->get<NodeRef>("range")->set("start") = position++;
+			node->get<Node>("range").set("start") = position++;
 			node->set("identifier") = rules("identifier");
 
 			if(token()->type == "keywordIn") {
@@ -1022,16 +1022,16 @@ public:
 			helpers_bodyTrailedValue(node, !node->empty("where") ? "where" : "in", "value");
 
 			if(node->empty("identifier")) {
-				report(1, node->get<NodeRef>("range")->get("start"), node->get("type"), "No identifier.");
+				report(1, node->get<Node>("range").get("start"), node->get("type"), "No identifier.");
 			}
 			if(node->empty("in")) {
-				report(2, node->get<NodeRef>("range")->get("start"), node->get("type"), "No in.");
+				report(2, node->get<Node>("range").get("start"), node->get("type"), "No in.");
 			}
 			if(node->empty("value")) {
-				report(0, node->get<NodeRef>("range")->get("start"), node->get("type"), "No value.");
+				report(0, node->get<Node>("range").get("start"), node->get("type"), "No value.");
 			}
 
-			node->get<NodeRef>("range")->set("end") = position-1;
+			node->get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1052,7 +1052,7 @@ public:
 			};
 
 			if(token()->type != "keywordFunc") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1063,8 +1063,8 @@ public:
 				rules("operator");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || !node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -1073,20 +1073,20 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("signature") = rules("functionSignature");
 			node.set("body") = rules("functionBody");
 
 			if(node.empty("signature")) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "No signature.");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1120,9 +1120,9 @@ public:
 				if(token()->type == "parenthesisClosed") {
 					position++;
 				} else {
-					node.get<NodeRef>("range")->set("end") = position-1;
+					node.get<Node>("range").set("end") = position-1;
 
-					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Parameters don't have the closing parenthesis and were decided to be autoclosed at the end of stream.");
+					report(1, node.get<Node>("range").get("start"), node.get("type"), "Parameters don't have the closing parenthesis and were decided to be autoclosed at the end of stream.");
 
 					return node;
 				}
@@ -1144,9 +1144,9 @@ public:
 				node.set("returnType") = rules("type");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
-			if(node.get<NodeRef>("range")->get<int>("end") < node.get<NodeRef>("range")->get<int>("start")) {
+			if(node.get<Node>("range").get<int>("end") < node.get<Node>("range").get<int>("start")) {
 				return nullptr;
 			}
 
@@ -1199,16 +1199,16 @@ public:
 				);
 
 				if(token()->type.starts_with("operator") && token()->value == ">") {
-					node.get<NodeRef>("range")->set("end") = position++;
+					node.get<Node>("range").set("end") = position++;
 				} else {
-					position = node.get<NodeRef>("range")->get("start");
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
 			}
 
 			if(token()->type != "parenthesisOpen") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1220,7 +1220,7 @@ public:
 			);
 
 			if(token()->type != "parenthesisClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1249,7 +1249,7 @@ public:
 			}
 
 			if(!token()->type.starts_with("operator") || token()->value != "->") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1258,10 +1258,10 @@ public:
 			node.set("returnType") = rules("type");
 
 			if(node.empty("returnType")) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No return type.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "No return type.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1280,7 +1280,7 @@ public:
 			}
 
 			node.set("type_") = rules("typeClause");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1322,8 +1322,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1340,7 +1340,7 @@ public:
 				return nullptr;
 			}
 
-			node->get<NodeRef>("range")->set("start") = position++;
+			node->get<Node>("range").set("start") = position++;
 			node->set("condition") = rules("expressionsSequence");
 
 			helpers_bodyTrailedValue(node, "condition", "then");
@@ -1348,13 +1348,13 @@ public:
 			node->set("else") = rules("elseClause");
 
 			if(node->empty("condition")) {
-				report(2, node->get<NodeRef>("range")->get("start"), node->get("type"), "No condition.");
+				report(2, node->get<Node>("range").get("start"), node->get("type"), "No condition.");
 			}
 			if(node->empty("then")) {
-				report(0, node->get<NodeRef>("range")->get("start"), node->get("type"), "No value.");
+				report(0, node->get<Node>("range").get("start"), node->get("type"), "No value.");
 			}
 
-			node->get<NodeRef>("range")->set("end") = position-1;
+			node->get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1369,7 +1369,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("member") =
 				rules("identifier") ?:
 				rules("stringLiteral");
@@ -1380,7 +1380,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("member")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("member").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -1395,7 +1395,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("identifier");
 
 			if(node.empty("value")) {
@@ -1404,7 +1404,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("value").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -1419,8 +1419,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 			node.set("value") = rules("identifier");
 
 			if(!node.empty("value")) {
@@ -1434,9 +1434,9 @@ public:
 					node.set("value") = node_;
 				}
 
-				node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
+				node.get<Node>("range").set("end") = node.get<Node>("value").get<Node>("range").get("end");
 			} else {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "No value.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "No value.");
 			}
 
 			return node;
@@ -1463,8 +1463,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1518,7 +1518,7 @@ public:
 			};
 
 			if(token()->type != "identifier" || token()->value != "init") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1533,20 +1533,20 @@ public:
 			node.set("signature") = rules("functionSignature");
 			node.set("body") = rules("functionBody");
 
-			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("signature")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No signature.");
 			} else
-			if(!node.get<NodeRef>("signature")->empty("returnType")) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Signature shouldn't have a return type.");
+			if(!node.get<Node>("signature").empty("returnType")) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Signature shouldn't have a return type.");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1566,7 +1566,7 @@ public:
 			}
 
 			if(token()->type != "keywordIn") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1575,12 +1575,12 @@ public:
 			node.set("composite") = rules("expressionsSequence");
 
 			if(node.empty("composite")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1595,7 +1595,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("postfixExpression");
 
 			if(node.empty("value")) {
@@ -1604,7 +1604,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1619,9 +1619,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("unionType");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1637,8 +1637,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1663,7 +1663,7 @@ public:
 				return subtypes->at(0);
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1683,7 +1683,7 @@ public:
 			}
 
 			if(token()->type != "keywordIs") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1692,12 +1692,12 @@ public:
 			node.set("type_") = rules("type");
 
 			if(node.empty("type_")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1757,7 +1757,7 @@ public:
 				{"statements", rules("functionStatements")}
 			};
 
-			node.get<NodeRef>("range")->set("end") = !node.get<NodeArrayRef>("statements")->empty() ? position-1 : 0;
+			node.get<Node>("range").set("end") = !node.get<NodeArray>("statements").empty() ? position-1 : 0;
 
 			return node;
 		} else
@@ -1777,7 +1777,7 @@ public:
 			};
 
 			if(token()->type != "keywordNamespace") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1786,8 +1786,8 @@ public:
 			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || !node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -1796,19 +1796,19 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("body") = rules("namespaceBody");
 
-			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(!node.empty("modifiers") && some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1823,7 +1823,7 @@ public:
 			Node node = {
 				{"type", "nillableExpression"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"value", node_}
 			};
@@ -1832,7 +1832,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1841,7 +1841,7 @@ public:
 			Node node = {
 				{"type", "nillableType"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"value", node_}
 			};
@@ -1850,7 +1850,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1864,8 +1864,8 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1892,7 +1892,7 @@ public:
 				"delete",
 				"didDelete"
 			}.contains(identifier != nullptr ? identifier->get("value") : "")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1900,10 +1900,10 @@ public:
 			node.set("body") = rules("functionBody");
 
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -1911,8 +1911,8 @@ public:
 			bool strict = !arguments.empty() && any_cast<bool>(arguments[0]);
 			NodeRef node = rules("body", "observers");
 
-			if(node != nullptr && strict && !some(*node->get<NodeArrayRef>("statements"), [](const NodeRef& v) { return v->get("type") != "unsupported"; })) {
-				position = node->get<NodeRef>("range")->get("start");
+			if(node != nullptr && strict && !some(node->get<NodeArray>("statements"), [](const Node& v) { return v.get("type") != "unsupported"; })) {
+				position = node->get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1934,8 +1934,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -1954,7 +1954,7 @@ public:
 			};
 
 			if(token()->type != "keywordOperator") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -1963,43 +1963,43 @@ public:
 			node.set("operator") = rules("operator");
 			node.set("body") = rules("operatorBody");
 
-			if(!some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "Should have specific modifier (infix, postfix, prefix).");
+			if(!some(node.get<NodeArray>("modifiers"), [](auto& v) { return set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "Should have specific modifier (infix, postfix, prefix).");
 			}
 			if(node.empty("operator")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No operator.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No operator.");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			} else {
 				string type = node.get("type");
 
-				for(const NodeRef& entry : filter(*node.get<NodeRef>("body")->get<NodeArrayRef>("statements"), [](const NodeRef& v) { return v->get("type") == "entry"; })) {
-					NodeRef key = entry->get("key"),
-							value = entry->get("value"),
-							entryRange = entry->get("range");
-					int start = entryRange->get("start"),
-						end = entryRange->get("end");
+				for(const Node& entry : filter(node.get<Node>("body").get<NodeArray>("statements"), [](const Node& v) { return v.get("type") == "entry"; })) {
+					const Node& key = entry.get("key"),
+								value = entry.get("value"),
+								entryRange = entry.get("range");
+					int start = entryRange.get("start"),
+						end = entryRange.get("end");
 
-					if(key->get("type") != "identifier" || !set<string> {"associativity", "precedence"}.contains(key->get("value"))) {
+					if(key.get("type") != "identifier" || !set<string> {"associativity", "precedence"}.contains(key.get("value"))) {
 						report(1, start, type, "Should have only identifiers as keys (associativity, precedence).");
 					} else {
-						if(key->get("value") == "associativity") {
-							if(value->get("type") != "identifier") {
+						if(key.get("value") == "associativity") {
+							if(value.get("type") != "identifier") {
 								report(2, start, type, "Associativity value should be identifier.");
 							}
-							if(!set<string> {"left", "right", "none"}.contains(value->get("value"))) {
+							if(!set<string> {"left", "right", "none"}.contains(value.get("value"))) {
 								report(2, start, type, "Associativity accepts only one of following values: left, right, none.");
 							}
 						}
-						if(key->get("value") == "precedence" && value->get("type") != "integerLiteral") {
+						if(key.get("value") == "precedence" && value.get("type") != "integerLiteral") {
 							report(2, start, type, "Precedence value should be integer.");
 						}
 					}
 				}
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2031,7 +2031,7 @@ public:
 
 			node.set("type_") = rules("typeClause");
 			node.set("value") = rules("initializerClause");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2046,7 +2046,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = helpers_skippableNode(
 				"expressionsSequence",
 				[this]() { return token()->type == "parenthesisOpen"; },
@@ -2054,14 +2054,14 @@ public:
 			);
 
 			if(token()->type == "parenthesisClosed") {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			} else
 			if(tokensEnd()) {
-				node.get<NodeRef>("range")->set("end") = position-1;
+				node.get<Node>("range").set("end") = position-1;
 
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 			} else {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2079,16 +2079,16 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("type");
 
 			if(token()->type != "parenthesisClosed") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -2128,7 +2128,7 @@ public:
 				return node.get("value");
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("operator")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("operator").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -2146,8 +2146,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -2204,8 +2204,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -2222,7 +2222,7 @@ public:
 			node.set("value") = rules("postfixExpression");
 
 			if(node.empty("value")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2230,7 +2230,7 @@ public:
 				return node.get("value");
 			}
 
-			node.get<NodeRef>("range")->set("end") = node.get<NodeRef>("value")->get<NodeRef>("range")->get("end");
+			node.get<Node>("range").set("end") = node.get<Node>("value").get<Node>("range").get("end");
 
 			return node;
 		} else
@@ -2248,8 +2248,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -2298,7 +2298,7 @@ public:
 			};
 
 			if(token()->type != "keywordProtocol") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2307,8 +2307,8 @@ public:
 			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -2317,20 +2317,20 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("inheritedTypes") = rules("inheritedTypesClause");
 			node.set("body") = rules("protocolBody");
 
-			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string>{"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(!node.empty("modifiers") && some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string>{"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2361,7 +2361,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2376,9 +2376,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("expressionsSequence");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2415,7 +2415,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = helpers_skippableNode(
 				"expressionsSequence",
 				[this]() { return token()->type == "stringExpressionOpen"; },
@@ -2423,14 +2423,14 @@ public:
 			);
 
 			if(token()->type == "stringExpressionClosed") {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			} else
 			if(tokensEnd()) {
-				node.get<NodeRef>("range")->set("end") = position-1;
+				node.get<Node>("range").set("end") = position-1;
 
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 			} else {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2448,7 +2448,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("segments") = helpers_skippableNodes(
 				{"stringSegment", "stringExpression"},
 				[this]() { return token()->type == "stringOpen"; },
@@ -2456,11 +2456,11 @@ public:
 			);
 
 			if(token()->type == "stringClosed") {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			} else {
-				node.get<NodeRef>("range")->set("end") = position-1;
+				node.get<Node>("range").set("end") = position-1;
 
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing apostrophe and decided to be autoclosed at the end of stream.");
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing apostrophe and decided to be autoclosed at the end of stream.");
 			}
 
 			return node;
@@ -2477,8 +2477,8 @@ public:
 			}
 
 			node.set("value") = token()->value;
-			node.get<NodeRef>("range")->set("start") =
-			node.get<NodeRef>("range")->set("end") = position++;
+			node.get<Node>("range").set("start") =
+			node.get<Node>("range").set("end") = position++;
 
 			return node;
 		} else
@@ -2500,7 +2500,7 @@ public:
 			};
 
 			if(token()->type != "keywordStruct") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2509,8 +2509,8 @@ public:
 			node.set("identifier") = rules("identifier");
 
 			if(anonymous) {
-				if(!node.get<NodeArrayRef>("modifiers")->empty() || !node.empty("identifier")) {
-					position = node.get<NodeRef>("range")->get("start");
+				if(!node.get<NodeArray>("modifiers").empty() || !node.empty("identifier")) {
+					position = node.get<Node>("range").get("start");
 
 					return nullptr;
 				}
@@ -2519,21 +2519,21 @@ public:
 				node.remove("identifier");
 			} else
 			if(node.empty("identifier")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No identifier.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
 			node.set("genericParameters") = rules("genericParametersClause");
 			node.set("inheritedTypes") = rules("inheritedTypesClause");
 			node.set("body") = rules("structureBody");
 
-			if(!node.empty("modifiers") && some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(!node.empty("modifiers") && some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2567,26 +2567,26 @@ public:
 			};
 
 			if(token()->type != "identifier" || token()->value != "subscript") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("signature") = rules("functionSignature");
 			node.set("body") = rules("observersBody", true) ?: rules("functionBody");
 
-			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
 			if(node.empty("signature")) {
-				report(2, node.get<NodeRef>("range")->get("start"), node.get("type"), "No signature.");
+				report(2, node.get<Node>("range").get("start"), node.get("type"), "No signature.");
 			}
 			if(node.empty("body")) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No body.");
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2595,7 +2595,7 @@ public:
 			Node node = {
 				{"type", "subscriptExpression"},
 				{"range", {
-					{"start", node_->get<NodeRef>("range")->get("start")}
+					{"start", node_->get<Node>("range").get("start")}
 				}},
 				{"composite", node_},
 				{"arguments", nullptr},
@@ -2612,11 +2612,11 @@ public:
 				if(token()->type.starts_with("operator") && token()->value == ">") {
 					position++;
 				} else {
-					position = node_->get<NodeRef>("range")->get<int>("end")+1;
+					position = node_->get<Node>("range").get<int>("end")+1;
 				}
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			if(token()->type == "bracketOpen") {
 				position++;
@@ -2630,9 +2630,9 @@ public:
 				if(token()->type == "bracketClosed") {
 					position++;
 				} else {
-					node.get<NodeRef>("range")->set("end") = position-1;
+					node.get<Node>("range").set("end") = position-1;
 
-					report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Node doesn't have the closing bracket and was decided to be autoclosed at the end of stream.");
+					report(1, node.get<Node>("range").get("start"), node.get("type"), "Node doesn't have the closing bracket and was decided to be autoclosed at the end of stream.");
 
 					return node;
 				}
@@ -2640,13 +2640,13 @@ public:
 
 			node.set("closure") = rules("closureExpression");
 
-			if(node.empty("closure") && node.get<NodeRef>("range")->get("end") == position-1) {
-				position = node_->get<NodeRef>("range")->get<int>("end")+1;
+			if(node.empty("closure") && node.get<Node>("range").get("end") == position-1) {
+				position = node_->get<Node>("range").get<int>("end")+1;
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2661,9 +2661,9 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 			node.set("value") = rules("expressionsSequence");
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2679,7 +2679,7 @@ public:
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("start") = position++;
+			node.get<Node>("range").set("start") = position++;
 
 			if(token()->type == "operatorPostfix" && token()->value == "?") {
 				position++;
@@ -2689,12 +2689,12 @@ public:
 			node.set("value") = rules("expression");
 
 			if(node.empty("value")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2739,12 +2739,12 @@ public:
 			node.set("type_") = rules("type");
 
 			if(node.empty("type_")) {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2775,7 +2775,7 @@ public:
 				node.set("identifier") = node_;
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			if(!token()->type.starts_with("operator") || token()->value != "<") {
 				return node;
@@ -2788,10 +2788,10 @@ public:
 			);
 
 			if(!token()->type.starts_with("operator") || token()->value != ">") {
-				position = node.get<NodeRef>("range")->get<int>("end")+1;
+				position = node.get<Node>("range").get<int>("end")+1;
 				node.set("genericArguments") = NodeArray();
 			} else {
-				node.get<NodeRef>("range")->set("end") = position++;
+				node.get<Node>("range").set("end") = position++;
 			}
 
 			return node;
@@ -2817,7 +2817,7 @@ public:
 				return subtypes->at(0);
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2832,7 +2832,7 @@ public:
 			};
 
 			if(token()->type != "keywordVar") {
-				position = node.get<NodeRef>("range")->get("start");
+				position = node.get<Node>("range").get("start");
 
 				return nullptr;
 			}
@@ -2843,14 +2843,14 @@ public:
 				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
 			);
 
-			if(some(*node.get<NodeArrayRef>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "final", "lazy", "static", "virtual"}.contains(v); })) {
-				report(1, node.get<NodeRef>("range")->get("start"), node.get("type"), "Wrong modifier(s).");
+			if(some(node.get<NodeArray>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "final", "lazy", "static", "virtual"}.contains(v); })) {
+				report(1, node.get<Node>("range").get("start"), node.get("type"), "Wrong modifier(s).");
 			}
-			if(node.get<NodeArrayRef>("declarators")->empty()) {
-				report(0, node.get<NodeRef>("range")->get("start"), node.get("type"), "No declarator(s).");
+			if(node.get<NodeArray>("declarators").empty()) {
+				report(0, node.get<Node>("range").get("start"), node.get("type"), "No declarator(s).");
 			}
 
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2868,7 +2868,7 @@ public:
 			}
 
 			position++;
-			node.get<NodeRef>("range")->set("end") = position-1;
+			node.get<Node>("range").set("end") = position-1;
 
 			return node;
 		} else
@@ -2884,19 +2884,19 @@ public:
 				return nullptr;
 			}
 
-			node->get<NodeRef>("range")->set("start") = position++;
+			node->get<Node>("range").set("start") = position++;
 			node->set("condition") = rules("expressionsSequence");
 
 			helpers_bodyTrailedValue(node, "condition", "value");
 
 			if(node->get<NodeRef>("condition") == nullptr) {
-				report(2, node->get<NodeRef>("range")->get("start"), node->get("type"), "No condition.");
+				report(2, node->get<Node>("range").get("start"), node->get("type"), "No condition.");
 			}
 			if(node->get<NodeRef>("value") == nullptr) {
-				report(0, node->get<NodeRef>("range")->get("start"), node->get("type"), "No value.");
+				report(0, node->get<Node>("range").get("start"), node->get("type"), "No value.");
 			}
 
-			node->get<NodeRef>("range")->set("end") = position-1;
+			node->get<Node>("range").set("end") = position-1;
 
 			return node;
 		}
@@ -2938,7 +2938,7 @@ public:
 				}
 			} else
 			if(n->get("type") == "expressionsSequence") {
-				parse(n->get<NodeArrayRef>("values")->back());
+				parse(n->get<NodeArray>("values").back());
 			} else
 			if(n->get("type") == "prefixExpression") {
 				parse(n->get("value"));
@@ -2946,13 +2946,13 @@ public:
 			if(n->get("type") == "inOperator") {
 				parse(n->get("composite"));
 			} else
-			if(!n->empty("closure") && n->get<NodeRef>("closure")->empty("signature")) {
-				position = n->get<NodeRef>("closure")->get<NodeRef>("range")->get("start");
+			if(!n->empty("closure") && n->get<Node>("closure").empty("signature")) {
+				position = n->get<Node>("closure").get<Node>("range").get("start");
 				n->set("closure") = nullptr;
 				end = position-1;
 
 				NodeRef lhs = n->get("callee") ?: n->get("composite");
-				bool exportable = lhs->get<NodeRef>("range")->get("end") == end;
+				bool exportable = lhs->get<Node>("range").get("end") == end;
 
 				if(exportable) {
 					n->clear();
@@ -2964,7 +2964,7 @@ public:
 			}
 
 			if(end != -1) {
-				n->get<NodeRef>("range")->set("end") = end;
+				n->get<Node>("range").set("end") = end;
 			}
 		};
 
@@ -3049,8 +3049,8 @@ public:
 				break;
 			}
 
-			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end") = position++;
+			node->get<NodeArray>("tokens").push_back(make_any<shared_ptr<Token>>(token()));
+			node->get<Node>("range").set("end") = position++;
 		}
 
 		NodeRef nodeRange = node->get("range");
@@ -3114,7 +3114,7 @@ public:
 
 						nodes.push_back(node);
 					} else {
-						node->get<NodeRef>("range")->set("end") = position;
+						node->get<Node>("range").set("end") = position;
 					}
 				}
 
@@ -3145,8 +3145,8 @@ public:
 				break;
 			}
 
-			node->get<NodeArrayRef>("tokens")->push_back(make_any<shared_ptr<Token>>(token()));
-			node->get<NodeRef>("range")->set("end") = position++;
+			node->get<NodeArray>("tokens").push_back(make_any<shared_ptr<Token>>(token()));
+			node->get<Node>("range").set("end") = position++;
 
 			if(node != (!nodes.empty() ? nodes.back().get<NodeRef>() : nullptr)) {
 				nodes.push_back(node);

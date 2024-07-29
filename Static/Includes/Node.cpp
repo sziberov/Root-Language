@@ -71,28 +71,22 @@ public:
 			if(holds_alternative<int>(value))			return to_string(::get<int>(value));
 			if(holds_alternative<double>(value))		return to_string(::get<double>(value));
 		}
-		/*
-		if constexpr(is_same_v<T, vector<string>>) {
-			auto values = ::get<NodeArrayRef>(value);
-			T values_;
 
-			for(const NodeValue& value : *values) {
-				values_.push_back(value);
-			}
-
-			return values_;
-		}
-		*/
-
-		if(!holds_alternative<T>(value) &&
-			holds_alternative<nullptr_t>(value)) return T();
-
-		try {
+		if constexpr(is_same_v<T, Node>) {
+			return *::get<NodeRef>(value);
+		} else
+		if constexpr(is_same_v<T, NodeArray>) {
+			return *::get<NodeArrayRef>(value);
+		} else
+		if(holds_alternative<T>(value)) {
 			return ::get<T>(value);
-		} catch(const bad_variant_access& e) {
+		} else
+		if(holds_alternative<nullptr_t>(value)) {
+			return T();
+		} else {
 			cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
 
-			throw;
+			throw bad_variant_access();
 		}
 	}
 
@@ -170,7 +164,7 @@ public:
 
 		if(it != data.end()) {
 			try {
-				return it->second.get<T>();
+				return it->second;
 			} catch(const bad_variant_access& e) {
 				cout << "Invalid type chosen to access value with key \"" << key << "\" ([" << typeid(T).name() << "]), factual is [" << it->second.type() << "]" << endl;
 
