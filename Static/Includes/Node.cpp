@@ -19,6 +19,9 @@ using NodeRef = shared_ptr<Node>;
 using NodeArray = vector<NodeValue>;
 using NodeArrayRef = shared_ptr<NodeArray>;
 
+string to_string(const Node& node);
+string to_string(const NodeArray& node);
+
 class NodeValue {
 private:
 	mutable variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef, any> value;
@@ -54,41 +57,78 @@ public:
 
 	template<typename T>
 	operator T() const {
-		if constexpr(is_same_v<T, bool>) {
-			if(holds_alternative<nullptr_t>(value))		return false;
-			if(holds_alternative<string>(value))		return ::get<string>(value) == "true" || ::get<string>(value) == "1";
-			if(holds_alternative<NodeRef>(value))		return !!::get<NodeRef>(value);
-			if(holds_alternative<NodeArrayRef>(value))	return !!::get<NodeArrayRef>(value);
-		}
-		if constexpr(is_same_v<T, int>) {
-			if(holds_alternative<string>(value))		return stoi(::get<string>(value));
-		}
-		if constexpr(is_same_v<T, double>) {
-			if(holds_alternative<string>(value))		return stod(::get<string>(value));
-		}
-		if constexpr(is_same_v<T, string>) {
-			if(holds_alternative<bool>(value))			return ::get<bool>(value) ? "true" : "false";
-			if(holds_alternative<int>(value))			return to_string(::get<int>(value));
-			if(holds_alternative<double>(value))		return to_string(::get<double>(value));
-		}
+		if(holds_alternative<T>(value))			return ::get<T>(value);
+		if(holds_alternative<nullptr_t>(value))	return T();
 
-		if constexpr(is_same_v<T, Node>) {
-			return *::get<NodeRef>(value);
-		} else
-		if constexpr(is_same_v<T, NodeArray>) {
-			return *::get<NodeArrayRef>(value);
-		} else
-		if(holds_alternative<T>(value)) {
-			return ::get<T>(value);
-		} else
-		if(holds_alternative<nullptr_t>(value)) {
-			return T();
-		} else {
-			cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
+		cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
 
-			throw bad_variant_access();
+		throw bad_variant_access();
+	}
+
+	operator bool() const {
+		switch(type()) {
+			case 1:		return ::get<bool>(value);
+			case 2:		return ::get<int>(value);
+			case 3:		return ::get<double>(value);
+			case 4:		return ::get<string>(value) == "true" || ::get<string>(value) == "1";
+			case 5:		return !!::get<NodeRef>(value);
+			case 6:		return !!::get<NodeArrayRef>(value);
+			default:	return bool();
 		}
 	}
+
+	operator int() const {
+		switch(type()) {
+			case 0:		return int();
+			case 1:		return ::get<bool>(value);
+			case 2:		return ::get<int>(value);
+			case 3:		return ::get<double>(value);
+			default:	throw bad_variant_access();
+		}
+	}
+
+	operator double() const {
+		switch(type()) {
+			case 0:		return double();
+			case 1:		return ::get<bool>(value);
+			case 2:		return ::get<int>(value);
+			case 3:		return ::get<double>(value);
+			default:	throw bad_variant_access();
+		}
+	}
+
+	operator string() const {
+		switch(type()) {
+			case 1:		return ::get<bool>(value) ? "true" : "false";
+			case 2:		return to_string(::get<int>(value));
+			case 3:		return to_string(::get<double>(value));
+			case 4:		return ::get<string>(value);
+			case 5:		return to_string(*::get<NodeRef>(value));
+			case 6:		return to_string(*::get<NodeArrayRef>(value));
+			default:	return string();
+		}
+	}
+
+	operator Node&() const {
+		return *::get<NodeRef>(value);
+	}
+
+	operator NodeArray&() const {
+		return *::get<NodeArrayRef>(value);
+	}
+
+	/*
+	operator vector<string>() const {
+		auto values = ::get<NodeArrayRef>(value);
+		vector<string> values_;
+
+		for(const NodeValue& value : *values) {
+			values_.push_back(value);
+		}
+
+		return values_;
+	}
+	*/
 
 	template<typename T>
 	NodeValue& operator=(T&& v) {
@@ -143,53 +183,20 @@ public:
 
 	Node(initializer_list<pair<const string, NodeValue>> items) : data(items) {}
 
-	void set(const string& key, const NodeValue& value) {
-		data[key] = value;
+	template<typename T>
+	T get(const string& key, const NodeValue& defaultValue = nullptr) const {
+		auto it = data.find(key);
+
+		return it != data.end() ? it->second : defaultValue;
 	}
 
-	NodeValue& set(const string& key) {
+	NodeValue& get(const string& key) {
 		return data[key];
 	}
 
-	/*
-	template<typename... Keys, typename T>
-	void set(const Keys&... keys, const NodeValue& value) {
-		(set(keys, value), ...);
+	const NodeValue& get(const string& key) const {
+		return data.at(key);
 	}
-	*/
-
-	template<typename T>
-	T get(const string& key, const T& defaultValue = T()) const {
-		auto it = data.find(key);
-
-		if(it != data.end()) {
-			try {
-				return it->second;
-			} catch(const bad_variant_access& e) {
-				cout << "Invalid type chosen to access value with key \"" << key << "\" ([" << typeid(T).name() << "]), factual is [" << it->second.type() << "]" << endl;
-
-				throw;
-			}
-		}
-
-		return defaultValue;
-	}
-
-	auto get(const string& key) const {
-		auto it = data.find(key);
-
-		return it != data.end() ? it->second : NodeValue();
-	}
-
-	/*
-	auto operator[](const string& key) {
-		return get(key);
-	}
-
-	const auto operator[](const string& key) const {
-		return get(key);
-	}
-	*/
 
 	auto begin() const {
 		return data.begin();
@@ -214,22 +221,12 @@ public:
 	}
 };
 
-string to_string(const Node& node);
-string to_string(const NodeArray& node);
-
 string to_string(const NodeValue& value) {
-	string result = "";
-
-	switch(value.type()) {
-		case 1: result += value.get<bool>() ? "true" : "false";		break;
-		case 2: result += to_string(value.get<int>());				break;
-		case 3: result += to_string(value.get<double>());			break;
-		case 4: result += "\""+value.get<string>()+"\"";			break;
-		case 5: result += to_string(*value.get<NodeRef>());			break;
-		case 6: result += to_string(*value.get<NodeArrayRef>());	break;
+	if(value.type() == 4) {
+		return "\""+(string)value+"\"";
 	}
 
-	return result;
+	return value;
 }
 
 string to_string(const Node& node) {
@@ -328,19 +325,19 @@ int main() {
 	cout << "Name: " << node.get<string>("name") << endl;
 	cout << "Age: " << node.get<int>("age") << endl;
 	cout << "Is student: " << (node.get("is_student") ? "true" : "false") << endl;
-	cout << "City: " << node.get<NodeRef>("address")->get<string>("city") << endl;
-	cout << "Zip: " << node.get<NodeRef>("address")->get<int>("zip") << endl;
+	cout << "City: " << node.get<Node&>("address").get<string>("city") << endl;
+	cout << "Zip: " << node.get<Node&>("address").get<int>("zip") << endl;
 
-	NodeArrayRef friendsRetrieved = node.get("friends");
+	NodeArray& friendsRetrieved = node.get("friends");
 	cout << "Friends: ";
-	for(const string& friendName : *friendsRetrieved) {
+	for(const string& friendName : friendsRetrieved) {
 		cout << friendName << " ";
 	}
 	cout << endl;
 
 	// Removing a field
 	node.remove("age");
-	if (node.empty("age")) {
+	if(node.empty("age")) {
 		cout << "Age field is removed.\n";
 	}
 
@@ -349,10 +346,10 @@ int main() {
 		{"city", "San Francisco"},
 		{"zip", 94105}
 	};
-	node.set("new_address") = newAddress;
+	node.get("new_address") = newAddress;
 
-	cout << "New city: " << node.get<NodeRef>("new_address")->get<string>("city") << endl;
-	cout << "New zip: " << node.get<NodeRef>("new_address")->get<int>("zip") << endl;
+	cout << "New city: " << node.get<Node&>("new_address").get<string>("city") << endl;
+	cout << "New zip: " << node.get<Node&>("new_address").get<int>("zip") << endl;
 
 	// Accessing a non-existent field with default value
 	cout << "Non-existent field (with default): " << node.get<string>("non_existent_field", "Default Value") << endl;

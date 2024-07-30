@@ -1,6 +1,6 @@
 #include "Lexer.cpp"
 #include "Parser.cpp"
-#include "Interpreter.cpp"
+//#include "Interpreter.cpp"
 
 #include "crow_all.h"
 #include "glaze/glaze.hpp"
@@ -8,7 +8,7 @@
 int main() {
 	Lexer lexer;
 	Parser parser;
-//	Interpreter interpreter;
+	//Interpreter interpreter;
 
 	shared_ptr<Lexer::Result> lexerResult;
 	shared_ptr<Parser::Result> parserResult;

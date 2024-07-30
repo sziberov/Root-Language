@@ -1139,7 +1139,6 @@ class Interpreter {
 		}
 	}
 
-
 	static getContext(tag) {
 		let flags = {}
 
@@ -1153,7 +1152,7 @@ class Interpreter {
 	}
 
 	/*
-	 * Should be used to pass local state between super-rule and ambigous sub-rules.
+	 * Should be used to pass local state between super-rule and ambiguous sub-rules.
 	 *
 	 * Local means everything that does not belong to global execution process
 	 * (calls, scopes, controlTransfers, etc), but rather to concrete rules.
