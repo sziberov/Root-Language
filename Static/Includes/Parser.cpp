@@ -612,7 +612,7 @@ public:
 			);
 		} else
 		if(type == "declarator") {
-			NodeRef node = make_shared<Node>(Node {
+			NodeRef node = make_shared(Node {
 				{"type", "declarator"},
 				{"range", {
 					{"start", position}
@@ -994,7 +994,7 @@ public:
 			return node;
 		} else
 		if(type == "forStatement") {
-			NodeRef node = make_shared<Node>(Node {
+			NodeRef node = make_shared(Node {
 				{"type", "forStatement"},
 				{"range", Node {}},
 				{"identifier", nullptr},
@@ -1328,7 +1328,7 @@ public:
 			return node;
 		} else
 		if(type == "ifStatement") {
-			NodeRef node = make_shared<Node>(Node {
+			NodeRef node = make_shared(Node {
 				{"type", "ifStatement"},
 				{"range", Node {}},
 				{"condition", nullptr},
@@ -2873,7 +2873,7 @@ public:
 			return node;
 		} else
 		if(type == "whileStatement") {
-			NodeRef node = make_shared<Node>(Node {
+			NodeRef node = make_shared(Node {
 				{"type", "whileStatement"},
 				{"range", Node {}},
 				{"condition", nullptr},
@@ -3032,7 +3032,7 @@ public:
 			return node;
 		}
 
-		node = make_shared<Node>(Node {
+		node = make_shared(Node {
 			{"type", "unsupported"},
 			{"range", {
 				{"start", position},
@@ -3104,7 +3104,7 @@ public:
 
 				if(node != nullptr) {
 					if(node->get("type") != "separator") {
-						node = make_shared<Node>(Node {
+						node = make_shared(Node {
 							{"type", "separator"},
 							{"range", {
 								{"start", position},
@@ -3128,7 +3128,7 @@ public:
 			node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
 
 			if(node == nullptr || node->get("type") != "unsupported") {
-				node = make_shared<Node>(Node {
+				node = make_shared(Node {
 					{"type", "unsupported"},
 					{"range", {
 						{"start", position},
@@ -3241,7 +3241,7 @@ public:
 	shared_ptr<Token> token() {
 		return tokens.size() > position
 			 ? tokens[position]
-			 : make_shared<Token>(Token());
+			 : make_shared(Token());
 	}
 
 	inline bool tokensEnd() {
@@ -3259,7 +3259,7 @@ public:
 			return;
 		}
 
-		reports.push_back(make_shared<Report>(Report {
+		reports.push_back(make_shared(Report {
 			level,
 			position,
 			location,

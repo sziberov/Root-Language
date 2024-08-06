@@ -12,6 +12,8 @@
 #include <map>
 #include <execution>
 
+#include "Node.cpp"
+
 using namespace std;
 
 template <typename Container, typename Predicate>
@@ -35,6 +37,7 @@ shared_ptr<T> make_shared(const T& value) {
 
 class Lexer {
 public:
+	/*
 	struct Location {
 		int line,
 			column;
@@ -48,6 +51,7 @@ public:
 		bool nonmergeable,
 			 generated;
 	};
+	*/
 
 	struct Rule {
 		variant<string, vector<string>, regex> triggers;
@@ -56,7 +60,7 @@ public:
 
 	string_view code;
 	int position;
-	deque<shared_ptr<Token>> tokens;
+	deque<NodeRef> tokens;
 	deque<string> states;
 	vector<Rule> rules {
 		{"#!", [this](const string& v) {
@@ -81,7 +85,7 @@ public:
 			if(v == "/*") {
 				addToken("commentBlock", v);
 			}
-			if(token()->type == "commentBlock") {
+			if(token()->get("type") == "commentBlock") {
 				if(v == "/*") {
 					addState("comment");
 				} else {
@@ -163,7 +167,7 @@ public:
 							   generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
 
 			bool initializer = initializers.contains(v) && !token()->value.starts_with(v),
-				 singleton = token()->type == "operatorPostfix" && singletons.contains(token()->value),
+				 singleton = token()->get("type") == "operatorPostfix" && singletons.contains(token()->value),
 				 generic = generics.contains(v);
 
 			if(!generic) {
@@ -172,7 +176,7 @@ public:
 
 			bool closingAngle = atAngle() && v == ">";
 
-			if(token()->type.starts_with("operator") && !initializer && !singleton && !closingAngle) {
+			if(token()->get("type").starts_with("operator") && !initializer && !singleton && !closingAngle) {
 				token()->value += v;
 
 				return false;
@@ -181,13 +185,13 @@ public:
 			string type = "operator";
 
 			if(singleton) {
-				type = token()->type;
+				type = token()->get("type");
 			} else {
 				if(
-					(set<string> {"string", "identifier"}).contains(token()->type) ||
-					token()->type.ends_with("Closed") ||
-					token()->type.starts_with("number") ||
-					token()->type.starts_with("keyword")
+					(set<string> {"string", "identifier"}).contains(token()->get("type")) ||
+					token()->get("type").ends_with("Closed") ||
+					token()->get("type").starts_with("number") ||
+					token()->get("type").starts_with("keyword")
 				) {
 					type += "Postfix";
 				}
@@ -197,7 +201,7 @@ public:
 
 			addToken(type);
 			if(initializer || singleton) {
-				token()->nonmergeable = true;
+				token()->get("nonmergeable") = true;
 			}
 
 			if(v == "<") addState("angle");
@@ -277,7 +281,7 @@ public:
 				return false;
 			}
 
-			if(token()->type == "delimiter" && token()->generated) {
+			if(token()->get("type") == "delimiter" && token()->generated) {
 				token()->generated = false;
 			} else {
 				addToken("delimiter");
@@ -286,14 +290,14 @@ public:
 			return false;
 		}},
 		{"\n", [this](const string& v) {
-			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->type) || atString()) {
+			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->get("type")) || atString()) {
 				helpers_continueString();
 				token()->value += v;
 
 				return false;
 			}
 
-			if(token()->type != "whitespace") {
+			if(token()->get("type") != "whitespace") {
 				addToken("whitespace", v);
 
 				if(atComments()) {
@@ -317,7 +321,7 @@ public:
 			return false;
 		}},
 		{regex("[^\\S\\n]+"), [this](const string& v) {
-			if(atComments() || atString() || token()->type == "whitespace") {
+			if(atComments() || atString() || token()->get("type") == "whitespace") {
 				helpers_continueString();
 				token()->value += v;
 
@@ -335,9 +339,9 @@ public:
 
 				return false;
 			}
-			if(token()->type == "operatorPostfix" && token()->value == "." && getToken(-1)->type == "numberInteger") {
+			if(token()->get("type") == "operatorPostfix" && token()->value == "." && getToken(-1)->get("type") == "numberInteger") {
 				removeToken();
-				token()->type = "numberFloat";
+				token()->get("type") = "numberFloat";
 				token()->value += "."+v;
 
 				return false;
@@ -427,7 +431,7 @@ public:
 			return false;
 		}},
 		{regex("."), [this](const string& v) {
-			if(atComments() || atString() || token()->type == "unsupported") {
+			if(atComments() || atString() || token()->get("type") == "unsupported") {
 				helpers_continueString();
 				token()->value += v;
 
@@ -441,7 +445,7 @@ public:
 	};
 
 	void helpers_continueString() {
-		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->type)) {
+		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->get("type"))) {
 			addToken("stringSegment", "");
 		}
 	}
@@ -451,23 +455,23 @@ public:
 
 		for(int i = tokens.size(); i >= 0; i--) {
 			if(
-				!token()->type.starts_with("operator") || token()->nonmergeable ||
-				!getToken(-1)->type.starts_with("operator") || getToken(-1)->nonmergeable
+				!token()->get<string>("type").starts_with("operator") || token()->get("nonmergeable") ||
+				!getToken(-1)->get<string>("type").starts_with("operator") || getToken(-1)->get("nonmergeable")
 			) {
 				break;
 			}
 
-			getToken(-1)->value += token()->value;
+			getToken(-1)->get("value") += token()->get<string>("value");
 			removeToken();
 		}
 	}
 
 	void helpers_specifyOperatorType() {
-		if(token()->type == "operator") {
-			token()->type = "operatorPrefix";
+		if(token()->get("type") == "operator") {
+			token()->get("type") = "operatorPrefix";
 		} else
-		if(token()->type == "operatorPostfix") {
-			token()->type = "operatorInfix";
+		if(token()->get("type") == "operatorPostfix") {
+			token()->get("type") = "operatorInfix";
 		}
 	}
 
@@ -480,21 +484,21 @@ public:
 		return position >= code.length();
 	}
 
-	inline shared_ptr<Token> token() {
+	inline NodeRef token() {
 		return getToken();
 	}
 
-	Location location() {
-		Location location = token()->location != nullptr ? *token()->location : Location();
+	Node location() {
+		Node location = !token()->empty("location") ? token()->get<Node>("location") : Node();
 
-		for(int position = token()->position; position < this->position; position++) {
+		for(int position = token()->get("position"); position < this->position; position++) {
 			char character = code[position];
 
 			if(character == '\n') {
-				location.line++;
-				location.column = 0;
+				location.get("line") += 1;
+				location.get("column") = 0;
 			} else {
-				location.column += character == '\t' ? 4 : 1;
+				location.get("column") += character == '\t' ? 4 : 1;
 			}
 		}
 
@@ -537,14 +541,19 @@ public:
 		return t == "whitespace" || t.starts_with("comment");
 	};
 
-	shared_ptr<Token> getToken(int offset = 0) {
+	NodeRef getToken(int offset = 0) {
 		return tokens.size() > tokens.size()-1+offset
 			 ? tokens[tokens.size()-1+offset]
-			 : make_shared(Token());
+			 : make_shared(Node {
+				   {"position", nullptr},
+				   {"location", nullptr},
+				   {"type", ""},
+				   {"value", ""}
+			   });
 	}
 
 	void addToken(const string& type, optional<string> value = nullopt) {
-		tokens.push_back(make_shared(Token {
+		tokens.push_back(make_shared(Node {
 			position,
 			make_shared(location()),
 			type,
@@ -565,9 +574,9 @@ public:
 	 */
 	bool atToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt, int offset = 0) {
 		for(int i = tokens.size()-1+offset; i >= 0; i--) {
-			shared_ptr<Token> token = tokens[i];
-			string type = token->type,
-				   value = token->value;
+			Node& token = *tokens[i];
+			string type = token.get("type"),
+				   value = token.get("value");
 
 			if(conforms(type, value)) {
 				return true;
@@ -587,14 +596,14 @@ public:
 		Save save = getSave();
 		bool result = false;
 
-		position = token()->position+token()->value.length();  // Override allows nested calls
+		position = token()->get<int>("position")+token()->get<string>("value").length();  // Override allows nested calls
 
 		while(!codeEnd()) {
 			nextToken();
 
-			shared_ptr<Token> token = tokens.back();
-			string type = token != nullptr ? token->type : "",
-				   value = token != nullptr ? token->value : "";
+			NodeRef token = tokens.back();
+			string type = token ? token->get("type") : "",
+				   value = token ? token->get("value") : "";
 
 			if(conforms(type, value)) {
 				result = true;
@@ -673,7 +682,7 @@ public:
 
 	struct Save {
 		int position;
-		deque<shared_ptr<Token>> tokens;
+		deque<NodeRef> tokens;
 		deque<string> states;
 	};
 
@@ -683,9 +692,9 @@ public:
 		save.position = position;
 		save.tokens.resize(tokens.size());
 		transform(execution::par, tokens.begin(), tokens.end(), save.tokens.begin(), [](auto& token) {
-			auto token_ = make_shared(*token);
+			NodeRef token_ = make_shared(*token);
 
-			token_->location = make_shared(*token_->location);
+			token_->get("location") = make_shared(token_->get<Node>("location"));
 
 			return token_;
 		});
@@ -711,11 +720,11 @@ public:
 	}
 
 	bool atSubstring(const string& substring) {
-	    if(position+substring.size() > code.size()) {
-	        return false;
-	    }
+		if(position+substring.size() > code.size()) {
+			return false;
+		}
 
-	    return equal(substring.begin(), substring.end(), code.begin()+position);
+		return equal(substring.begin(), substring.end(), code.begin()+position);
 	}
 
 	optional<string> atRegex(const regex& regex) {
@@ -763,8 +772,8 @@ public:
 	}
 
 	struct Result {
-		deque<shared_ptr<Token>> rawTokens,
-								 tokens;
+		deque<NodeRef> rawTokens,
+					   tokens;
 	};
 
 	Result tokenize(string_view code) {
@@ -778,7 +787,7 @@ public:
 
 		Result result = {
 			tokens,
-			filter(tokens, [this](auto& v) { return !ignorable(v->type, nullopt); })
+			filter(tokens, [this](auto& v) { return !ignorable(v->get("type"), nullopt); })
 		};
 
 		reset();

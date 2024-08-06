@@ -57,7 +57,7 @@ public:
 
 	template<typename T>
 	operator T() const {
-		if(holds_alternative<T>(value))			return ::get<T>(value);
+		if(holds_alternative<T>(value))			return get<T>();
 		if(holds_alternative<nullptr_t>(value))	return T();
 
 		cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
@@ -67,12 +67,12 @@ public:
 
 	operator bool() const {
 		switch(type()) {
-			case 1:		return ::get<bool>(value);
-			case 2:		return ::get<int>(value);
-			case 3:		return ::get<double>(value);
-			case 4:		return ::get<string>(value) == "true" || ::get<string>(value) == "1";
-			case 5:		return !!::get<NodeRef>(value);
-			case 6:		return !!::get<NodeArrayRef>(value);
+			case 1:		return get<bool>();
+			case 2:		return get<int>();
+			case 3:		return get<double>();
+			case 4:		return get<string>() == "true" || get<string>() == "1";
+			case 5:		return !!get<NodeRef>();
+			case 6:		return !!get<NodeArrayRef>();
 			default:	return bool();
 		}
 	}
@@ -80,9 +80,10 @@ public:
 	operator int() const {
 		switch(type()) {
 			case 0:		return int();
-			case 1:		return ::get<bool>(value);
-			case 2:		return ::get<int>(value);
-			case 3:		return ::get<double>(value);
+			case 1:		return get<bool>();
+			case 2:		return get<int>();
+			case 3:		return get<double>();
+			case 4:     return stoi(get<string>());
 			default:	throw bad_variant_access();
 		}
 	}
@@ -90,45 +91,45 @@ public:
 	operator double() const {
 		switch(type()) {
 			case 0:		return double();
-			case 1:		return ::get<bool>(value);
-			case 2:		return ::get<int>(value);
-			case 3:		return ::get<double>(value);
+			case 1:		return get<bool>();
+			case 2:		return get<int>();
+			case 3:		return get<double>();
+			case 4:     return stod(get<string>());
 			default:	throw bad_variant_access();
 		}
 	}
 
 	operator string() const {
 		switch(type()) {
-			case 1:		return ::get<bool>(value) ? "true" : "false";
-			case 2:		return to_string(::get<int>(value));
-			case 3:		return to_string(::get<double>(value));
-			case 4:		return ::get<string>(value);
-			case 5:		return to_string(*::get<NodeRef>(value));
-			case 6:		return to_string(*::get<NodeArrayRef>(value));
+			case 1:		return get<bool>() ? "true" : "false";
+			case 2:		return to_string(get<int>());
+			case 3:		return to_string(get<double>());
+			case 4:		return get<string>();
+			case 5:		return to_string(*get<NodeRef>());
+			case 6:		return to_string(*get<NodeArrayRef>());
 			default:	return string();
 		}
 	}
 
 	operator Node&() const {
-		return *::get<NodeRef>(value);
+		return *get<NodeRef>();
 	}
 
 	operator NodeArray&() const {
-		return *::get<NodeArrayRef>(value);
+		return *get<NodeArrayRef>();
 	}
 
-	/*
-	operator vector<string>() const {
-		auto values = ::get<NodeArrayRef>(value);
-		vector<string> values_;
+	template<typename T, template <typename, typename = allocator<T>> class Container>
+	operator Container<T>() const {
+		auto values = get<NodeArrayRef>();
+		Container<T> values_;
 
-		for(const NodeValue& value : *values) {
+		for(const T& value : *values) {
 			values_.push_back(value);
 		}
 
 		return values_;
 	}
-	*/
 
 	template<typename T>
 	NodeValue& operator=(T&& v) {
@@ -137,9 +138,25 @@ public:
 		return *this;
 	}
 
+	/*
+	template<typename T>
+	NodeValue& operator+=(const T& v) {
+		value = ((T)*this)+v;
+
+		return *this;
+	}
+
+	template<typename T>
+	NodeValue& operator-=(const T& v) {
+		value = ((T)*this)-v;
+
+		return *this;
+	}
+	*/
+
 	template<typename T>
 	bool operator==(const T& v) const {
-		return ::get<T>(value) == v;
+		return holds_alternative<T>(value) && get<T>() == v;
 	}
 
 	template<typename T>
@@ -148,22 +165,48 @@ public:
 	}
 
 	bool operator==(const char* v) const {
-		return ::get<string>(value) == v;
+		return holds_alternative<string>(value) && get<string>() == v;
 	}
 
 	bool operator!=(const char* v) const {
 		return !(*this == v);
 	}
 
+	bool operator==(const NodeValue& v) const {
+		switch(type()) {
+			case 0:     return *this == (nullptr_t)v;
+			case 1:		return *this == (bool)v;
+			case 2:		return *this == (int)v;
+			case 3:		return *this == (double)v;
+			case 4:		return *this == (string)v;
+			case 5:		return *this == (NodeRef)v;
+			case 6:		return *this == (NodeArrayRef)v;
+			default:	return false;
+		}
+	}
+
 	/*
 	bool operator==(const NodeValue& v) const {
-		return !holds_alternative<any>(value) && !holds_alternative<any>(v.value) && value == v.value;
+		if(type() != v.type()) {
+			return false;
+		}
+
+		switch(type()) {
+			case 0:     return true;
+			case 1:		return get<bool>() == v.get<bool>();
+			case 2:		return get<int>() == v.get<int>();
+			case 3:		return get<double>() == v.get<double>();
+			case 4:		return get<string>() == v.get<string>();
+			case 5:		return get<NodeRef>() == v.get<NodeRef>();
+			case 6:		return get<NodeArrayRef>() == v.get<NodeArrayRef>();
+			default:	return false;
+		}
 	}
+	*/
 
 	bool operator!=(const NodeValue& v) const {
 		return !(*this == v);
 	}
-	*/
 
 	bool empty() const {
 		return holds_alternative<nullptr_t>(value);
@@ -187,7 +230,7 @@ public:
 	T get(const string& key, const NodeValue& defaultValue = nullptr) const {
 		auto it = data.find(key);
 
-		return it != data.end() ? it->second : defaultValue;
+		return it != data.end() && !it->second.empty() ? it->second : defaultValue;
 	}
 
 	NodeValue& get(const string& key) {
