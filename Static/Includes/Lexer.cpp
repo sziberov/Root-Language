@@ -444,24 +444,29 @@ public:
 		removeState("angle", 2);
 
 		for(int i = tokens.size(); i >= 0; i--) {
+			Token& token = getToken(),
+				   token_ = getToken(-1);
+
 			if(
-				!token().type.starts_with("operator") || token().nonmergeable ||
-				!getToken(-1).type.starts_with("operator") || getToken(-1).nonmergeable
+				!token.type.starts_with("operator") || token.nonmergeable ||
+				!token_.type.starts_with("operator") || token_.nonmergeable
 			) {
 				break;
 			}
 
-			getToken(-1).value += token().value;
+			token_.value += token.value;
 			removeToken();
 		}
 	}
 
 	void helpers_specifyOperatorType() {
-		if(token().type == "operator") {
-			token().type = "operatorPrefix";
+		Token& token = getToken();
+
+		if(token.type == "operator") {
+			token.type = "operatorPrefix";
 		} else
-		if(token().type == "operatorPostfix") {
-			token().type = "operatorInfix";
+		if(token.type == "operatorPostfix") {
+			token.type = "operatorInfix";
 		}
 	}
 

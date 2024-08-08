@@ -24,11 +24,13 @@ int main() {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		auto start = chrono::high_resolution_clock::now();
 		lexerResult = make_shared<Lexer::Result>(lexer.tokenize(req.body));
+		auto stop_0 = chrono::high_resolution_clock::now();
 		string lexerResultString = glz::write_json(lexerResult).value_or("error");
-		auto stop = chrono::high_resolution_clock::now();
-		auto duration = chrono::duration_cast<chrono::milliseconds>(stop-start);
+		auto stop_1 = chrono::high_resolution_clock::now();
+		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
+			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
-		cout << "                      [Lexer   ] Taken " << duration.count() << "ms by string(" << req.body.length() << ")" << endl;
+		cout << "                      [Lexer   ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by string(" << req.body.length() << ")" << endl;
 
 		return lexerResultString;
 	});
@@ -36,11 +38,14 @@ int main() {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		if(lexerResult == nullptr) return string();
 		auto start = chrono::high_resolution_clock::now();
-		string parserResultString = glz::write_json(parser.parse(*lexerResult)).value_or("error");
-		auto stop = chrono::high_resolution_clock::now();
-		auto duration = chrono::duration_cast<chrono::milliseconds>(stop-start);
+		parserResult = make_shared<Parser::Result>(parser.parse(*lexerResult));
+		auto stop_0 = chrono::high_resolution_clock::now();
+		string parserResultString = glz::write_json(parserResult).value_or("error");
+		auto stop_1 = chrono::high_resolution_clock::now();
+		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
+			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
-		cout << "                      [Parser  ] Taken " << duration.count() << "ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
+		cout << "                      [Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
 
 		return parserResultString;
 	});
