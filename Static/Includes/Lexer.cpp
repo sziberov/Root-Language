@@ -10,7 +10,6 @@
 #include <optional>
 #include <deque>
 #include <map>
-#include <execution>
 
 using namespace std;
 
@@ -26,11 +25,6 @@ Container filter(const Container& container, UnaryPredicate predicate) {
 	return result;
 }
 
-template <typename T>
-shared_ptr<T> make_shared(const T& value) {
-	return make_shared<T>(value);
-}
-
 // ----------------------------------------------------------------
 
 class Lexer {
@@ -42,7 +36,7 @@ public:
 
 	struct Token {
 		int position;
-		shared_ptr<Location> location;
+		Location location;
 		string type,
 			   value;
 		bool nonmergeable,
@@ -56,13 +50,13 @@ public:
 
 	string_view code;
 	int position;
-	deque<shared_ptr<Token>> tokens;
+	deque<Token> tokens;
 	deque<string> states;
 	vector<Rule> rules {
 		{"#!", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 			} else
 			if(position == 0) {
 				addToken("commentShebang", v);
@@ -76,12 +70,12 @@ public:
 		{vector<string> {"/*", "*/"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 			} else
 			if(v == "/*") {
 				addToken("commentBlock", v);
 			}
-			if(token()->type == "commentBlock") {
+			if(token().type == "commentBlock") {
 				if(v == "/*") {
 					addState("comment");
 				} else {
@@ -94,7 +88,7 @@ public:
 		{"//", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 			} else {
 				addToken("commentLine", v);
 				addState("comment");
@@ -104,7 +98,7 @@ public:
 		}},
 		{vector<string> {"\\\\", "\\'", "\\(", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\"}, [this](const string& v) {
 			if(atComments()) {
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -118,7 +112,7 @@ public:
 			}
 
 			helpers_continueString();
-			token()->value +=
+			token().value +=
 				v == "\\\\" ? "\\" :
 				v == "\\'" ? "'" :
 				v == "\\b" ? "\b" :
@@ -132,7 +126,7 @@ public:
 		}},
 		{vector<string> {"\\(", ")"}, [this](const string& v) {
 			if(atComments()) {
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -153,7 +147,7 @@ public:
 		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -162,8 +156,8 @@ public:
 							   singletons = {"!", "?"},										// Create new token if current (postfix operator) token matches any value in the list
 							   generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
 
-			bool initializer = initializers.contains(v) && !token()->value.starts_with(v),
-				 singleton = token()->type == "operatorPostfix" && singletons.contains(token()->value),
+			bool initializer = initializers.contains(v) && !token().value.starts_with(v),
+				 singleton = token().type == "operatorPostfix" && singletons.contains(token().value),
 				 generic = generics.contains(v);
 
 			if(!generic) {
@@ -172,8 +166,8 @@ public:
 
 			bool closingAngle = atAngle() && v == ">";
 
-			if(token()->type.starts_with("operator") && !initializer && !singleton && !closingAngle) {
-				token()->value += v;
+			if(token().type.starts_with("operator") && !initializer && !singleton && !closingAngle) {
+				token().value += v;
 
 				return false;
 			}
@@ -181,13 +175,13 @@ public:
 			string type = "operator";
 
 			if(singleton) {
-				type = token()->type;
+				type = token().type;
 			} else {
 				if(
-					(set<string> {"string", "identifier"}).contains(token()->type) ||
-					token()->type.ends_with("Closed") ||
-					token()->type.starts_with("number") ||
-					token()->type.starts_with("keyword")
+					set<string> {"string", "identifier"}.contains(token().type) ||
+					token().type.ends_with("Closed") ||
+					token().type.starts_with("number") ||
+					token().type.starts_with("keyword")
 				) {
 					type += "Postfix";
 				}
@@ -197,7 +191,7 @@ public:
 
 			addToken(type);
 			if(initializer || singleton) {
-				token()->nonmergeable = true;
+				token().nonmergeable = true;
 			}
 
 			if(v == "<") addState("angle");
@@ -208,7 +202,7 @@ public:
 		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -234,7 +228,7 @@ public:
 			}
 			if(v == "}" && atStatementBody() && !atFutureToken([](string t, string v) { return set<string> {"keywordElse", "keywordWhere"}.contains(t); }, ignorable)) {
 				addToken("delimiter", ";");
-				token()->generated = true;
+				token().generated = true;
 				removeState("statement");
 
 				return false;
@@ -253,7 +247,7 @@ public:
 		}},
 		{"'", [this](const string& v) {
 			if(atComments()) {
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -272,13 +266,13 @@ public:
 		{";", [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
 
-			if(token()->type == "delimiter" && token()->generated) {
-				token()->generated = false;
+			if(token().type == "delimiter" && token().generated) {
+				token().generated = false;
 			} else {
 				addToken("delimiter");
 			}
@@ -286,24 +280,24 @@ public:
 			return false;
 		}},
 		{"\n", [this](const string& v) {
-			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token()->type) || atString()) {
+			if(atComments() && !set<string> {"commentShebang", "commentLine"}.contains(token().type) || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
 
-			if(token()->type != "whitespace") {
+			if(token().type != "whitespace") {
 				addToken("whitespace", v);
 
 				if(atComments()) {
 					removeState("comment");
 				}
 			} else {
-				token()->value += v;
+				token().value += v;
 			}
 
-			if(atStatement() && count(token()->value.begin(), token()->value.end(), '\n') == 1) {
+			if(atStatement() && count(token().value.begin(), token().value.end(), '\n') == 1) {
 				auto braceOpen = [](string t, optional<string> v) { return t == "braceOpen"; };
 
 				if(atToken(braceOpen, ignorable)) {
@@ -317,9 +311,9 @@ public:
 			return false;
 		}},
 		{regex("[^\\S\\n]+"), [this](const string& v) {
-			if(atComments() || atString() || token()->type == "whitespace") {
+			if(atComments() || atString() || token().type == "whitespace") {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -331,14 +325,14 @@ public:
 		{regex("[0-9]+"), [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
-			if(token()->type == "operatorPostfix" && token()->value == "." && getToken(-1)->type == "numberInteger") {
+			if(token().type == "operatorPostfix" && token().value == "." && getToken(-1).type == "numberInteger") {
 				removeToken();
-				token()->type = "numberFloat";
-				token()->value += "."+v;
+				token().type = "numberFloat";
+				token().value += "."+v;
 
 				return false;
 			}
@@ -351,7 +345,7 @@ public:
 		{regex("[a-z_$][a-z0-9_$]*", regex_constants::icase), [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -427,9 +421,9 @@ public:
 			return false;
 		}},
 		{regex("."), [this](const string& v) {
-			if(atComments() || atString() || token()->type == "unsupported") {
+			if(atComments() || atString() || token().type == "unsupported") {
 				helpers_continueString();
-				token()->value += v;
+				token().value += v;
 
 				return false;
 			}
@@ -441,7 +435,7 @@ public:
 	};
 
 	void helpers_continueString() {
-		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token()->type)) {
+		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token().type)) {
 			addToken("stringSegment", "");
 		}
 	}
@@ -451,23 +445,23 @@ public:
 
 		for(int i = tokens.size(); i >= 0; i--) {
 			if(
-				!token()->type.starts_with("operator") || token()->nonmergeable ||
-				!getToken(-1)->type.starts_with("operator") || getToken(-1)->nonmergeable
+				!token().type.starts_with("operator") || token().nonmergeable ||
+				!getToken(-1).type.starts_with("operator") || getToken(-1).nonmergeable
 			) {
 				break;
 			}
 
-			getToken(-1)->value += token()->value;
+			getToken(-1).value += token().value;
 			removeToken();
 		}
 	}
 
 	void helpers_specifyOperatorType() {
-		if(token()->type == "operator") {
-			token()->type = "operatorPrefix";
+		if(token().type == "operator") {
+			token().type = "operatorPrefix";
 		} else
-		if(token()->type == "operatorPostfix") {
-			token()->type = "operatorInfix";
+		if(token().type == "operatorPostfix") {
+			token().type = "operatorInfix";
 		}
 	}
 
@@ -480,14 +474,14 @@ public:
 		return position >= code.length();
 	}
 
-	inline shared_ptr<Token> token() {
+	inline Token& token() {
 		return getToken();
 	}
 
 	Location location() {
-		Location location = token()->location != nullptr ? *token()->location : Location();
+		Location location = token().location;
 
-		for(int position = token()->position; position < this->position; position++) {
+		for(int position = token().position; position < this->position; position++) {
 			char character = code[position];
 
 			if(character == '\n') {
@@ -537,19 +531,21 @@ public:
 		return t == "whitespace" || t.starts_with("comment");
 	};
 
-	shared_ptr<Token> getToken(int offset = 0) {
+	Token& getToken(int offset = 0) {
+		static Token dummy;
+
 		return tokens.size() > tokens.size()-1+offset
 			 ? tokens[tokens.size()-1+offset]
-			 : make_shared(Token());
+			 : dummy = Token();
 	}
 
 	void addToken(const string& type, optional<string> value = nullopt) {
-		tokens.push_back(make_shared(Token {
+		tokens.push_back(Token {
 			position,
-			make_shared(location()),
+			location(),
 			type,
 			value.value_or(string(1, code[position]))
-		}));
+		});
 	}
 
 	void removeToken(int offset = 0) {
@@ -565,9 +561,9 @@ public:
 	 */
 	bool atToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt, int offset = 0) {
 		for(int i = tokens.size()-1+offset; i >= 0; i--) {
-			shared_ptr<Token> token = tokens[i];
-			string type = token->type,
-				   value = token->value;
+			Token& token = tokens[i];
+			string type = token.type,
+				   value = token.value;
 
 			if(conforms(type, value)) {
 				return true;
@@ -587,14 +583,14 @@ public:
 		Save save = getSave();
 		bool result = false;
 
-		position = token()->position+token()->value.length();  // Override allows nested calls
+		position = token().position+token().value.length();  // Override allows nested calls
 
 		while(!codeEnd()) {
 			nextToken();
 
-			shared_ptr<Token> token = tokens.back();
-			string type = token != nullptr ? token->type : "",
-				   value = token != nullptr ? token->value : "";
+			Token& token = getToken();
+			string type = token.type,
+				   value = token.value;
 
 			if(conforms(type, value)) {
 				result = true;
@@ -673,25 +669,16 @@ public:
 
 	struct Save {
 		int position;
-		deque<shared_ptr<Token>> tokens;
+		deque<Token> tokens;
 		deque<string> states;
 	};
 
 	Save getSave() {
-		Save save;
-
-		save.position = position;
-		save.tokens.resize(tokens.size());
-		transform(execution::par, tokens.begin(), tokens.end(), save.tokens.begin(), [](auto& token) {
-			auto token_ = make_shared(*token);
-
-			token_->location = make_shared(*token_->location);
-
-			return token_;
-		});
-		save.states = states;
-
-		return save;
+		return {
+			position,
+			tokens,
+			states
+		};
 	}
 
 	void restoreSave(Save save) {
@@ -763,11 +750,13 @@ public:
 	}
 
 	struct Result {
-		deque<shared_ptr<Token>> rawTokens,
-								 tokens;
+		deque<Token> rawTokens,
+					 tokens;
 	};
 
 	Result tokenize(string_view code) {
+		Result result;
+
 		reset();
 
 		this->code = code;
@@ -776,10 +765,8 @@ public:
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		Result result = {
-			tokens,
-			filter(tokens, [this](auto& v) { return !ignorable(v->type, nullopt); })
-		};
+		result.rawTokens = move(tokens);
+		result.tokens = filter(result.rawTokens, [this](auto& v) { return !ignorable(v.type, nullopt); });
 
 		reset();
 

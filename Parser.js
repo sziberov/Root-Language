@@ -3122,6 +3122,8 @@ class Parser {
 	static report(level, position, type, string) {
 		let location = this.tokens[position].location;
 
+		string = type+' -> '+string;
+
 		if(this.reports.find(v =>
 			v.location.line === location.line &&
 			v.location.column === location.column &&
@@ -3134,7 +3136,7 @@ class Parser {
 			level: level,
 			position: position,
 			location: location,
-			string: type+' -> '+string
+			string: string
 		});
 	}
 

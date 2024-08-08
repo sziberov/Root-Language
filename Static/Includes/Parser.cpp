@@ -11,6 +11,11 @@ bool contains(const Container& container, const T& value) {
 	return find(container.begin(), container.end(), value) != container.end();
 }
 
+template <typename T>
+shared_ptr<decay_t<T>> make_shared(T&& value) {
+    return std::make_shared<decay_t<T>>(forward<T>(value));
+}
+
 // ----------------------------------------------------------------
 
 class Parser {
@@ -20,12 +25,12 @@ public:
 	struct Report {
 		int level,
 			position;
-		shared_ptr<Location> location;
+		Location location;
 		::string string;
 	};
 
-	deque<shared_ptr<Token>> tokens;
-	deque<shared_ptr<Report>> reports;
+	deque<Token> tokens;
+	deque<Report> reports;
 
 	template<typename... Args>
 	NodeValue rules(const string& type, Args... args) {
@@ -41,7 +46,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(!node.empty("label") && token()->type.starts_with("operator") && token()->value == ":") {
+			if(!node.empty("label") && token().type.starts_with("operator") && token().value == ":") {
 				position++;
 			} else {
 				position = node.get<Node&>("range").get("start");
@@ -65,17 +70,17 @@ public:
 				{"values", NodeArray {}}
 			};
 
-			if(token()->type != "bracketOpen") {
+			if(token().type != "bracketOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("values") = helpers_sequentialNodes(
 				{"expressionsSequence"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
-			if(token()->type != "bracketClosed") {
+			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -92,14 +97,14 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "bracketOpen") {
+			if(token().type != "bracketOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("value") = rules("type");
 
-			if(token()->type != "bracketClosed") {
+			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -116,7 +121,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordAsync") {
+			if(token().type != "keywordAsync") {
 				return nullptr;
 			}
 
@@ -140,7 +145,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordAwait") {
+			if(token().type != "keywordAwait") {
 				return nullptr;
 			}
 
@@ -165,7 +170,7 @@ public:
 				{"statements", NodeArray {}}
 			};
 
-			if(token()->type != "braceOpen") {
+			if(token().type != "braceOpen") {
 				return nullptr;
 			}
 
@@ -193,11 +198,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(!set<string> {"keywordFalse", "keywordTrue"}.contains(token()->type)) {
+			if(!set<string> {"keywordFalse", "keywordTrue"}.contains(token().type)) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -210,7 +215,7 @@ public:
 				{"label", nullptr}
 			};
 
-			if(token()->type != "keywordBreak") {
+			if(token().type != "keywordBreak") {
 				return nullptr;
 			}
 
@@ -233,14 +238,14 @@ public:
 				{"closure", nullptr}
 			};
 
-			if(token()->type.starts_with("operator") && token()->value == "<") {
+			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
 				node.get("genericArguments") = helpers_sequentialNodes(
 					{"type"},
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type.starts_with("operator") && token()->value == ">") {
+				if(token().type.starts_with("operator") && token().value == ">") {
 					position++;
 				} else {
 					position = node_->get<Node&>("range").get<int>("end")+1;
@@ -249,16 +254,16 @@ public:
 
 			node.get<Node&>("range").get("end") = position-1;
 
-			if(token()->type == "parenthesisOpen") {
+			if(token().type == "parenthesisOpen") {
 				position++;
 				node.get("arguments") = helpers_skippableNodes(
 					{"argument"},
-					[this]() { return token()->type == "parenthesisOpen"; },
-					[this]() { return token()->type == "parenthesisClosed"; },
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type == "parenthesisOpen"; },
+					[this]() { return token().type == "parenthesisClosed"; },
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type == "parenthesisClosed") {
+				if(token().type == "parenthesisClosed") {
 					position++;
 				} else {
 					node.get<Node&>("range").get("end") = position-1;
@@ -288,14 +293,14 @@ public:
 				{"identifiers", NodeArray {}}
 			};
 
-			if(token()->type != "keywordCase") {
+			if(token().type != "keywordCase") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("identifiers") = helpers_sequentialNodes(
 				{"identifier"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
 			if(node.get<NodeArray&>("identifiers").empty()) {
@@ -315,14 +320,14 @@ public:
 				{"catch", nullptr}
 			};
 
-			if(token()->type != "keywordCatch") {
+			if(token().type != "keywordCatch") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("typeIdentifiers") = helpers_sequentialNodes(
 				{"typeIdentifier"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 			node.get("body") = rules("functionBody");
 			node.get("catch") = rules("catchClause");
@@ -348,7 +353,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "identifier" || token()->value != "chain") {
+			if(token().type != "identifier" || token().value != "chain") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -379,7 +384,7 @@ public:
 				{"member", nullptr}
 			};
 
-			if(!set<string> {"operator", "operatorInfix"}.contains(token()->type) || token()->value != ".") {
+			if(!set<string> {"operator", "operatorInfix"}.contains(token().type) || token().value != ".") {
 				return nullptr;
 			}
 
@@ -408,7 +413,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(!set<string> {"operatorPrefix", "operatorInfix"}.contains(token()->type) || token()->value != ".") {
+			if(!set<string> {"operatorPrefix", "operatorInfix"}.contains(token().type) || token().value != ".") {
 				return nullptr;
 			}
 
@@ -445,7 +450,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordClass") {
+			if(token().type != "keywordClass") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -509,7 +514,7 @@ public:
 				{"statements", NodeArray {}}
 			};
 
-			if(token()->type != "braceOpen") {
+			if(token().type != "braceOpen") {
 				return nullptr;
 			}
 
@@ -517,7 +522,7 @@ public:
 			node.get("signature") = rules("functionSignature");
 
 			if(!node.empty("signature")) {
-				if(token()->type != "keywordIn") {
+				if(token().type != "keywordIn") {
 					position = node.get<Node&>("range").get("start");
 
 					return nullptr;
@@ -551,14 +556,14 @@ public:
 				{"expression", nullptr}
 			};
 
-			if(!token()->type.starts_with("operator") || token()->value != "?") {
+			if(!token().type.starts_with("operator") || token().value != "?") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("expression") = rules("expressionsSequence");
 
-			if(!token()->type.starts_with("operator") || token()->value != ":") {
+			if(!token().type.starts_with("operator") || token().value != ":") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -575,7 +580,7 @@ public:
 				{"label", nullptr}
 			};
 
-			if(token()->type != "keywordContinue") {
+			if(token().type != "keywordContinue") {
 				return nullptr;
 			}
 
@@ -646,7 +651,7 @@ public:
 				{"value", node_}
 			};
 
-			if(token()->type != "operatorPostfix" || token()->value != "!") {
+			if(token().type != "operatorPostfix" || token().value != "!") {
 				return nullptr;
 			}
 
@@ -664,7 +669,7 @@ public:
 				{"value", node_}
 			};
 
-			if(token()->type != "operatorPostfix" || token()->value != "!") {
+			if(token().type != "operatorPostfix" || token().value != "!") {
 				return nullptr;
 			}
 
@@ -679,7 +684,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "identifier" || token()->value != "deinit") {
+			if(token().type != "identifier" || token().value != "deinit") {
 				return nullptr;
 			}
 
@@ -701,7 +706,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "identifier" || token()->value != "delete") {
+			if(token().type != "identifier" || token().value != "delete") {
 				return nullptr;
 			}
 
@@ -725,21 +730,21 @@ public:
 				{"entries", NodeArray {}}
 			};
 
-			if(token()->type != "bracketOpen") {
+			if(token().type != "bracketOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("entries") = helpers_sequentialNodes(
 				{"entry"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
-			if(node.get<NodeArray&>("entries").empty() && token()->type.starts_with("operator") && token()->value == ":") {
+			if(node.get<NodeArray&>("entries").empty() && token().type.starts_with("operator") && token().value == ":") {
 				position++;
 			}
 
-			if(token()->type != "bracketClosed") {
+			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -757,14 +762,14 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "bracketOpen") {
+			if(token().type != "bracketOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("key") = rules("type");
 
-			if(!token()->type.starts_with("operator") || token()->value != ":") {
+			if(!token().type.starts_with("operator") || token().value != ":") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -774,7 +779,7 @@ public:
 			node.get("key") = rules("type");
 
 
-			if(token()->type != "bracketClosed") {
+			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -792,7 +797,7 @@ public:
 				{"catch", nullptr}
 			};
 
-			if(token()->type != "keywordDo") {
+			if(token().type != "keywordDo") {
 				return nullptr;
 			}
 
@@ -815,7 +820,7 @@ public:
 			NodeRef node;
 			int start = position;
 
-			if(token()->type != "keywordElse") {
+			if(token().type != "keywordElse") {
 				return nullptr;
 			}
 
@@ -841,7 +846,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(node.empty("key") || !token()->type.starts_with("operator") || token()->value != ":") {
+			if(node.empty("key") || !token().type.starts_with("operator") || token().value != ":") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -876,7 +881,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordEnum") {
+			if(token().type != "keywordEnum") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -966,7 +971,7 @@ public:
 				{"label", nullptr}
 			};
 
-			if(token()->type != "keywordFallthrough") {
+			if(token().type != "keywordFallthrough") {
 				return nullptr;
 			}
 
@@ -983,11 +988,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "numberFloat") {
+			if(token().type != "numberFloat") {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -1003,18 +1008,18 @@ public:
 				{"value", nullptr}
 			});
 
-			if(token()->type != "keywordFor") {
+			if(token().type != "keywordFor") {
 				return nullptr;
 			}
 
 			node->get<Node&>("range").get("start") = position++;
 			node->get("identifier") = rules("identifier");
 
-			if(token()->type == "keywordIn") {
+			if(token().type == "keywordIn") {
 				position++;
 				node->get("in") = rules("expressionsSequence");
 			}
-			if(token()->type == "keywordWhere") {
+			if(token().type == "keywordWhere") {
 				position++;
 				node->get("where") = rules("expressionsSequence");
 			}
@@ -1051,7 +1056,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordFunc") {
+			if(token().type != "keywordFunc") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1108,16 +1113,16 @@ public:
 				{"returnType", nullptr}
 			};
 
-			if(token()->type == "parenthesisOpen") {
+			if(token().type == "parenthesisOpen") {
 				position++;
 				node.get("parameters") = helpers_skippableNodes(
 					{"parameter"},
-					[this]() { return token()->type == "parenthesisOpen"; },
-					[this]() { return token()->type == "parenthesisClosed"; },
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type == "parenthesisOpen"; },
+					[this]() { return token().type == "parenthesisClosed"; },
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type == "parenthesisClosed") {
+				if(token().type == "parenthesisClosed") {
 					position++;
 				} else {
 					node.get<Node&>("range").get("end") = position-1;
@@ -1128,18 +1133,18 @@ public:
 				}
 			}
 
-			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token()->type)) {
-				if(token()->type == "keywordAwaits") {
+			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token().type)) {
+				if(token().type == "keywordAwaits") {
 					position++;
 					node.get("awaits") = 1;
 				}
-				if(token()->type == "keywordThrows") {
+				if(token().type == "keywordThrows") {
 					position++;
 					node.get("throws") = 1;
 				}
 			}
 
-			if(token()->type.starts_with("operator") && token()->value == "->") {
+			if(token().type.starts_with("operator") && token().value == "->") {
 				position++;
 				node.get("returnType") = rules("type");
 			}
@@ -1191,14 +1196,14 @@ public:
 				{"returnType", nullptr}
 			};
 
-			if(token()->type.starts_with("operator") && token()->value == "<") {
+			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
 				node.get("genericParameterTypes") = helpers_sequentialNodes(
 					{"type"},
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type.starts_with("operator") && token()->value == ">") {
+				if(token().type.starts_with("operator") && token().value == ">") {
 					node.get<Node&>("range").get("end") = position++;
 				} else {
 					position = node.get<Node&>("range").get("start");
@@ -1207,7 +1212,7 @@ public:
 				}
 			}
 
-			if(token()->type != "parenthesisOpen") {
+			if(token().type != "parenthesisOpen") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1216,10 +1221,10 @@ public:
 			position++;
 			node.get("parameterTypes") = helpers_sequentialNodes(
 				{"type"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
-			if(token()->type != "parenthesisClosed") {
+			if(token().type != "parenthesisClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1227,28 +1232,28 @@ public:
 
 			position++;
 
-			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token()->type)) {
-				if(token()->type == "keywordAwaits") {
+			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token().type)) {
+				if(token().type == "keywordAwaits") {
 					position++;
 					node.get("awaits") = 1;
 
-					if(token()->type == "operatorPostfix" && token()->value == "?") {
+					if(token().type == "operatorPostfix" && token().value == "?") {
 						position++;
 						node.get("awaits") = 0;
 					}
 				}
-				if(token()->type == "keywordThrows") {
+				if(token().type == "keywordThrows") {
 					position++;
 					node.get("throws") = 1;
 
-					if(token()->type == "operatorPostfix" && token()->value == "?") {
+					if(token().type == "operatorPostfix" && token().value == "?") {
 						position++;
 						node.get("throws") = 0;
 					}
 				}
 			}
 
-			if(!token()->type.starts_with("operator") || token()->value != "->") {
+			if(!token().type.starts_with("operator") || token().value != "->") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1288,19 +1293,19 @@ public:
 			NodeArray nodes;
 			int start = position;
 
-			if(!token()->type.starts_with("operator") || token()->value != "<") {
+			if(!token().type.starts_with("operator") || token().value != "<") {
 				return nodes;
 			}
 
 			position++;
 			nodes = helpers_skippableNodes(
 				{"genericParameter"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == "<"; },
-				[this]() { return token()->type.starts_with("operator") && token()->value == ">"; },
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == "<"; },
+				[this]() { return token().type.starts_with("operator") && token().value == ">"; },
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
-			if(!token()->type.starts_with("operator") || token()->value != ">") {
+			if(!token().type.starts_with("operator") || token().value != ">") {
 				report(1, start, "genericParametersClause", "Node doesn't have the closing angle and was decided to be autoclosed at the end of stream.");
 
 				return nodes;
@@ -1317,11 +1322,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "identifier") {
+			if(token().type != "identifier") {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -1336,7 +1341,7 @@ public:
 				{"else", nullptr}
 			});
 
-			if(token()->type != "keywordIf") {
+			if(token().type != "keywordIf") {
 				return nullptr;
 			}
 
@@ -1365,7 +1370,7 @@ public:
 				{"member", nullptr}
 			};
 
-			if(!token()->type.starts_with("operator") || token()->type.ends_with("Postfix") || token()->value != ".") {
+			if(!token().type.starts_with("operator") || token().type.ends_with("Postfix") || token().value != ".") {
 				return nullptr;
 			}
 
@@ -1391,7 +1396,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(!token()->type.starts_with("operator") || token()->type.ends_with("Postfix") || token()->value != ".") {
+			if(!token().type.starts_with("operator") || token().type.ends_with("Postfix") || token().value != ".") {
 				return nullptr;
 			}
 
@@ -1415,7 +1420,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordImport") {
+			if(token().type != "keywordImport") {
 				return nullptr;
 			}
 
@@ -1458,11 +1463,11 @@ public:
 
 			set<string> exceptions = {",", ":"};  // Enclosing nodes can use operators from the list as delimiters
 
-			if(!set<string> {"operator", "operatorInfix"}.contains(token()->type) || exceptions.contains(token()->value)) {
+			if(!set<string> {"operator", "operatorInfix"}.contains(token().type) || exceptions.contains(token().value)) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -1472,14 +1477,14 @@ public:
 			NodeArray nodes;
 			int start = position;
 
-			if(!token()->type.starts_with("operator") || token()->value != ":") {
+			if(!token().type.starts_with("operator") || token().value != ":") {
 				return nodes;
 			}
 
 			position++;
 			nodes = helpers_sequentialNodes(
 				{"typeIdentifier"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
 			if(nodes.empty()) {
@@ -1492,7 +1497,7 @@ public:
 			NodeRef node;
 			int start = position;
 
-			if(!token()->type.starts_with("operator") || token()->value != "=") {
+			if(!token().type.starts_with("operator") || token().value != "=") {
 				return nullptr;
 			}
 
@@ -1517,7 +1522,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "identifier" || token()->value != "init") {
+			if(token().type != "identifier" || token().value != "init") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1525,7 +1530,7 @@ public:
 
 			position++;
 
-			if(token()->type.starts_with("operator") && token()->value == "?") {
+			if(token().type.starts_with("operator") && token().value == "?") {
 				position++;
 				node.get("nillable") = true;
 			}
@@ -1560,12 +1565,12 @@ public:
 				{"composite", nullptr}
 			};
 
-			if(token()->type == "operatorPrefix" && token()->value == "!") {
+			if(token().type == "operatorPrefix" && token().value == "!") {
 				position++;
 				node.get("inverted") = true;
 			}
 
-			if(token()->type != "keywordIn") {
+			if(token().type != "keywordIn") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1591,7 +1596,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "operatorPrefix" || token()->value != "&") {
+			if(token().type != "operatorPrefix" || token().value != "&") {
 				return nullptr;
 			}
 
@@ -1615,7 +1620,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordInout") {
+			if(token().type != "keywordInout") {
 				return nullptr;
 			}
 
@@ -1632,11 +1637,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "numberInteger") {
+			if(token().type != "numberInteger") {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -1650,7 +1655,7 @@ public:
 				}},
 				{"subtypes", helpers_sequentialNodes(
 					{"postfixType"},
-					[this]() { return token()->type.starts_with("operator") && token()->value == "&"; }
+					[this]() { return token().type.starts_with("operator") && token().value == "&"; }
 				)}
 			};
 
@@ -1677,12 +1682,12 @@ public:
 				{"inverted", false}
 			};
 
-			if(token()->type == "operatorPrefix" && token()->value == "!") {
+			if(token().type == "operatorPrefix" && token().value == "!") {
 				position++;
 				node.get("inverted") = true;
 			}
 
-			if(token()->type != "keywordIs") {
+			if(token().type != "keywordIs") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1730,8 +1735,8 @@ public:
 				"keywordVirtual"
 			};
 
-			while(keywords.contains(token()->type)) {
-				values.push_back(token()->value);
+			while(keywords.contains(token().type)) {
+				values.push_back(token().value);
 				position++;
 			}
 
@@ -1776,7 +1781,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordNamespace") {
+			if(token().type != "keywordNamespace") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1828,7 +1833,7 @@ public:
 				{"value", node_}
 			};
 
-			if(!set<string> {"operatorInfix", "operatorPostfix"}.contains(token()->type) || token()->value != "?") {
+			if(!set<string> {"operatorInfix", "operatorPostfix"}.contains(token().type) || token().value != "?") {
 				return nullptr;
 			}
 
@@ -1846,7 +1851,7 @@ public:
 				{"value", node_}
 			};
 
-			if(token()->type != "operatorPostfix" || token()->value != "?") {
+			if(token().type != "operatorPostfix" || token().value != "?") {
 				return nullptr;
 			}
 
@@ -1860,7 +1865,7 @@ public:
 				{"range", Node {}}
 			};
 
-			if(token()->type != "keywordNil") {
+			if(token().type != "keywordNil") {
 				return nullptr;
 			}
 
@@ -1929,11 +1934,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(!token()->type.starts_with("operator")) {
+			if(!token().type.starts_with("operator")) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -1953,7 +1958,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordOperator") {
+			if(token().type != "keywordOperator") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2042,18 +2047,18 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "parenthesisOpen") {
+			if(token().type != "parenthesisOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("value") = helpers_skippableNode(
 				"expressionsSequence",
-				[this]() { return token()->type == "parenthesisOpen"; },
-				[this]() { return token()->type == "parenthesisClosed"; }
+				[this]() { return token().type == "parenthesisOpen"; },
+				[this]() { return token().type == "parenthesisClosed"; }
 			);
 
-			if(token()->type == "parenthesisClosed") {
+			if(token().type == "parenthesisClosed") {
 				node.get<Node&>("range").get("end") = position++;
 			} else
 			if(tokensEnd()) {
@@ -2075,14 +2080,14 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "parenthesisOpen") {
+			if(token().type != "parenthesisOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("value") = rules("type");
 
-			if(token()->type != "parenthesisClosed") {
+			if(token().type != "parenthesisClosed") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2141,11 +2146,11 @@ public:
 
 			set<string> exceptions = {",", ":"};  // Enclosing nodes can use trailing operators from the list
 
-			if(token()->type != "operatorPostfix" || exceptions.contains(token()->value)) {
+			if(token().type != "operatorPostfix" || exceptions.contains(token().value)) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -2199,11 +2204,11 @@ public:
 				"keywordCapitalObject",
 				"keywordCapitalProtocol",
 				"keywordCapitalStructure"
-			}.contains(token()->type)) {
+			}.contains(token().type)) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -2243,11 +2248,11 @@ public:
 
 			set<string> exceptions = {"&", "."};  // primaryExpressions can start with operators from the list
 
-			if(token()->type != "operatorPrefix" || exceptions.contains(token()->value)) {
+			if(token().type != "operatorPrefix" || exceptions.contains(token().value)) {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -2297,7 +2302,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordProtocol") {
+			if(token().type != "keywordProtocol") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2372,7 +2377,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordReturn") {
+			if(token().type != "keywordReturn") {
 				return nullptr;
 			}
 
@@ -2398,9 +2403,9 @@ public:
 
 			return helpers_skippableNodes(
 				types,
-				[this]() { return token()->type == "braceOpen"; },
-				[this]() { return token()->type == "braceClosed"; },
-				[this]() { return token()->type == "delimiter"; },
+				[this]() { return token().type == "braceOpen"; },
+				[this]() { return token().type == "braceClosed"; },
+				[this]() { return token().type == "delimiter"; },
 				true
 			);
 		} else
@@ -2411,18 +2416,18 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "stringExpressionOpen") {
+			if(token().type != "stringExpressionOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("value") = helpers_skippableNode(
 				"expressionsSequence",
-				[this]() { return token()->type == "stringExpressionOpen"; },
-				[this]() { return token()->type == "stringExpressionClosed"; }
+				[this]() { return token().type == "stringExpressionOpen"; },
+				[this]() { return token().type == "stringExpressionClosed"; }
 			);
 
-			if(token()->type == "stringExpressionClosed") {
+			if(token().type == "stringExpressionClosed") {
 				node.get<Node&>("range").get("end") = position++;
 			} else
 			if(tokensEnd()) {
@@ -2444,18 +2449,18 @@ public:
 				{"segments", NodeArray {}}
 			};
 
-			if(token()->type != "stringOpen") {
+			if(token().type != "stringOpen") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 			node.get("segments") = helpers_skippableNodes(
 				{"stringSegment", "stringExpression"},
-				[this]() { return token()->type == "stringOpen"; },
-				[this]() { return token()->type == "stringClosed"; }
+				[this]() { return token().type == "stringOpen"; },
+				[this]() { return token().type == "stringClosed"; }
 			);
 
-			if(token()->type == "stringClosed") {
+			if(token().type == "stringClosed") {
 				node.get<Node&>("range").get("end") = position++;
 			} else {
 				node.get<Node&>("range").get("end") = position-1;
@@ -2472,11 +2477,11 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "stringSegment") {
+			if(token().type != "stringSegment") {
 				return nullptr;
 			}
 
-			node.get("value") = token()->value;
+			node.get("value") = token().value;
 			node.get<Node&>("range").get("start") =
 			node.get<Node&>("range").get("end") = position++;
 
@@ -2499,7 +2504,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "keywordStruct") {
+			if(token().type != "keywordStruct") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2566,7 +2571,7 @@ public:
 				{"body", nullptr}
 			};
 
-			if(token()->type != "identifier" || token()->value != "subscript") {
+			if(token().type != "identifier" || token().value != "subscript") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2602,14 +2607,14 @@ public:
 				{"closure", nullptr}
 			};
 
-			if(token()->type.starts_with("operator") && token()->value == "<") {
+			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
 				node.get("genericArguments") = helpers_sequentialNodes(
 					{"type"},
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type.starts_with("operator") && token()->value == ">") {
+				if(token().type.starts_with("operator") && token().value == ">") {
 					position++;
 				} else {
 					position = node_->get<Node&>("range").get<int>("end")+1;
@@ -2618,16 +2623,16 @@ public:
 
 			node.get<Node&>("range").get("end") = position-1;
 
-			if(token()->type == "bracketOpen") {
+			if(token().type == "bracketOpen") {
 				position++;
 				node.get("arguments") = helpers_skippableNodes(
 					{"argument"},
-					[this]() { return token()->type == "bracketOpen"; },
-					[this]() { return token()->type == "bracketClosed"; },
-					[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+					[this]() { return token().type == "bracketOpen"; },
+					[this]() { return token().type == "bracketClosed"; },
+					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
-				if(token()->type == "bracketClosed") {
+				if(token().type == "bracketClosed") {
 					position++;
 				} else {
 					node.get<Node&>("range").get("end") = position-1;
@@ -2657,7 +2662,7 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordThrow") {
+			if(token().type != "keywordThrow") {
 				return nullptr;
 			}
 
@@ -2675,13 +2680,13 @@ public:
 				{"value", nullptr}
 			};
 
-			if(token()->type != "keywordTry") {
+			if(token().type != "keywordTry") {
 				return nullptr;
 			}
 
 			node.get<Node&>("range").get("start") = position++;
 
-			if(token()->type == "operatorPostfix" && token()->value == "?") {
+			if(token().type == "operatorPostfix" && token().value == "?") {
 				position++;
 				node.get("nillable") = true;
 			}
@@ -2709,7 +2714,7 @@ public:
 			NodeRef node;
 			int start = position;
 
-			if(!token()->type.starts_with("operator") || token()->value != ":") {
+			if(!token().type.starts_with("operator") || token().value != ":") {
 				return nullptr;
 			}
 
@@ -2731,7 +2736,7 @@ public:
 				{"type_", nullptr}
 			};
 
-			if(token()->type != "keywordType") {
+			if(token().type != "keywordType") {
 				return nullptr;
 			}
 
@@ -2777,17 +2782,17 @@ public:
 
 			node.get<Node&>("range").get("end") = position-1;
 
-			if(!token()->type.starts_with("operator") || token()->value != "<") {
+			if(!token().type.starts_with("operator") || token().value != "<") {
 				return node;
 			}
 
 			position++;
 			node.get("genericArguments") = helpers_sequentialNodes(
 				{"type"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
-			if(!token()->type.starts_with("operator") || token()->value != ">") {
+			if(!token().type.starts_with("operator") || token().value != ">") {
 				position = node.get<Node&>("range").get<int>("end")+1;
 				node.get("genericArguments") = NodeArray();
 			} else {
@@ -2804,7 +2809,7 @@ public:
 				}},
 				{"subtypes", helpers_sequentialNodes(
 					{"intersectionType"},
-					[this]() { return token()->type.starts_with("operator") && token()->value == "|"; }
+					[this]() { return token().type.starts_with("operator") && token().value == "|"; }
 				)}
 			};
 
@@ -2831,7 +2836,7 @@ public:
 				{"declarators", NodeArray {}}
 			};
 
-			if(token()->type != "keywordVar") {
+			if(token().type != "keywordVar") {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2840,7 +2845,7 @@ public:
 			position++;
 			node.get("declarators") = helpers_sequentialNodes(
 				{"declarator"},
-				[this]() { return token()->type.starts_with("operator") && token()->value == ","; }
+				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
 			if(some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "final", "lazy", "static", "virtual"}.contains(v); })) {
@@ -2863,7 +2868,7 @@ public:
 				{"value", rules("inoutType") ?: rules("unionType")}
 			};
 
-			if(!token()->type.starts_with("operator") || token()->value != "...") {
+			if(!token().type.starts_with("operator") || token().value != "...") {
 				return node.get("value");
 			}
 
@@ -2880,7 +2885,7 @@ public:
 				{"value", nullptr}
 			});
 
-			if(token()->type != "keywordWhile") {
+			if(token().type != "keywordWhile") {
 				return nullptr;
 			}
 
@@ -3049,7 +3054,7 @@ public:
 				break;
 			}
 
-			node->get<NodeArray&>("tokens").push_back(make_any<shared_ptr<Token>>(token()));
+			node->get<NodeArray&>("tokens").push_back(make_any<Token&>(token()));
 			node->get<Node&>("range").get("end") = position++;
 		}
 
@@ -3145,7 +3150,7 @@ public:
 				break;
 			}
 
-			node->get<NodeArray&>("tokens").push_back(make_any<shared_ptr<Token>>(token()));
+			node->get<NodeArray&>("tokens").push_back(make_any<Token&>(token()));
 			node->get<Node&>("range").get("end") = position++;
 
 			if(node != (!nodes.empty() ? nodes.back().get<NodeRef>() : nullptr)) {
@@ -3191,7 +3196,7 @@ public:
 
 		void update(int previous) {
 			if(value < previous) {  // Rollback global changes
-				erase_if(self.reports, [&](auto v) { return v->position >= value; });
+				erase_if(self.reports, [&](auto& v) { return v.position >= value; });
 			}
 		}
 
@@ -3238,33 +3243,37 @@ public:
 
 	Position position = Position(*this, 0);
 
-	shared_ptr<Token> token() {
+	Token& token() {
+		static Token dummy;
+
 		return tokens.size() > position
 			 ? tokens[position]
-			 : make_shared(Token());
+			 : dummy = Token();
 	}
 
 	inline bool tokensEnd() {
 		return position == tokens.size();
 	}
 
-	void report(int level, int position, const string& type, const string& string) {
-		auto location = tokens[position]->location;
+	void report(int level, int position, const string& type, string string) {
+		Location& location = tokens[position].location;
 
-		for(auto v : reports) if(
-			v->location->line == location->line &&
-			v->location->column == location->column &&
-			v->string == string
+		string = type+" -> "+string;
+
+		for(auto& v : reports) if(
+			v.location.line == location.line &&
+			v.location.column == location.column &&
+			v.string == string
 		) {
 			return;
 		}
 
-		reports.push_back(make_shared(Report {
+		reports.push_back({
 			level,
 			position,
 			location,
-			type+" -> "+string
-		}));
+			string
+		});
 	}
 
 	void reset() {
@@ -3275,18 +3284,18 @@ public:
 
 	struct Result {
 		NodeRef tree;
-		deque<shared_ptr<Report>> reports;
+		deque<Report> reports;
 	};
 
 	Result parse(Lexer::Result lexerResult) {
+		Result result;
+
 		reset();
 
 		tokens = lexerResult.tokens;
 
-		Result result = {
-			rules("module"),
-			reports
-		};
+		result.tree = rules("module");
+		result.reports = move(reports);
 
 		reset();
 
