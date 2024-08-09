@@ -249,6 +249,10 @@ public:
 		return data.end();
 	}
 
+	bool contains(const string& key) {
+		return data.count(key) > 0;
+	}
+
 	bool empty(const string& key) const {
 		auto it = data.find(key);
 

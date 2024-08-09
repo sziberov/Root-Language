@@ -34,6 +34,31 @@ int main() {
 
 		return lexerResultString;
 	});
+	CROW_ROUTE(app, "/lex_bm").methods("POST"_method)([&](const crow::request& req) {
+		auto lock = lock_guard<mutex>(interpreterLock);
+		int maxIterations = 16;
+		chrono::milliseconds duration_0(0),
+							 duration_1(0);
+		string lexerResultString;
+
+		for(int i = 0; i < maxIterations; i++) {
+			auto start = chrono::high_resolution_clock::now();
+			lexerResult = make_shared<Lexer::Result>(lexer.tokenize(req.body));
+			auto stop_0 = chrono::high_resolution_clock::now();
+			lexerResultString = glz::write_json(lexerResult).value_or("error");
+			auto stop_1 = chrono::high_resolution_clock::now();
+
+			duration_0 += chrono::duration_cast<chrono::milliseconds>(stop_0-start);
+			duration_1 += chrono::duration_cast<chrono::milliseconds>(stop_1-start);
+		}
+
+		auto averageDuration_0 = duration_0.count()/maxIterations,
+			 averageDuration_1 = duration_1.count()/maxIterations;
+
+		cout << "                      [Lexer   ] Taken (average) " << averageDuration_0 << " (" << averageDuration_1 << " with serialization) ms by string(" << req.body.length() << ")[" << maxIterations << "]" << endl;
+
+		return lexerResultString;
+	});
 	CROW_ROUTE(app, "/parse")([&]() {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		if(lexerResult == nullptr) return string();

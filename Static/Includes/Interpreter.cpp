@@ -1,11 +1,25 @@
 #pragma once
 
-#include <unordered_set>
-
 #include "Lexer.cpp"
 #include "Parser.cpp"
 
 using Report = Parser::Report;
+
+template<typename Container, typename T>
+int index_of(Container container, const T& value) {
+	auto it = find(container.begin(), container.end(), value);
+
+	return it != container.end() ? it-container.begin() : -1;
+}
+
+template<typename Container, typename Predicate>
+int find_index(Container container, Predicate predicate) {
+	auto it = find_if(container.begin(), container.end(), predicate);
+
+	return it != container.end() ? it-container.begin() : -1;
+}
+
+// ----------------------------------------------------------------
 
 class Interpreter {
 public:
@@ -20,18 +34,6 @@ public:
 	};
 
 	struct Composite {
-		struct IDs {
-			int own;
-			optional<int> super,
-						  Super,
-						  self,
-						  Self,
-						  sub,
-						  Sub,
-						  scope;
-			unordered_set<int> retainers;
-		};
-
 		struct Observers {
 			optional<int> willGet,
 						  get,
@@ -68,7 +70,7 @@ public:
 		using Member = vector<MemberOverload>;
 
 		string title;
-		IDs IDs;
+		Node IDs;
 		int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 		NodeArrayRef type;
 		vector<NodeRef> statements;
@@ -78,9 +80,11 @@ public:
 		Observers observers;
 	};
 
+	using CompositeRef = shared_ptr<Composite>;
+
 	struct Call {
-		shared_ptr<Composite> function;
-		shared_ptr<Location> location;
+		CompositeRef function;
+		optional<Location> location;
 	};
 
 	struct ControlTransfer {
@@ -94,9 +98,9 @@ public:
 	NodeRef tree;
 	int position;
 	deque<Context> contexts;
-	deque<shared_ptr<Composite>> composites;
+	deque<CompositeRef> composites;
 	deque<Call> calls;
-	deque<shared_ptr<Composite>> scopes;
+	deque<CompositeRef> scopes;
 	deque<shared_ptr<ControlTransfer>> controlTransfers;
 	Node preferences;
 	deque<Report> reports;
@@ -109,10 +113,10 @@ public:
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
 			addDefaultMembers(scope);
-			executeNodes(tree?.statements, (t) => t != "throw" ? 0 : -1);
+			executeNodes(tree?.statements, [](string t) { return t != "throw" ? 0 : -1; });
 
 			if(threw()) {
-				report(2, undefined, getValueString(controlTransfer.value));
+				report(2, nullptr, getValueString(controlTransfer()->value));
 			}
 
 			removeScope();
@@ -157,18 +161,28 @@ public:
 		contexts.pop_back();
 	}
 
-	shared_ptr<Composite> getComposite(int ID) {
+	CompositeRef getComposite(int ID) {
 		return ID < composites.size() ? composites[ID] : nullptr;
 	}
 
-	shared_ptr<Composite> createComposite(const string& title, NodeArrayRef type, shared_ptr<Composite> scope = nullptr) {
+	CompositeRef createComposite(const string& title, NodeArrayRef type, CompositeRef scope = nullptr) {
 		if(!typeIsComposite(type)) {
 			return nullptr;
 		}
 
-		shared_ptr<Composite> composite = make_shared(Composite {
+		CompositeRef composite = make_shared(Composite {
 			title,
-			{(int)composites.size()},
+			{
+				{"own", (int)composites.size()},
+				{"super", nullptr},
+				{"Super", nullptr},
+				{"self", nullptr},
+				{"Self", nullptr},
+				{"sub", nullptr},
+				{"Sub", nullptr},
+				{"scope", nullptr},
+				{"retainers", NodeArray {}}
+			},
 			0,
 			type
 		});
@@ -184,13 +198,15 @@ public:
 		return composite;
 	}
 
-	void destroyReleasedComposite(shared_ptr<Composite> composite) {
+	void destroyComposite(CompositeRef composite);
+
+	void destroyReleasedComposite(CompositeRef composite) {
 		if(composite != nullptr && !compositeRetained(composite)) {
 			destroyComposite(composite);
 		}
 	}
 
-	void retainComposite(shared_ptr<Composite> retainingComposite, shared_ptr<Composite> retainedComposite) {
+	void retainComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -203,7 +219,7 @@ public:
 		}
 	}
 
-	void releaseComposite(shared_ptr<Composite> retainingComposite, shared_ptr<Composite> retainedComposite) {
+	void releaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -226,7 +242,7 @@ public:
 	 * Use of this function is highly recommended when real retainment state is unknown
 	 * at the moment, otherwise basic functions can be used in favour of performance.
 	 */
-	void retainOrReleaseComposite(shared_ptr<Composite> retainingComposite, shared_ptr<Composite> retainedComposite) {
+	void retainOrReleaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -244,13 +260,13 @@ public:
 	 * Composite considered really retained if it is used by an at least one of
 	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
 	 */
-	bool compositeRetains(shared_ptr<Composite> retainingComposite, shared_ptr<Composite> retainedComposite) {
-		if(retainingComposite && retainingComposite->get<int>("life") < 2) return (
+	bool compositeRetains(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		if(retainingComposite && retainingComposite->life < 2) return (
 			IDsRetain(retainingComposite, retainedComposite) ||
-			typeRetains(retainingComposite->get<NodeArrayRef>("type"), retainedComposite) ||
+			typeRetains(retainingComposite->type, retainedComposite) ||
 			importsRetain(retainingComposite, retainedComposite) ||
 			membersRetain(retainingComposite, retainedComposite) ||
-			observersRetain(retainingComposite->get<NodeRef>("observers"), retainedComposite)
+			observersRetain(retainingComposite->observers, retainedComposite)
 		);
 	}
 
@@ -263,7 +279,7 @@ public:
 	 * retainersIDs is used to exclude a retain cycles and redundant passes
 	 * from the lookup and meant to be set internally only.
 	 */
-	bool compositeRetainsDistant(shared_ptr<Composite> retainingComposite, shared_ptr<Composite> retainedComposite, NodeArrayRef retainersIDs = make_shared(NodeArray())) {
+	bool compositeRetainsDistant(CompositeRef retainingComposite, CompositeRef retainedComposite, NodeArrayRef retainersIDs = make_shared(NodeArray())) {
 		/*
 		if(Array.isArray(retainingComposite)) {
 			for(let retainingComposite_ of retainingComposite) {
@@ -302,33 +318,33 @@ public:
 	 * Composite considered significantly retained if it is formally retained by
 	 * the global namespace, a current scope composite or a current control trasfer value.
 	 */
-	bool compositeRetained(shared_ptr<Composite> composite) {
+	bool compositeRetained(CompositeRef composite) {
 		return (
 			compositeRetainsDistant(getComposite(0), composite) ||
 			compositeRetainsDistant(scope(), composite) ||
 		//	compositeRetainsDistant(scopes, composite) ||  // May be useful when "with" syntax construct will be added
-			compositeRetainsDistant(getValueComposite(controlTransfer() ? controlTransfer()->get("value") : NodeValue()), composite)
+			compositeRetainsDistant(getValueComposite(controlTransfer() ? controlTransfer()->value : NodeValue()), composite)
 		);
 	}
 
-	shared_ptr<Composite> createClass(const string& title, shared_ptr<Composite> scope) {
-		shared_ptr<Composite> class_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Class" }}), scope);
+	CompositeRef createClass(const string& title, CompositeRef scope) {
+		CompositeRef class_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Class" }}), scope);
 
 		setSelfID(class_, class_);
 
 		return class_;
 	}
 
-	shared_ptr<Composite> createEnumeration(const string& title, shared_ptr<Composite> scope) {
-		shared_ptr<Composite> enumeration = createComposite(title, make_shared(NodeArray {{ "predefined", "Enumeration" }}), scope);
+	CompositeRef createEnumeration(const string& title, CompositeRef scope) {
+		CompositeRef enumeration = createComposite(title, make_shared(NodeArray {{ "predefined", "Enumeration" }}), scope);
 
 		setSelfID(enumeration, enumeration);
 
 		return enumeration;
 	}
 
-	shared_ptr<Composite> createFunction(const string& title, NodeRef statements, shared_ptr<Composite> scope) {
-		shared_ptr<Composite> function = createComposite(title, make_shared(NodeArray {{ "predefined", "Function" }}), scope);
+	CompositeRef createFunction(const string& title, NodeRef statements, CompositeRef scope) {
+		CompositeRef function = createComposite(title, make_shared(NodeArray {{ "predefined", "Function" }}), scope);
 
 		setInheritedLevelIDs(function, scope);
 		setStatements(function, statements);
@@ -340,8 +356,8 @@ public:
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
 	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
-	shared_ptr<Composite> createNamespace(const string& title, shared_ptr<Composite> scope = nullptr, optional<shared_ptr<Composite>> levels = nullptr) {
-		shared_ptr<Composite> namespace_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Namespace" }}), scope);
+	CompositeRef createNamespace(const string& title, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr) {
+		CompositeRef namespace_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Namespace" }}), scope);
 
 		if(levels != nullopt && *levels != nullptr) {
 			setInheritedLevelIDs(namespace_, *levels);
@@ -355,12 +371,12 @@ public:
 		return namespace_;
 	}
 
-	shared_ptr<Composite> createObject(shared_ptr<Composite> superObject, shared_ptr<Composite> selfComposite, shared_ptr<Composite> subObject) {
+	CompositeRef createObject(CompositeRef superObject, CompositeRef selfComposite, CompositeRef subObject) {
 		string title = "Object<"+selfComposite->get("title", "#"+getOwnID(selfComposite))+">";
 		NodeArray type = {Node {{"predefined", "Object"}, {"inheritedTypes", true}}, Node {{"super", 0}, {"reference", getOwnID(selfComposite)}}};
-		shared_ptr<Composite> object = createComposite(title, make_shared(type), selfComposite);
+		CompositeRef object = createComposite(title, make_shared(type), selfComposite);
 
-		object->get("life") = 0;
+		object->life = 0;
 
 		if(superObject != nullptr) {
 			setSuperID(object, superObject);
@@ -375,52 +391,52 @@ public:
 		return object;
 	}
 
-	shared_ptr<Composite> createProtocol(const string& title, shared_ptr<Composite> scope) {
-		shared_ptr<Composite> protocol = createComposite(title, make_shared(NodeArray {{ "predefined", "Protocol" }}), scope);
+	CompositeRef createProtocol(const string& title, CompositeRef scope) {
+		CompositeRef protocol = createComposite(title, make_shared(NodeArray {{ "predefined", "Protocol" }}), scope);
 
 		setSelfID(protocol, protocol);
 
 		return protocol;
 	}
 
-	shared_ptr<Composite> createStructure(const string& title, shared_ptr<Composite> scope) {
-		shared_ptr<Composite> structure = createComposite(title, make_shared(NodeArray {{ "predefined", "Structure" }}), scope);
+	CompositeRef createStructure(const string& title, CompositeRef scope) {
+		CompositeRef structure = createComposite(title, make_shared(NodeArray {{ "predefined", "Structure" }}), scope);
 
 		setSelfID(structure, structure);
 
 		return structure;
 	}
 
-	bool compositeIsFunction(shared_ptr<Composite> composite) {
-		return typeIsComposite(composite ? composite.get("type") : nullptr, "Function");
+	bool compositeIsFunction(CompositeRef composite) {
+		return typeIsComposite(composite ? composite->type : nullptr, "Function");
 	}
 
-	bool compositeIsNamespace(shared_ptr<Composite> composite) {
-		return typeIsComposite(composite ? composite.get("type") : nullptr, "Namespace");
+	bool compositeIsNamespace(CompositeRef composite) {
+		return typeIsComposite(composite ? composite->type : nullptr, "Namespace");
 	}
 
-	bool compositeIsObject(shared_ptr<Composite> composite) {
-		return typeIsComposite(composite ? composite.get("type") : nullptr, "Object");
+	bool compositeIsObject(CompositeRef composite) {
+		return typeIsComposite(composite ? composite->type : nullptr, "Object");
 	}
 
-	bool compositeIsInstantiable(shared_ptr<Composite> composite) {
+	bool compositeIsInstantiable(CompositeRef composite) {
 		return (
-			typeIsComposite(composite ? composite.get("type") : nullptr, "Class") ||
-			typeIsComposite(composite ? composite.get("type") : nullptr, "Structure")
+			typeIsComposite(composite ? composite->type : nullptr, "Class") ||
+			typeIsComposite(composite ? composite->type : nullptr, "Structure")
 		);
 	}
 
-	bool compositeIsCallable(shared_ptr<Composite> composite) {
+	bool compositeIsCallable(CompositeRef composite) {
 		return (
 			compositeIsFunction(composite) ||
 			compositeIsInstantiable(composite)
 		);
 	}
 
-	void addCall(shared_ptr<Composite> function) {
+	void addCall(CompositeRef function) {
 		calls.push_back({
 			function,
-			tokens.size() > position ? tokens[position]->location : nullptr
+			tokens.size() > position ? make_optional(tokens[position].location) : nullopt
 		});
 	}
 
@@ -433,8 +449,8 @@ public:
 
 		for(int i = calls.size()-1, j = 0; i >= 0 && j < 8; i--) {
 			Call& call = calls[i];
-			shared_ptr<Composite> function = call.function;
-			shared_ptr<Location> location = call.location;
+			CompositeRef function = call.function;
+			optional<Location> location = call.location;
 
 			if(j > 0) {
 				result += "\n";
@@ -442,7 +458,7 @@ public:
 
 			result += j+": ";
 
-			shared_ptr<Composite> composite = getComposite(*function->IDs.Self);
+			CompositeRef composite = getComposite(function->IDs.get("Self"));
 
 			if(!function->title.empty() && composite != nullptr) {
 				result += (!composite->title.empty() ? composite->title : "#"+getOwnID(composite))+".";
@@ -450,7 +466,7 @@ public:
 
 			result += !function->title.empty() ? function->title : "#"+getOwnID(function);
 
-			if(location != nullptr) {
+			if(location != nullopt) {
 				result += ":"+(location->line+1);
 				result += ":"+(location->column+1);
 			}
@@ -461,11 +477,11 @@ public:
 		return result;
 	}
 
-	shared_ptr<Composite> scope() {
+	CompositeRef scope() {
 		return getScope();
 	}
 
-	shared_ptr<Composite> getScope(int offset = 0) {
+	CompositeRef getScope(int offset = 0) {
 		return scopes.size() > scopes.size()-1+offset
 			 ? scopes[scopes.size()-1+offset]
 			 : nullptr;
@@ -475,7 +491,7 @@ public:
 	 * Should be used for a bodies before executing its contents,
 	 * as ARC utilizes a current scope at the moment.
 	 */
-	void addScope(shared_ptr<Composite> composite) {
+	void addScope(CompositeRef composite) {
 		scopes.push_back(composite);
 	//	print("crs: "+composite.title+", "+getOwnID(composite));
 	}
@@ -485,7 +501,7 @@ public:
 	 */
 	void removeScope(bool destroy = true) {
 	//	print("dss: "+scope.title+", "+getOwnID(scope));
-		shared_ptr<Composite> composite = scopes.back();
+		CompositeRef composite = scopes.back();
 
 		scopes.pop_back();
 
@@ -558,41 +574,194 @@ public:
 		return value;
 	}
 
-	void setCompositeType(shared_ptr<Composite> composite, NodeArrayRef type) {
+	void setCompositeType(CompositeRef composite, NodeArrayRef type) {
 		if(!typeIsComposite(type)) {
 			return;
 		}
 
-		composite->get("type") = type;
+		composite->type = type;
 	}
 
-	NodeValue getOwnID(shared_ptr<Composite> composite, bool nillable = false) {
-		return !nillable || composite ? composite->IDs.own : NodeValue();
+	void setID(CompositeRef composite, const string& key, const NodeValue& value) {
+		if(set<string> {"own", "retainers"}.contains(key)) {
+			return;
+		}
+
+		NodeValue OV, NV;  // Old/new value
+
+		OV = composite->IDs.get("key");
+		NV = composite->IDs.get("key") = value;
+
+		if(OV != NV) {
+			if(to_lower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+				set<CompositeRef> composites;
+				CompositeRef composite_ = composite;
+
+				while(composite_ != nullptr) {
+					if(composites.contains(composite_)) {
+						composite->IDs.get(key) = OV;
+
+						return;
+					}
+
+					composites.insert(composite_);
+
+					composite_ = getComposite(composite_->IDs.get(key));
+				}
+			}
+
+			retainOrReleaseComposite(composite, getComposite(OV));
+			retainComposite(composite, getComposite(NV));
+		}
+	}
+
+	NodeValue getOwnID(CompositeRef composite, bool nillable = false) {
+		return !nillable || composite ? composite->IDs.get("own") : NodeValue();
+	}
+
+	NodeValue getSelfCompositeID(CompositeRef composite) {
+		return !compositeIsObject(composite) ? getOwnID(composite) : getTypeInheritedID(composite->type);
+	}
+
+	NodeValue getScopeID(CompositeRef composite) {
+		return composite->IDs.get("scope");
+	}
+
+	NodeValue getRetainersIDs(CompositeRef composite) {
+		return composite ? composite->IDs.get("retainers") : nullptr;
+	}
+
+	void setSelfID(CompositeRef composite, CompositeRef selfComposite) {
+		setID(composite, "self", getOwnID(selfComposite));
+		setID(composite, "Self", getSelfCompositeID(selfComposite));
+	}
+
+	void setSubID(CompositeRef object, CompositeRef subObject) {
+		if(!compositeIsObject(object)) {
+			return;
+		}
+
+		if(compositeIsObject(subObject)) {
+			setID(object, "sub", getOwnID(subObject));
+			setID(object, "Sub", getTypeInheritedID(subObject->type));
+		}
+	}
+
+	void setInheritedLevelIDs(CompositeRef inheritingComposite, CompositeRef inheritedComposite) {
+		if(inheritedComposite == inheritingComposite) {
+			return;
+		}
+
+		static set<string> excluded = {"own", "scope", "retainers"};
+
+		for(const auto& [key, value] : inheritingComposite->IDs) {
+			if(!excluded.contains(key)) {
+				setID(inheritingComposite, key, inheritedComposite ? inheritedComposite->IDs.get(key) : NodeValue());
+			}
+		}
+	}
+
+	void setMissedLevelIDs(CompositeRef missingComposite) {
+		static set<string> excluded = {"own", "scope", "retainers"};
+
+		for(const auto& [key, value] : missingComposite->IDs) {
+			if(!excluded.contains(key)) {
+				setID(missingComposite, key, -1);
+			}
+		}
+	}
+
+	void setScopeID(CompositeRef composite, CompositeRef scopeComposite) {
+		setID(composite, "scope", getOwnID(scopeComposite, true));
+	}
+
+	bool IDsRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		static set<string> excluded = {"own", "retainers"};
+
+		for(const auto& [key, value] : retainingComposite->IDs) {
+			if(!excluded.contains(key) && retainingComposite->IDs.get(key) == getOwnID(retainedComposite)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	NodeRef createTypePart(NodeArrayRef type, NodeRef superpart, const Node& flags = Node()) {
+		Node part = flags;
+
+		if(type != nullptr) {
+			if(superpart != nullptr) {
+				part.get("super") = index_of(*type, superpart);
+			}
+
+			type->push_back(part);
+		}
+
+		return make_shared(part);
+	}
+
+	NodeRef createOrSetCollectionTypePart(NodeArrayRef type, NodeRef part, const Node& collectionFlag) {
+		static Node collectionFlags = {
+			{"array", true},
+			{"dictionary", true},
+			{"genericArguments", true},
+			{"genericParameters", true},
+			{"intersection", true},
+			{"parameters", true},
+			{"predefined", "Function"},
+			{"union", true}
+		};
+
+		for(const auto& [flag, v] : *part) {
+			if(
+				collectionFlags.contains(flag) &&
+				part->get(flag) == collectionFlags.get(flag)
+			) {
+				return createTypePart(type, part, collectionFlag);
+			}
+		}
+
+		for(const auto& [k, v] : collectionFlag) {
+			part->get(k) = v;
+		}
+
+		return part;
+	}
+
+	int getTypeInheritedID(NodeArrayRef type) {
+		int index = find_index(*type, [](const NodeRef& v) { return v->get("inheritedTypes"); });
+
+		if(index == -1) {
+			return;
+		}
+
+		return find(*type, [](const NodeRef& v) { return v->get("super") == index; })?.reference;
 	}
 
 	void report(int level, NodeRef node, const string& string) {
-		auto location = position < tokens.size()
-					  ? tokens[position]->location
-					  : make_shared(Location());
+		Location location = position < tokens.size()
+						  ? tokens[position].location
+						  : Location();
 
-		reports.push_back(make_shared(Report {
+		reports.push_back(Report {
 			level,
 			position,
 			location,
 			(node != nullptr ? node->get<::string>("type")+" -> " : "")+string
-		}));
+		});
 	}
 
 	void print(const string& string) {
-		reports.push_back(make_shared(Report {
+		reports.push_back(Report {
 			0,
 			0,
-			nullptr,
+			Location(),
 			string
-		}));
+		});
 	}
 
-	void reset(deque<shared_ptr<Composite>> composites_ = {}, const Node& preferences_ = {}) {
+	void reset(deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
 		tokens = {};
 		tree = nullptr;
 		position = 0;
@@ -614,11 +783,11 @@ public:
 	}
 
 	struct Result {
-		deque<shared_ptr<Composite>> composites;
+		deque<CompositeRef> composites;
 		deque<Report> reports;
 	};
 
-	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, deque<shared_ptr<Composite>> composites_ = {}, const Node& preferences_ = {}) {
+	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
 		reset(composites_, preferences_);
 
 		tokens = lexerResult.tokens;
@@ -637,7 +806,7 @@ public:
 		return result;
 	}
 
-	Result interpretRaw(string_view code, deque<shared_ptr<Composite>> composites_ = {}, const Node& preferences_ = {}) {
+	Result interpretRaw(string_view code, deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
 		Lexer::Result lexerResult = Lexer().tokenize(code);
 		Parser::Result parserResult = Parser().parse(lexerResult);
 		Result interpreterResult = interpret(lexerResult, parserResult, composites_, preferences_);

@@ -10,10 +10,11 @@
 #include <optional>
 #include <deque>
 #include <map>
+#include <unordered_set>
 
 using namespace std;
 
-template <typename Container, typename Predicate>
+template<typename Container, typename Predicate>
 bool some(const Container& container, Predicate predicate) {
 	return any_of(container.begin(), container.end(), predicate);
 }
@@ -152,9 +153,10 @@ public:
 				return false;
 			}
 
-			static set<string> initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
-							   singletons = {"!", "?"},										// Create new token if current (postfix operator) token matches any value in the list
-							   generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
+			static unordered_set<string_view>
+				initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
+				singletons = {"!", "?"},									// Create new token if current (postfix operator) token matches any value in the list
+		 		generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
 
 			bool initializer = initializers.contains(v) && !token().value.starts_with(v),
 				 singleton = token().type == "operatorPostfix" && singletons.contains(token().value),
@@ -350,7 +352,7 @@ public:
 				return false;
 			}
 
-			static set<string> keywords = {
+			static unordered_set<string_view> keywords = {
 				// Flow-related words (async, class, for, return...)
 				// Literals (false, nil, true...)
 				// Types (Any, bool, _, ...)
@@ -435,7 +437,7 @@ public:
 	};
 
 	void helpers_continueString() {
-		if((set<string> {"stringOpen", "stringExpressionClosed"}).contains(token().type)) {
+		if(set<string> {"stringOpen", "stringExpressionClosed"}.contains(token().type)) {
 			addToken("stringSegment", "");
 		}
 	}

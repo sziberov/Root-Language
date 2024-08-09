@@ -11,7 +11,7 @@ bool contains(const Container& container, const T& value) {
 	return find(container.begin(), container.end(), value) != container.end();
 }
 
-template <typename T>
+template<typename T>
 shared_ptr<decay_t<T>> make_shared(T&& value) {
     return std::make_shared<decay_t<T>>(forward<T>(value));
 }
@@ -3225,7 +3225,7 @@ public:
 		}
 
 		Position& operator++() {  // Prefix
-			value++; update(value-1); return *this;
+			value++; /*update(value-1);*/ return *this;
 		}
 
 		Position& operator--() {  // Prefix
@@ -3233,7 +3233,7 @@ public:
 		}
 
 		Position operator++(int) {  // Postfix
-			Position previous = *this; value++; update(previous); return previous;
+			Position previous = *this; value++; /*update(previous);*/ return previous;
 		}
 
 		Position operator--(int) {  // Postfix
