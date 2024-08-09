@@ -36,7 +36,7 @@ int main() {
 	});
 	CROW_ROUTE(app, "/lex_bm").methods("POST"_method)([&](const crow::request& req) {
 		auto lock = lock_guard<mutex>(interpreterLock);
-		int maxIterations = 16;
+		int maxIterations = 32;
 		chrono::milliseconds duration_0(0),
 							 duration_1(0);
 		string lexerResultString;
