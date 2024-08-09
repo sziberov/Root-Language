@@ -12,6 +12,8 @@
 #include <map>
 #include <unordered_set>
 
+#include "Trie.cpp"
+
 using namespace std;
 
 template<typename Container, typename Predicate>
@@ -45,7 +47,7 @@ public:
 	};
 
 	struct Rule {
-		variant<string, vector<string>, regex> triggers;
+		variant<string, Trie, regex> triggers;
 		function<bool(string)> actions;
 	};
 
@@ -68,7 +70,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"/*", "*/"}, [this](const string& v) {
+		{Trie {"/*", "*/"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
 				token().value += v;
@@ -97,7 +99,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"\\\\", "\\'", "\\(", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v", "\\"}, [this](const string& v) {
+		{Trie {"\\\\", "\\'", "\\b", "\\f", "\\n", "\\r", "\\t", "\\v"}, [this](const string& v) {
 			if(atComments()) {
 				token().value += v;
 
@@ -107,9 +109,6 @@ public:
 				addToken("unsupported", v);
 
 				return false;
-			}
-			if(v == "\\(") {
-				return true;
 			}
 
 			helpers_continueString();
@@ -125,27 +124,33 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"\\(", ")"}, [this](const string& v) {
+		{Trie {"\\(", ")"}, [this](const string& v) {
 			if(atComments()) {
 				token().value += v;
 
 				return false;
 			}
 
-			if(v == "\\(" && atString()) {
-				addToken("stringExpressionOpen", v);
-				addState("stringExpression");
-			}
-			if(v == ")" && atStringExpression()) {
-				addToken("stringExpressionClosed");
-				removeState("stringExpression");
-			} else {
-				return v == ")";
+			if(v == "\\(") {
+				if(atString()) {
+					addToken("stringExpressionOpen", v);
+					addState("stringExpression");
+				} else {
+					addToken("unsupported", v);
+				}
+			} else
+			if(v == ")") {
+				if(atStringExpression()) {
+					addToken("stringExpressionClosed");
+					removeState("stringExpression");
+				} else {
+					return true;
+				}
 			}
 
 			return false;
 		}},
-		{vector<string> {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](const string& v) {
+		{Trie {"!", "%", "&", "*", "+", ",", "-", ".", "/", ":", "<", "=", ">", "?", "^", "|", "~"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
 				token().value += v;
@@ -201,7 +206,7 @@ public:
 
 			return false;
 		}},
-		{vector<string> {"(", ")", "[", "]", "{", "}"}, [this](const string& v) {
+		{Trie {"(", ")", "[", "]", "{", "}"}, [this](const string& v) {
 			if(atComments() || atString()) {
 				helpers_continueString();
 				token().value += v;
@@ -736,13 +741,7 @@ public:
 				trigger = get<string>(triggers);
 			}
 			if(array) {
-				for(string& v : get<vector<string>>(triggers)) {
-					if(atSubstring(v)) {
-						trigger = v;
-
-						break;
-					}
-				}
+				trigger = get<Trie>(triggers).search(code, position);
 			}
 			if(regex) {
 				trigger = atRegex(get<::regex>(triggers));
