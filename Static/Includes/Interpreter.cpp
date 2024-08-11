@@ -29,8 +29,8 @@ public:
 	};
 
 	struct Value {
-		NodeValue primitiveValue;
-		string primitiveType;
+		string primitiveType;		// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
+		NodeValue primitiveValue;	// boolean, integer, map (object), string, type
 	};
 
 	struct Composite {
@@ -112,7 +112,7 @@ public:
 		if(type == "module") {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
-			addDefaultMembers(scope);
+		//	addDefaultMembers(scope);
 			executeNodes(tree?.statements, [](string t) { return t != "throw" ? 0 : -1; });
 
 			if(threw()) {
@@ -737,6 +737,45 @@ public:
 		}
 
 		return find(*type, [](const NodeRef& v) { return v->get("super") == index; })?.reference;
+	}
+
+	NodeRef createValue(const string& primitiveType, const NodeValue& primitiveValue) {
+		return make_shared(Node {
+			{"primitiveType", primitiveType},
+			{"primitiveValue", primitiveValue}
+		});
+	}
+
+	string getValueString(NodeRef value) {
+		if(value == nullptr) {
+			return "nil";
+		}
+
+		if(set<string> {"boolean", "float", "integer", "string"}.contains(value->get("primitiveType"))) {
+			return (string)value->get("primitiveValue");
+		}
+
+		CompositeRef composite = getValueComposite(value);
+
+		if(composite != nullptr) {
+		//	return JSON.stringify(composite);
+		}
+
+		/*
+		return JSON.stringify(value, (k, v) => {
+			if(v instanceof Map) {
+				return {
+					__TYPE__: 'Map',
+					__VALUE__: Array.from(v.entries())
+				}
+			} else
+			if(v == null) {
+				return null;
+			} else {
+				return v;
+			}
+		});
+		*/
 	}
 
 	void report(int level, NodeRef node, const string& string) {

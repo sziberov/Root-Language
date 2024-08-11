@@ -42,18 +42,13 @@ class Lexer {
 				this.addState('comment');
 			}
 		}],
-		[['\\\\', '\\\'', '\\(', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v', '\\'], (v) => {
+		[['\\\\', '\\\'', '\\b', '\\f', '\\n', '\\r', '\\t', '\\v'], (v) => {
 			if(this.atComments) {
 				this.token.value += v;
 
 				return;
 			}
 			if(!this.atString) {
-				this.addToken('unsupported', v);
-
-				return;
-			}
-			if(v === '\\(') {
 				return true;
 			}
 
@@ -80,12 +75,12 @@ class Lexer {
 			if(v === '\\(' && this.atString) {
 				this.addToken('stringExpressionOpen', v);
 				this.addState('stringExpression');
-			}
+			} else
 			if(v === ')' && this.atStringExpression) {
 				this.addToken('stringExpressionClosed');
 				this.removeState('stringExpression');
 			} else {
-				return v === ')';
+				return true;
 			}
 		}],
 		[['!', '%', '&', '*', '+', ',', '-', '.', '/', ':', '<', '=', '>', '?', '^', '|', '~'], (v) => {
