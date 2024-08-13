@@ -13,7 +13,7 @@ bool contains(const Container& container, const T& value) {
 
 template<typename T>
 shared_ptr<decay_t<T>> make_shared(T&& value) {
-    return std::make_shared<decay_t<T>>(forward<T>(value));
+	return std::make_shared<decay_t<T>>(forward<T>(value));
 }
 
 // ----------------------------------------------------------------
@@ -390,7 +390,7 @@ public:
 
 			position++;
 			node.get("member") = rules("identifier") ?:
-							     rules("stringLiteral");
+								 rules("stringLiteral");
 
 			if(node.empty("member")) {
 				position = node_->get<Node&>("range").get<int>("end")+1;

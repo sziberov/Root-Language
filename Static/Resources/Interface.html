@@ -103,7 +103,7 @@ body {
 		output_lint.innerHTML = '';
 
 		let start = Date.now();
-		let lexerResponse = await fetch(location.origin+'/lex_bm', {
+		let lexerResponse = await fetch(location.origin+'/lex?iterations=32', {
 			method: 'POST',
 			headers: {'Content-Type': 'text/plain'},
 			body: input.value

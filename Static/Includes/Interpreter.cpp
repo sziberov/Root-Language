@@ -19,6 +19,14 @@ int find_index(Container container, Predicate predicate) {
 	return it != container.end() ? it-container.begin() : -1;
 }
 
+string tolower(string_view string) {
+	auto result = ::string(string);
+
+	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
+
+	return result;
+}
+
 // ----------------------------------------------------------------
 
 class Interpreter {
@@ -26,11 +34,6 @@ public:
 	struct Context {
 		Node flags;
 		unordered_set<string> tags;
-	};
-
-	struct Value {
-		string primitiveType;		// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
-		NodeValue primitiveValue;	// boolean, integer, map (object), string, type
 	};
 
 	struct Composite {
@@ -50,7 +53,7 @@ public:
 					 postfix;
 			} modifiers;
 			string associativity,
-				   pecedence;
+				   precedence;
 		};
 
 		struct MemberOverload {
@@ -62,7 +65,7 @@ public:
 					 final;
 			} modifiers;
 			NodeRef type;
-			Value value;
+			NodeRef value;
 			Observers observers;
 		};
 
@@ -88,7 +91,7 @@ public:
 	};
 
 	struct ControlTransfer {
-		optional<Value> value;
+		NodeRef value;
 		optional<string> type;
 	};
 
@@ -101,7 +104,7 @@ public:
 	deque<CompositeRef> composites;
 	deque<Call> calls;
 	deque<CompositeRef> scopes;
-	deque<shared_ptr<ControlTransfer>> controlTransfers;
+	deque<ControlTransfer> controlTransfers;
 	Node preferences;
 	deque<Report> reports;
 
@@ -112,11 +115,11 @@ public:
 		if(type == "module") {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
-		//	addDefaultMembers(scope);
-			executeNodes(tree?.statements, [](string t) { return t != "throw" ? 0 : -1; });
+			addDefaultMembers(scope);
+			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr, [](optional<string> t, NodeRef v) { return t != "throw" ? 0 : -1; });
 
 			if(threw()) {
-				report(2, nullptr, getValueString(controlTransfer()->value));
+				report(2, nullptr, getValueString(controlTransfer().value));
 			}
 
 			removeScope();
@@ -151,7 +154,7 @@ public:
 	 * Specifying tags allows to filter current context(s).
 	 */
 	void addContext(const Node& flags, const unordered_set<string>& tags) {
-		contexts.push_back(Context {
+		contexts.push_back({
 			flags,
 			tags
 		});
@@ -299,7 +302,7 @@ public:
 			return true;
 		}
 
-		for(int retainerID : getRetainersIDs(retainedComposite)) {
+		for(int retainerID : *getRetainersIDs(retainedComposite)) {
 			if(contains(*retainersIDs, retainerID)) {
 				continue;
 			}
@@ -323,7 +326,7 @@ public:
 			compositeRetainsDistant(getComposite(0), composite) ||
 			compositeRetainsDistant(scope(), composite) ||
 		//	compositeRetainsDistant(scopes, composite) ||  // May be useful when "with" syntax construct will be added
-			compositeRetainsDistant(getValueComposite(controlTransfer() ? controlTransfer()->value : NodeValue()), composite)
+			compositeRetainsDistant(getValueComposite(controlTransfer().value), composite)
 		);
 	}
 
@@ -372,7 +375,7 @@ public:
 	}
 
 	CompositeRef createObject(CompositeRef superObject, CompositeRef selfComposite, CompositeRef subObject) {
-		string title = "Object<"+selfComposite->get("title", "#"+getOwnID(selfComposite))+">";
+		string title = "Object<"+(!selfComposite->title.empty() ? selfComposite->title : "#"+getOwnID(selfComposite))+">";
 		NodeArray type = {Node {{"predefined", "Object"}, {"inheritedTypes", true}}, Node {{"super", 0}, {"reference", getOwnID(selfComposite)}}};
 		CompositeRef object = createComposite(title, make_shared(type), selfComposite);
 
@@ -408,21 +411,21 @@ public:
 	}
 
 	bool compositeIsFunction(CompositeRef composite) {
-		return typeIsComposite(composite ? composite->type : nullptr, "Function");
+		return composite && typeIsComposite(composite->type, "Function");
 	}
 
 	bool compositeIsNamespace(CompositeRef composite) {
-		return typeIsComposite(composite ? composite->type : nullptr, "Namespace");
+		return composite && typeIsComposite(composite->type, "Namespace");
 	}
 
 	bool compositeIsObject(CompositeRef composite) {
-		return typeIsComposite(composite ? composite->type : nullptr, "Object");
+		return composite && typeIsComposite(composite->type, "Object");
 	}
 
 	bool compositeIsInstantiable(CompositeRef composite) {
-		return (
-			typeIsComposite(composite ? composite->type : nullptr, "Class") ||
-			typeIsComposite(composite ? composite->type : nullptr, "Structure")
+		return composite && (
+			typeIsComposite(composite->type, "Class") ||
+			typeIsComposite(composite->type, "Structure")
 		);
 	}
 
@@ -511,18 +514,20 @@ public:
 	//	print("des: "+composite.title+", "+getOwnID(composite));
 	}
 
-	shared_ptr<ControlTransfer> controlTransfer() {
-		return controlTransfers.size() > 0
+	ControlTransfer& controlTransfer() {
+		static ControlTransfer dummy;
+
+		return !controlTransfers.empty()
 			 ? controlTransfers.back()
-			 : nullptr;
+			 : dummy = ControlTransfer();
 	}
 
 	bool threw() {
-		return controlTransfer() && controlTransfer()->type == "throw";
+		return controlTransfer().type == "throw";
 	}
 
 	void addControlTransfer() {
-		controlTransfers.push_back(make_shared(ControlTransfer()));
+		controlTransfers.push_back(ControlTransfer());
 
 	//	print("act");
 	}
@@ -539,24 +544,20 @@ public:
 	 *
 	 * Specifying a type means explicit control transfer.
 	 */
-	void setControlTransfer(const NodeValue& value, const string& type) {
-		shared_ptr<ControlTransfer> CT = controlTransfer();
+	void setControlTransfer(const NodeValue& value, optional<string> type = nullopt) {
+		ControlTransfer& CT = controlTransfer();
 
-		if(CT != nullptr) {
-			CT->value = value;
-			CT->type = type;
-		}
+		CT.value = value;
+		CT.type = type;
 
 	//	print("cts: "+JSON.stringify(value)+", "+JSON.stringify(type));
 	}
 
 	void resetControlTransfer() {
-		shared_ptr<ControlTransfer> CT = controlTransfer();
+		ControlTransfer& CT = controlTransfer();
 
-		if(CT != nullptr) {
-			CT->value = nullopt;
-			CT->type = nullopt;
-		}
+		CT.value = nullptr;
+		CT.type = nullopt;
 
 	//	print("ctr");
 	}
@@ -564,7 +565,7 @@ public:
 	template<typename... Args>
 	NodeValue executeNode(NodeRef node, Args... arguments) {
 		int OP = position,  // Old/new position
-			NP = node ? node->get<NodeRef>("range")->get<int>("start") : 0;
+			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
 		NodeValue value;
 
 		position = NP;
@@ -572,6 +573,51 @@ public:
 		position = OP;
 
 		return value;
+	}
+
+	/*
+	 * Last statement in a body will be treated like a local return (overwritable by subsequent
+	 * outer statements) if there was no explicit control transfer previously. ECT should
+	 * be implemented by rules.
+	 *
+	 * Control transfer result can be discarded (fully - 1, value only - 0).
+	 */
+	void executeNodes(NodeArrayRef nodes, optional<function<bool(optional<string>, NodeRef)>> CTDiscarded = nullopt) {
+		int OP = position;  // Old position
+
+		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
+			int NP = node->get<Node&>("range").get("start"),  // New position
+				start = composites.size();
+			NodeValue value = executeNode(node);
+			int end = composites.size();
+
+			if(node == nodes->at(-1) && controlTransfer().type == nullopt) {  // Implicit control transfer
+				setControlTransfer(value);
+			}
+
+			int CTD = CTDiscarded.has_value() ? (*CTDiscarded)(controlTransfer().type, controlTransfer().value) : -1;
+
+			switch(CTD) {
+				case 0: setControlTransfer(nullptr, controlTransfer().type); break;
+				case 1: resetControlTransfer();								 break;
+			}
+
+			position = NP;  // Consider deinitializers
+
+			for(start; start < end; start++) {
+				destroyReleasedComposite(getComposite(start));
+
+				if(threw()) {
+					break;
+				}
+			}
+
+			if(controlTransfer().type != nullopt) {  // Explicit control transfer is done
+				break;
+			}
+		}
+
+		position = OP;
 	}
 
 	void setCompositeType(CompositeRef composite, NodeArrayRef type) {
@@ -589,11 +635,11 @@ public:
 
 		NodeValue OV, NV;  // Old/new value
 
-		OV = composite->IDs.get("key");
-		NV = composite->IDs.get("key") = value;
+		OV = composite->IDs.get(key);
+		NV = composite->IDs.get(key) = value;
 
 		if(OV != NV) {
-			if(to_lower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+			if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
 				set<CompositeRef> composites;
 				CompositeRef composite_ = composite;
 
@@ -615,20 +661,20 @@ public:
 		}
 	}
 
-	NodeValue getOwnID(CompositeRef composite, bool nillable = false) {
-		return !nillable || composite ? composite->IDs.get("own") : NodeValue();
+	optional<int> getOwnID(CompositeRef composite, bool nillable = false) {
+		if(!nillable || composite) return composite->IDs.get("own");
 	}
 
 	NodeValue getSelfCompositeID(CompositeRef composite) {
-		return !compositeIsObject(composite) ? getOwnID(composite) : getTypeInheritedID(composite->type);
+		return !compositeIsObject(composite) ? getOwnID(composite) : getTypeInheritedID(*composite->type);
 	}
 
 	NodeValue getScopeID(CompositeRef composite) {
 		return composite->IDs.get("scope");
 	}
 
-	NodeValue getRetainersIDs(CompositeRef composite) {
-		return composite ? composite->IDs.get("retainers") : nullptr;
+	NodeArrayRef getRetainersIDs(CompositeRef composite) {
+		return composite ? composite->IDs.get<NodeArrayRef>("retainers") : nullptr;
 	}
 
 	void setSelfID(CompositeRef composite, CompositeRef selfComposite) {
@@ -643,7 +689,7 @@ public:
 
 		if(compositeIsObject(subObject)) {
 			setID(object, "sub", getOwnID(subObject));
-			setID(object, "Sub", getTypeInheritedID(subObject->type));
+			setID(object, "Sub", getTypeInheritedID(*subObject->type));
 		}
 	}
 
@@ -679,7 +725,7 @@ public:
 		static set<string> excluded = {"own", "retainers"};
 
 		for(const auto& [key, value] : retainingComposite->IDs) {
-			if(!excluded.contains(key) && retainingComposite->IDs.get(key) == getOwnID(retainedComposite)) {
+			if(!excluded.contains(key) && retainingComposite->IDs.get(key) == *getOwnID(retainedComposite)) {
 				return true;
 			}
 		}
@@ -729,21 +775,23 @@ public:
 		return part;
 	}
 
-	int getTypeInheritedID(NodeArrayRef type) {
-		int index = find_index(*type, [](const NodeRef& v) { return v->get("inheritedTypes"); });
+	optional<int> getTypeInheritedID(const NodeArray& type) {
+		int index = find_index(type, [](const NodeRef& v) { return v->get("inheritedTypes"); });
 
-		if(index == -1) {
-			return;
+		if(index > -1) {
+			NodeRef part = find(type, [&](const NodeRef& v) { return v->get("super") == index; });
+
+			if(part) {
+				return part->get("reference");
+			}
 		}
-
-		return find(*type, [](const NodeRef& v) { return v->get("super") == index; })?.reference;
 	}
 
-	NodeRef createValue(const string& primitiveType, const NodeValue& primitiveValue) {
-		return make_shared(Node {
-			{"primitiveType", primitiveType},
-			{"primitiveValue", primitiveValue}
-		});
+	Node createValue(const string& primitiveType, const NodeValue& primitiveValue) {
+		return {
+			{"primitiveType", primitiveType},	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
+			{"primitiveValue", primitiveValue}	// boolean, float, integer, map (object), string, type
+		};
 	}
 
 	string getValueString(NodeRef value) {
@@ -752,7 +800,7 @@ public:
 		}
 
 		if(set<string> {"boolean", "float", "integer", "string"}.contains(value->get("primitiveType"))) {
-			return (string)value->get("primitiveValue");
+			return value->get("primitiveValue");
 		}
 
 		CompositeRef composite = getValueComposite(value);

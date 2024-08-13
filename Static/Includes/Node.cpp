@@ -5,12 +5,40 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
-#include <memory>
+#include <optional>
 #include <any>
 
 #include "glaze/glaze.hpp"
 
 using namespace std;
+
+template <typename T>
+constexpr auto type_name() {
+	string_view name,
+				prefix,
+				suffix;
+
+	#ifdef __clang__
+		name = __PRETTY_FUNCTION__;
+		prefix = "auto type_name() [T = ";
+		suffix = "]";
+	#elif defined(__GNUC__)
+		name = __PRETTY_FUNCTION__;
+		prefix = "constexpr auto type_name() [with T = ";
+		suffix = "]";
+	#elif defined(_MSC_VER)
+		name = __FUNCSIG__;
+		prefix = "auto __cdecl type_name<";
+		suffix = ">(void)";
+	#endif
+
+	name.remove_prefix(prefix.size());
+	name.remove_suffix(suffix.size());
+
+	return name;
+}
+
+// ----------------------------------------------------------------
 
 class Node;
 class NodeValue;
@@ -38,29 +66,36 @@ public:
 	NodeValue(const NodeRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const NodeArray& v) : value(make_shared<NodeArray>(v)) {}
 	NodeValue(const NodeArrayRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
-	NodeValue(const any v) : value(v) {}
+	NodeValue(const any& v) : value(v) {}
 
 	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(make_shared<Node>(v)) {}
 
 	template <bool prioritize = false>
 	NodeValue(initializer_list<NodeValue> v) : value(make_shared<NodeArray>(v)) {}
 
-	template<typename T>
+	template <typename T>
+	NodeValue(const optional<T>& v) : value(v ? *v : static_cast<decltype(value)>(nullptr)) {}
+
+	template <typename T>
+	NodeValue(const T& v) : value(make_any<T>(v)) {}
+
+	template <typename T>
 	T& get() {
 		return ::get<T>(value);
 	}
 
-	template<typename T>
+	template <typename T>
 	const T& get() const {
 		return ::get<T>(value);
 	}
 
-	template<typename T>
+	template <typename T>
 	operator T() const {
-		if(holds_alternative<T>(value))			return get<T>();
-		if(holds_alternative<nullptr_t>(value))	return T();
+		if(holds_alternative<T>(value))										return get<T>();
+		if(holds_alternative<any>(value) && get<any>().type() == typeid(T)) return any_cast<T>(get<any>());
+		if(holds_alternative<nullptr_t>(value))								return T();
 
-		cout << "Invalid type chosen to cast-access value ([" << typeid(T).name() << "]), factual is [" << type() << "]" << endl;
+		cout << "Invalid type chosen to cast-access value (" << type_name<T>() << "), factual is [" << type() << "]" << endl;
 
 		throw bad_variant_access();
 	}
@@ -119,7 +154,7 @@ public:
 		return *get<NodeArrayRef>();
 	}
 
-	template<typename T, template <typename, typename = allocator<T>> class Container>
+	template <typename T, template <typename, typename = allocator<T>> class Container>
 	operator Container<T>() const {
 		auto values = get<NodeArrayRef>();
 		Container<T> values_;
@@ -131,7 +166,7 @@ public:
 		return values_;
 	}
 
-	template<typename T>
+	template <typename T>
 	NodeValue& operator=(T&& v) {
 		value = NodeValue(v).value;
 
@@ -139,14 +174,14 @@ public:
 	}
 
 	/*
-	template<typename T>
+	template <typename T>
 	NodeValue& operator+=(const T& v) {
 		value = ((T)*this)+v;
 
 		return *this;
 	}
 
-	template<typename T>
+	template <typename T>
 	NodeValue& operator-=(const T& v) {
 		value = ((T)*this)-v;
 
@@ -154,12 +189,12 @@ public:
 	}
 	*/
 
-	template<typename T>
+	template <typename T>
 	bool operator==(const T& v) const {
 		return holds_alternative<T>(value) && get<T>() == v;
 	}
 
-	template<typename T>
+	template <typename T>
 	bool operator!=(const T& v) const {
 		return !(*this == v);
 	}
@@ -226,7 +261,7 @@ public:
 
 	Node(initializer_list<pair<const string, NodeValue>> items) : data(items) {}
 
-	template<typename T>
+	template <typename T>
 	T get(const string& key, const NodeValue& defaultValue = nullptr) const {
 		auto it = data.find(key);
 

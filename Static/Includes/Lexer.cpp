@@ -151,7 +151,7 @@ public:
 			static unordered_set<string_view>
 				initializers = {",", ".", ":"},								// Create new token if value exists in the list and current (operator) token doesn't initialized with it
 				singletons = {"!", "?"},									// Create new token if current (postfix operator) token matches any value in the list
-		 		generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
+				generics = {"!", "&", ",", ".", ":", "<", ">", "?", "|"};	// Only values in the list are allowed for generic types
 
 			bool initializer = initializers.contains(v) && !token().value.starts_with(v),
 				 singleton = token().type == "operatorPostfix" && singletons.contains(token().value),
@@ -700,11 +700,11 @@ public:
 	}
 
 	bool atSubstring(const string& substring) {
-	    if(position+substring.size() > code.size()) {
-	        return false;
-	    }
+		if(position+substring.size() > code.size()) {
+			return false;
+		}
 
-	    return equal(substring.begin(), substring.end(), code.begin()+position);
+		return equal(substring.begin(), substring.end(), code.begin()+position);
 	}
 
 	optional<string> atRegex(const regex& regex) {
