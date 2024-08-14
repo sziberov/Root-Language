@@ -37,36 +37,24 @@ public:
 	};
 
 	struct Composite {
-		struct Observers {
-			optional<int> willGet,
-						  get,
-						  didGet,
-						  willSet,
-						  set,
-						  didSet;
-		};
-
 		struct OperatorOverload {
-			struct {
-				bool prefix,
-					 infix,
-					 postfix;
-			} modifiers;
+			unordered_set<string> modifiers;
 			string associativity,
 				   precedence;
 		};
 
 		struct MemberOverload {
-			struct {
-				bool private_,
-					 protected_,
-					 public_,
-					 static_,
-					 final;
-			} modifiers;
+			unordered_set<string> modifiers;
 			NodeRef type;
 			NodeRef value;
-			Observers observers;
+			Node observers/* = {
+				{"willGet", nullptr},
+				{"get", nullptr},
+				{"didGet", nullptr},
+				{"willSet", nullptr},
+				{"set", nullptr},
+				{"didSet", nullptr}
+			}*/;
 		};
 
 		using Operator = vector<OperatorOverload>;
@@ -80,7 +68,7 @@ public:
 		unordered_map<string, int> imports;
 		unordered_map<string, Operator> operators;
 		unordered_map<string, Member> members;
-		Observers observers;
+		Node observers;
 	};
 
 	using CompositeRef = shared_ptr<Composite>;
@@ -824,6 +812,203 @@ public:
 			}
 		});
 		*/
+	}
+
+	optional<Composite::Member> getMember(CompositeRef composite, const string& identifier) {
+		return composite->members.count(identifier) > 0
+			 ? make_optional(composite->members[identifier])
+			 : nullopt;
+	}
+
+	Composite::Member addMember(CompositeRef composite, const string& identifier) {
+		return getMember(composite, identifier)
+			 ? *getMember(composite, identifier)
+			 : composite->members[identifier];
+	}
+
+	void removeMember(CompositeRef composite, const string& identifier) {
+		optional<Composite::Member> member = getMember(composite, identifier);
+
+		if(member == nullopt) {
+			return;
+		}
+
+		composite->members.erase(identifier);
+
+		for(const Composite::MemberOverload& overload : *member) {
+			retainOrReleaseValueComposites(composite, overload.value);
+		}
+	}
+
+	void removeMembers(CompositeRef composite) {
+		for(const auto& [identifier, v] : composite->members) {
+			removeMember(composite, identifier);
+		}
+	}
+
+	optional<Composite::MemberOverload> findInitializingMemberOverload(CompositeRef composite, const string& identifier, const Node& args) {
+		if(compositeIsObject(composite) && set<string> {"super", "self", "sub"}.contains(identifier)) {
+			composite = getComposite(composite->IDs.get("Self"));
+		}
+		if(compositeIsObject(composite)) {
+			return getMemberOverload(composite, "init", [&](optional<Composite::MemberOverload> v) {
+				v = findValueFunction(v->value, {});
+
+				if(v != nullopt && getTypeFunctionProperties(v->type)->get("inits") == 1) {
+					return v;
+				}
+			});
+		}
+	}
+
+	optional<Composite::MemberOverload> findDeinitializingMemberOverload(CompositeRef object) {
+		if(compositeIsObject(object)) {
+			return getMemberOverload(object, "deinit", [&](optional<Composite::MemberOverload> v) {
+				v = findValueFunction(v->value, {});
+
+				if(v != nullopt && getTypeFunctionProperties(v->type)->get("deinits") == 1) {
+					return v;
+				}
+			});
+		}
+	}
+
+	optional<Composite::MemberOverload> findSubscriptedMemberOverload(CompositeRef composite, const string& identifier, bool internal, const NodeArray& args) {}
+
+	/*
+	 * Looking for member overload in Scope chain (scope).
+	 *
+	 * If search is internal, only first composite in chain will be checked.
+	 */
+	optional<Composite::MemberOverload> findMemberOverload(CompositeRef composite, const string& identifier, function<> matching, bool internal) {
+		while(composite != nullptr) {
+			Composite::MemberOverload overload =
+				findMemberOverloadInComposite(composite, identifier, matching) ?:
+				findMemberOverloadInObjectChain(composite, identifier, matching) ?:
+				findMemberOverloadInInheritanceChain(composite, identifier, matching);
+
+			if(overload != nullopt) {
+				return overload;
+			}
+
+			if(internal) {
+				break;
+			}
+
+			composite = getComposite(getScopeID(composite));
+		}
+
+		return nullopt;
+	}
+
+	/*
+	 * Looking for member overload in Object chain (super, self, sub).
+	 *
+	 * When a "virtual" overload is found, search oncely displaces to a lowest sub-object.
+	 */
+	optional<MemberOverloadProxy> findMemberOverloadInObjectChain(CompositeRef object, const string& identifier, function<> matching) {
+		if(!compositeIsObject(object)) {
+			CompositeRef object_ = getComposite(object->IDs.get("self"));
+
+			if(object_ == object || !compositeIsObject(object_)) {
+				return nullopt;
+			}
+
+			object = object_;
+		}
+
+		bool virtual_;
+
+		while(object != nullptr) {  // Higher
+			auto overload = getMemberOverload(object, identifier, matching);
+
+			if(overload != nullopt) {
+				if(!virtual_ && overload.modifiers.contains("virtual")) {
+					virtual_ = true;
+
+					CompositeRef object_;
+
+					while((object_ = getComposite(object->IDs.get("sub"))) != nullptr) {  // Lowest
+						object = object_;
+					}
+
+					continue;
+				}
+
+				return getMemberOverloadProxy(overload, {{"owner", object}});
+			}
+
+			object = getComposite(object->IDs.get("super"));
+		}
+	}
+
+	/*
+	 * Looking for member overload in Inheritance chain (Super, Self).
+	 */
+	optional<MemberOverloadProxy> findMemberOverloadInInheritanceChain(CompositeRef composite, const string& identifier, function<> matching) {
+		if(compositeIsObject(composite)) {
+			composite = getComposite(composite->IDs.get("Self"));
+		}
+
+		while(composite != nullptr) {
+			optional<Composite::MemberOverload> overload = getMemberOverload(composite, identifier, matching);
+
+			if(overload != nullopt) {
+				return getMemberOverloadProxy(*overload, {{"owner", composite}});
+			}
+
+			composite = getComposite(composite->IDs.get("Super"));
+		}
+
+		return nullopt;
+	}
+
+	bool membersRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		for(const auto& [k, member] : retainingComposite->members) {
+			for(const auto& overload : member) {
+				if(
+					typeRetains(overload.type, retainedComposite) ||
+					valueRetains(overload.value, retainedComposite) ||
+					observersRetain(overload.observers, retainedComposite)
+				) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	void getObserver() {}
+
+	void findObserver() {}
+
+	void setObserver(CompositeRef composite, const string& identifier, CompositeRef function) {
+		if(!composite->type->empty() && !set<string> {"Class", "Function", "Namespace", "Structure"}.contains(composite->type->at(0).get<NodeRef>()->get("predefined"))) {
+			return;
+		}
+
+		composite->observers.get(identifier) = *getOwnID(function);
+	}
+
+	void deleteObserver(CompositeRef composite, const string& identifier) {
+		int ID = composite->observers.get(identifier);
+
+		composite->observers.remove(identifier);
+
+		retainOrReleaseComposite(composite, getComposite(ID));
+	}
+
+	bool observersRetain(const Node& retainingObservers, CompositeRef retainedComposite) {
+		int ID = *getOwnID(retainedComposite);
+
+		for(const auto& [k, ID_] : retainingObservers) {
+			if(ID_ == ID) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	void report(int level, NodeRef node, const string& string) {
