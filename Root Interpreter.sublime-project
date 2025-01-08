@@ -6,36 +6,35 @@
 	],
 	"settings": {
 		"SublimeLinter.linters.g++.I": [
-			"${file_path}",
-			"${file_path}/Includes",
-			"${folder}/Static/Includes"
+			"${project_path}/Static/Includes"
 		],
 		"SublimeLinter.linters.g++.args": [
 			"-fsyntax-only",
-			"-std=c++23"
+			"-std=c++26"
 		],
 		"SublimeLinter.linters.g++.disable": false,
 		"SublimeLinter.linters.g++.excludes": [],
 		"SublimeLinter.linters.g++.executable": ["g++"],
-		"SublimeLinter.linters.gcc.disable": true
+		"SublimeLinter.linters.gcc.disable": true,
+		"SublimeLinter.linters.clang++.disable": true
 	},
 	"build_systems": [
 		{
 			"name": "Build",
 			"shell": true,
 			"windows": {
-				"shell_cmd": "g++ -std=c++23 -I \"${file_path}\" -I \"${file_path}/Includes\" -I \"${folder}/Static/Includes\" \"${file}\" -lws2_32 -lwsock32 -Wa,-mbig-obj -g -o \"${file_path}/${file_base_name}\""
+				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -lws2_32 -lwsock32 -Wa,-mbig-obj -O2 -o \"Root Interpreter\""
 			},
 			"linux": {
-				"shell_cmd": "g++ -std=c++23 -I \"${file_path}\" -I \"${file_path}/Includes\" -I \"${folder}/Static/Includes\" \"${file}\" -ltbb -O2 -o \"${file_path}/${file_base_name}\""
+				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -ltbb -g -o \"Root Interpreter\""
 			},
 			"file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$",
-			"working_dir": "${file_path}",
+			"working_dir": "${project_path}/Static",
 			"selector": "source.c++",
 			"variants": [
 				{
 					"name": "Run",
-					"shell_cmd": "${file_path}/${file_base_name}"
+					"shell_cmd": "${project_path}/Static/Root Interpreter"
 				}
 			]
 		}
@@ -43,9 +42,9 @@
 	"debugger_configurations": [
 		{
 			"name": "Windows",
-			"type": "lldb",
+			"type": "gdb",
 			"request": "launch",
-			"program": "${project_path}/Static/Root Interpreter.exe",
+			"target": "${project_path}/Static/Root Interpreter.exe",
 			"cwd": "${project_path}/Static",
 			"terminal": "console"
 		},

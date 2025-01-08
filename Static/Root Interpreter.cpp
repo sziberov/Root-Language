@@ -1,6 +1,6 @@
 #include "Lexer.cpp"
 #include "Parser.cpp"
-//#include "Interpreter.cpp"
+#include "Interpreter.Micro.cpp"
 
 #include "crow_all.h"
 #include "glaze/glaze.hpp"
@@ -8,7 +8,7 @@
 int main() {
 	Lexer lexer;
 	Parser parser;
-	//Interpreter interpreter;
+	Interpreter interpreter;
 
 	optional<Lexer::Result> lexerResult;
 	optional<Parser::Result> parserResult;
@@ -70,6 +70,8 @@ int main() {
 			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
 		cout << "                      [Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
+
+		interpreter.interpret(*lexerResult, *parserResult);
 
 		return parserResultString;
 	});
