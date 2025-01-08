@@ -76,8 +76,15 @@ public:
 	template <typename T>
 	NodeValue(const optional<T>& v) : value(v ? *v : static_cast<decltype(value)>(nullptr)) {}
 
+	/*
 	template <typename T>
+	requires (!is_same_v<T, int> &&
+	          !is_same_v<T, double> &&
+	          !is_same_v<T, string> &&
+	          !is_same_v<T, const char*> &&
+	          !is_same_v<T, NodeValue>)
 	NodeValue(const T& v) : value(make_any<T>(v)) {}
+	*/
 
 	template <typename T>
 	T& get() {
