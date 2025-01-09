@@ -58,12 +58,39 @@ public:
 	deque<Report> reports;
 
 	template<typename... Args>
-	optional<Value> rules(const string& type, Args... args) {
+	variant<optional<Value>, NodeValue> rules(const string& type, Args... args) {
 		vector<any> arguments = {args...};
 
+		if(type == "argument") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = executeNode(n->get("value"));
+
+			if(!threw()) {
+				return Node {
+					{"label", !n->empty("label") ? n->get<NodeRef>("label")->get("value") : NodeValue()},
+					{"value", value}
+				};
+			}
+		} else
+		if(type == "breakStatement") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = !n->empty("label") ? optional(Value("string", n->get<NodeRef>("label")->get("value"))) : nullopt;
+
+			setControlTransfer(value, "break");
+
+			return value;
+		} else
+		if(type == "continueStatement") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = !n->empty("label") ? optional(Value("string", n->get<NodeRef>("label")->get("value"))) : nullopt;
+
+			setControlTransfer(value, "continue");
+
+			return value;
+		} else
 		if(type == "module") {
 			cout << "Terminal Hello World" << endl;
-			report(0, nullptr /*any_cast<NodeRef>(arguments[0])*/, "Console Hello World");
+			report(0, nullptr, "Console Hello World");
 
 			addControlTransfer();
 			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr);
@@ -73,9 +100,29 @@ public:
 			}
 
 			removeControlTransfer();
+		} else
+		if(type == "returnStatement") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			setControlTransfer(value, "return");
+
+			return value;
+		} else
+		if(type == "throwStatement") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = executeNode(n->get("value"));
+
+			setControlTransfer(value, "throw");
+
+			return value;
 		}
 
-		return nullopt;
+		return nullptr;
 	}
 
 	ControlTransfer& controlTransfer() {
@@ -130,13 +177,13 @@ public:
 	optional<Value> executeNode(NodeRef node, Args... arguments) {
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		optional<Value> value;
+		variant<optional<Value>, NodeValue> value;
 
 		position = NP;
 		value = rules(node ? node->get("type") : "", node, arguments...);
 		position = OP;
 
-		return value;
+		return holds_alternative<optional<Value>>(value) ? get<optional<Value>>(value) : nullopt;
 	}
 
 	/*
@@ -223,7 +270,6 @@ public:
 	}
 
 	struct Result {
-		NodeValue value;
 		deque<Report> reports;
 	};
 
@@ -235,7 +281,8 @@ public:
 		tokens = lexerResult.tokens;
 		tree = parserResult.tree;
 
-		result.value = rules("module");
+		rules("module");
+
 		result.reports = move(reports);
 
 		reset();
