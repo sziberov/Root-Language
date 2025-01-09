@@ -382,6 +382,20 @@ namespace glz::detail
 	*/
 
 	template <>
+	struct to_json<NodeValue>
+	{
+		template <auto Opts>
+		static void op(NodeValue& value, auto&&... args) noexcept
+		{
+			constexpr glz::opts opts {
+				.raw = true
+			};
+
+			write<json>::op<opts>(to_string(value), args...);
+		}
+	};
+
+	template <>
 	struct to_json<Node>
 	{
 		template <auto Opts>

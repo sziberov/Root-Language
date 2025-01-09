@@ -12,6 +12,7 @@ int main() {
 
 	optional<Lexer::Result> lexerResult;
 	optional<Parser::Result> parserResult;
+	optional<Interpreter::Result> interpreterResult;
 
 	crow::SimpleApp app;
 	mutex interpreterLock;
@@ -43,7 +44,7 @@ int main() {
 			duration_1 += chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 		}
 
-		cout << "                      [Lexer   ] Taken ";
+		cout << "                   [   Lexer   ] Taken ";
 
 		if(iterations == 1) {
 			cout << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by string(" << req.body.length() << ")";
@@ -69,11 +70,24 @@ int main() {
 		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
 			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
-		cout << "                      [Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
-
-		interpreter.interpret(*lexerResult, *parserResult);
+		cout << "                   [   Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
 
 		return parserResultString;
+	});
+	CROW_ROUTE(app, "/interpret")([&]() {
+		auto lock = lock_guard<mutex>(interpreterLock);
+		if(lexerResult == nullopt || parserResult == nullopt) return string();
+		auto start = chrono::high_resolution_clock::now();
+		interpreterResult = interpreter.interpret(*lexerResult, *parserResult);
+		auto stop_0 = chrono::high_resolution_clock::now();
+		string interpreterResultString = glz::write_json(interpreterResult).value_or("error");
+		auto stop_1 = chrono::high_resolution_clock::now();
+		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
+			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
+
+		cout << "                   [Interpreter] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
+
+		return interpreterResultString;
 	});
 
 	app.port(3007)/*.multithreaded()*/.run();

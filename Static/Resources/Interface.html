@@ -99,6 +99,38 @@ body {
 		parserResult,
 		interpreterResult;
 
+	function clearReports() {
+ 		output_console.innerHTML = '';
+	}
+
+	function logReports(reports, transparent) {
+		for(let report of reports) {
+			let message = report.string.replace(/&/g, '&amp;')
+									   .replace(/</g, '&lt;')
+									   .replace(/>/g, '&gt;')
+									   .replace(/"/g, '&quot;')
+									   .replace(/'/g, '&#039;'),
+				color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
+				weight;
+
+			if(report.location != null) {
+				let line = report.location.line+1,
+					column = report.location.column+1,
+					level = report.level.toString()
+										.replace('0', 'Info')
+										.replace('1', 'Warning')
+										.replace('2', 'Error');
+
+				weight = 'regular';
+				message = line+':'+column+': '+level+': '+message;
+			} else {
+				weight = 'bold';
+			}
+
+			output_console.innerHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
+		}
+	}
+
 	async function tokenize() {
 		output_lint.innerHTML = '';
 
@@ -108,10 +140,8 @@ body {
 			headers: {'Content-Type': 'text/plain'},
 			body: input.value
 		});
-
 		lexerResult = await lexerResponse.json();
  		let end = Date.now();
-
  		console.log(`[Lexer] Taken ${end-start} ms by string(${input.value.length})`);
 
 		let tokens = lexerResult.rawTokens,
@@ -206,51 +236,24 @@ body {
 	}
 
 	async function interpret() {
-		let start = Date.now();
-		let parserResponse = await fetch(location.origin+'/parse', {
-			method: 'GET',
-			headers: {'Content-Type': 'text/plain'}
-		});
+		let start,
+			end;
 
+		start = Date.now();
+		let parserResponse = await fetch(location.origin+'/parse');
 		parserResult = await parserResponse.json();
- 		let end = Date.now();
-
+ 		end = Date.now();
  		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
 
-	//	interpreterResult = Interpreter.interpret(lexerResult, parserResult); // <--------------------------------
+		start = Date.now();
+		let interpreterResponse = await fetch(location.origin+'/interpret');
+		interpreterResult = await interpreterResponse.json();
+ 		end = Date.now();
+ 		console.log(`[Interpreter] Taken ${end-start} ms by string(${input.value.length})`);
 
-		let consoleHTML = '';
-
-		function logReports(reports, transparent) {
-			for(let report of reports) {
-				let message = report.string.replace(/&/g, '&amp;')
-										   .replace(/</g, '&lt;')
-										   .replace(/>/g, '&gt;')
-										   .replace(/"/g, '&quot;')
-										   .replace(/'/g, '&#039;'),
-					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
-					weight;
-
-				if(report.location != null) {
-					let line = report.location.line+1,
-						column = report.location.column+1,
-						level = report.level.toString()
-											.replace('0', 'Info')
-											.replace('1', 'Warning')
-											.replace('2', 'Error');
-
-					weight = 'regular';
-					message = line+':'+column+': '+level+': '+message;
-				} else {
-					weight = 'bold';
-				}
-
-				consoleHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
-			}
-		}
-
+ 		clearReports();
 		logReports(parserResult.reports, true);
-	//	logReports(interpreterResult.reports);
+		logReports(interpreterResult.reports);
 
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
 		/*
@@ -268,7 +271,6 @@ body {
 			}
 		}, 4);
 		*/
-		output_console.innerHTML = consoleHTML;
 	}
 
 	input.oninput = tokenize;
