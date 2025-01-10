@@ -2,6 +2,7 @@
 
 #include "Lexer.cpp"
 #include "Parser.cpp"
+#include "Primitive.cpp"
 
 using Report = Parser::Report;
 
@@ -33,13 +34,8 @@ class Interpreter {
 public:
 	Interpreter() {};
 
-	struct Value {
-		string primitiveType;		// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
-		NodeValue primitiveValue;	// boolean, float, integer, map (object), string, type
-	};
-
 	struct ControlTransfer {
-		optional<Value> value;
+		optional<Primitive> value;
 		optional<string> type;
 	};
 
@@ -58,7 +54,7 @@ public:
 	deque<Report> reports;
 
 	template<typename... Args>
-	variant<optional<Value>, NodeValue> rules(const string& type, Args... args) {
+	variant<optional<Primitive>, NodeValue> rules(const string& type, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(type == "argument") {
@@ -68,19 +64,19 @@ public:
 			if(!threw()) {
 				return Node {
 					{"label", !n->empty("label") ? n->get<Node&>("label").get("value") : NodeValue()},
-					{"value", value}
+					{"value", make_any<optional<Primitive>>(value)}
 				};
 			}
 		} else
 		if(type == "arrayLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Value("dictionary", Node());
+			auto value = Primitive(PrimitiveDictionary());
 
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
 				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_ != nullopt) {
-				//	value.primitiveValue.get<Node&>().get(to_string(i)) = value_;
+					get<PrimitiveDictionary>(value.value).emplace(i, *value_);
 				}
 			}
 
@@ -89,14 +85,14 @@ public:
 		} else
 		if(type == "booleanLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Value("boolean", n->get("value") == "true");
+			auto value = Primitive(n->get("value") == "true");
 
 		//	return getValueWrapper(value, "Boolean");
 			return value;
 		} else
 		if(type == "breakStatement") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Value("string", n->get<Node&>("label").get("value"))) : nullopt;
+			auto value = !n->empty("label") ? optional(Primitive(n->get<Node&>("label").get<string>("value"))) : nullopt;
 
 			setControlTransfer(value, "break");
 
@@ -104,7 +100,7 @@ public:
 		} else
 		if(type == "continueStatement") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Value("string", n->get<Node&>("label").get("value"))) : nullopt;
+			auto value = !n->empty("label") ? optional(Primitive(n->get<Node&>("label").get<string>("value"))) : nullopt;
 
 			setControlTransfer(value, "continue");
 
@@ -112,14 +108,14 @@ public:
 		} else
 		if(type == "floatLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Value("float", (double)n->get("value"));
+			auto value = Primitive(n->get<double>("value"));
 
 		//	return getValueWrapper(value, "Float");
 			return value;
 		} else
 		if(type == "integerLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Value("integer", (int)n->get("value"));
+			auto value = Primitive("integer", n->get<int>("value"));
 
 		//	return getValueWrapper(value, "Integer");
 			return value;
@@ -161,7 +157,7 @@ public:
 				}
 			}
 
-			auto value = Value("string", string);
+			auto value = Primitive(string);
 
 		//	return getValueWrapper(value, "String");
 			return value;
@@ -208,7 +204,7 @@ public:
 	 *
 	 * Specifying a type means explicit control transfer.
 	 */
-	void setControlTransfer(optional<Value> value = nullopt, optional<string> type = nullopt) {
+	void setControlTransfer(optional<Primitive> value = nullopt, optional<string> type = nullopt) {
 		ControlTransfer& CT = controlTransfer();
 
 		CT.value = value;
@@ -227,17 +223,17 @@ public:
 	}
 
 	template<typename... Args>
-	optional<Value> executeNode(NodeRef node, Args... arguments) {
+	optional<Primitive> executeNode(NodeRef node, Args... arguments) {
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		variant<optional<Value>, NodeValue> value;
+		variant<optional<Primitive>, NodeValue> value;
 
 		position = NP;
 		value = rules(node ? node->get("type") : "", node, arguments...);
 		position = OP;
 
-		return holds_alternative<optional<Value>>(value) ?
-							 get<optional<Value>>(value) : nullopt;
+		return holds_alternative<optional<Primitive>>(value) ?
+							 get<optional<Primitive>>(value) : nullopt;
 	}
 
 	/*
@@ -252,7 +248,7 @@ public:
 
 		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
 			int NP = node->get<Node&>("range").get("start");  // New position
-			optional<Value> value = executeNode(node);
+			optional<Primitive> value = executeNode(node);
 
 			if(node == nodes->back().get<NodeRef>() && controlTransfer().type == nullopt) {  // Implicit control transfer
 				setControlTransfer(value);
@@ -268,13 +264,13 @@ public:
 		position = OP;
 	}
 
-	string getValueString(optional<Value> value) {
-		if(value == nullopt) {
+	string getValueString(optional<Primitive> primitive) {
+		if(primitive == nullopt) {
 			return "nil";
 		}
 
-		if(set<string> {"boolean", "float", "integer", "string"}.contains(value->primitiveType)) {
-			return value->primitiveValue;
+		if(set<string> {"boolean", "float", "integer", "string"}.contains(primitive->type())) {
+			return *primitive;
 		}
 
 		return "";  // TODO
