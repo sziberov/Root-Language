@@ -44,7 +44,7 @@ int main() {
 			duration_1 += chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 		}
 
-		cout << "                   [   Lexer   ] Taken ";
+		cout << "                      [Lexer   ] Taken ";
 
 		if(iterations == 1) {
 			cout << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by string(" << req.body.length() << ")";
@@ -70,7 +70,7 @@ int main() {
 		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
 			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
-		cout << "                   [   Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
+		cout << "                      [Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
 
 		return parserResultString;
 	});

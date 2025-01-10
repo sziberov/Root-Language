@@ -34,8 +34,8 @@ public:
 	Interpreter() {};
 
 	struct Value {
-		string primitiveType;
-		NodeValue primitiveValue;
+		string primitiveType;		// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
+		NodeValue primitiveValue;	// boolean, float, integer, map (object), string, type
 	};
 
 	struct ControlTransfer {
@@ -67,14 +67,36 @@ public:
 
 			if(!threw()) {
 				return Node {
-					{"label", !n->empty("label") ? n->get<NodeRef>("label")->get("value") : NodeValue()},
+					{"label", !n->empty("label") ? n->get<Node&>("label").get("value") : NodeValue()},
 					{"value", value}
 				};
 			}
 		} else
+		if(type == "arrayLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = Value("dictionary", Node());
+
+			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
+				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
+
+				if(value_ != nullopt) {
+				//	value.primitiveValue.get<Node&>().get(to_string(i)) = value_;
+				}
+			}
+
+		//	return getValueWrapper(value, "Array");
+			return value;
+		} else
+		if(type == "booleanLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = Value("boolean", n->get("value") == "true");
+
+		//	return getValueWrapper(value, "Boolean");
+			return value;
+		} else
 		if(type == "breakStatement") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Value("string", n->get<NodeRef>("label")->get("value"))) : nullopt;
+			auto value = !n->empty("label") ? optional(Value("string", n->get<Node&>("label").get("value"))) : nullopt;
 
 			setControlTransfer(value, "break");
 
@@ -82,16 +104,27 @@ public:
 		} else
 		if(type == "continueStatement") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Value("string", n->get<NodeRef>("label")->get("value"))) : nullopt;
+			auto value = !n->empty("label") ? optional(Value("string", n->get<Node&>("label").get("value"))) : nullopt;
 
 			setControlTransfer(value, "continue");
 
 			return value;
 		} else
-		if(type == "module") {
-			cout << "Terminal Hello World" << endl;
-			report(0, nullptr, "Console Hello World");
+		if(type == "floatLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = Value("float", (double)n->get("value"));
 
+		//	return getValueWrapper(value, "Float");
+			return value;
+		} else
+		if(type == "integerLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = Value("integer", (int)n->get("value"));
+
+		//	return getValueWrapper(value, "Integer");
+			return value;
+		} else
+		if(type == "module") {
 			addControlTransfer();
 			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr);
 
@@ -100,6 +133,8 @@ public:
 			}
 
 			removeControlTransfer();
+		} else
+		if(type == "nilLiteral") {
 		} else
 		if(type == "returnStatement") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
@@ -110,7 +145,25 @@ public:
 			}
 
 			setControlTransfer(value, "return");
+			report(0, n, getValueString(value));
 
+			return value;
+		} else
+		if(type == "stringLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			::string string = "";
+
+			for(const NodeRef& segment : n->get<NodeArray&>("segments")) {
+				if(segment->get("type") == "stringSegment") {
+					string += segment->get<::string>("value");
+				} else {  // stringExpression
+					string += getValueString(executeNode(segment->get("value")));
+				}
+			}
+
+			auto value = Value("string", string);
+
+		//	return getValueWrapper(value, "String");
 			return value;
 		} else
 		if(type == "throwStatement") {
@@ -183,7 +236,8 @@ public:
 		value = rules(node ? node->get("type") : "", node, arguments...);
 		position = OP;
 
-		return holds_alternative<optional<Value>>(value) ? get<optional<Value>>(value) : nullopt;
+		return holds_alternative<optional<Value>>(value) ?
+							 get<optional<Value>>(value) : nullopt;
 	}
 
 	/*
@@ -212,13 +266,6 @@ public:
 		}
 
 		position = OP;
-	}
-
-	Value createValue(const string& primitiveType, const NodeValue& primitiveValue) {
-		return {
-			primitiveType,	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
-			primitiveValue	// boolean, float, integer, map (object), string, type
-		};
 	}
 
 	string getValueString(optional<Value> value) {
