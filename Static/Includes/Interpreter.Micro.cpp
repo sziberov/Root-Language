@@ -106,6 +106,7 @@ public:
 
 			return value;
 		} else
+		/*
 		if(type == "dictionaryLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = Primitive(PrimitiveDictionary());
@@ -130,6 +131,7 @@ public:
 				{"value", rules()},
 			};
 		} else
+		*/
 		if(type == "floatLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = Primitive(n->get<double>("value"));

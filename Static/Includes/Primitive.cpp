@@ -9,22 +9,66 @@ using namespace std;
 
 // ----------------------------------------------------------------
 
+template <typename T, typename Hasher = hash<T>>
+class OrderedDictionary {
+private:
+	using Entry = pair<optional<T>, optional<T>>;
+
+	unordered_map<optional<T>, vector<size_t>, Hasher, equal_to<optional<T>>> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;																// index -> entry
+
+public:
+	void emplace(const optional<T>& key, const optional<T>& value) {
+		kIndexes[key].push_back(size());
+		iEntries.push_back({
+			key,
+			value
+		});
+	}
+
+	optional<T> get(const T& key) const {
+		auto it = kIndexes.find(key);
+
+		if(it != kIndexes.end() && !it->second.empty()) {
+			return iEntries[it->second.back()].second;
+		}
+
+		return nullopt;
+	}
+
+	bool operator==(const OrderedDictionary<T, Hasher>& dictionary) const {
+		return false;
+	}
+
+	bool operator!=(const OrderedDictionary<T, Hasher>& dictionary) const {
+		return !(*this == dictionary);
+	}
+
+	auto begin() const {
+		return iEntries.begin();
+	}
+
+	auto end() const {
+		return iEntries.end();
+	}
+
+	size_t size() const {
+		return iEntries.size();
+	}
+};
+
 struct Primitive;
 
 struct PrimitiveHasher {
-	size_t operator()(const Primitive& primitive) const;
+	size_t operator()(const optional<Primitive>& primitive) const;
 };
 
-struct PrimitiveEqual {
-	bool operator()(const Primitive& lhs, const Primitive& rhs) const;
-};
-
-using PrimitiveDictionary = unordered_map<Primitive, Primitive, PrimitiveHasher, PrimitiveEqual>;
+using PrimitiveDictionary = OrderedDictionary<Primitive, PrimitiveHasher>;
 
 struct Primitive {
 	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, NodeRef>;
 
-	Type value;
+	mutable Type value;
 
 	Primitive(bool val) : value(Type(in_place_index<0>, val)) {}
 	Primitive(const PrimitiveDictionary& val) : value(Type(in_place_index<1>, val)) {}
@@ -53,7 +97,7 @@ struct Primitive {
 		}
 	}
 
-	operator PrimitiveDictionary() const {
+	operator PrimitiveDictionary&() const {
 		switch(value.index()) {
 			case 1:		return get<PrimitiveDictionary>(value);
 			default:	throw bad_variant_access();
@@ -97,8 +141,17 @@ struct Primitive {
 		}
 	}
 
-	bool operator==(const Primitive& primitive) const {
-		return value == primitive.value;
+	bool operator==(const Primitive& v) const {
+		switch(value.index()) {
+			case 0:     return (bool)(*this) == (bool)v;
+			case 1:		return (PrimitiveDictionary)(*this) == (PrimitiveDictionary)v;
+			case 2:		return (double)(*this) == (double)v;
+			case 3:
+			case 4:
+			case 5:		return (int)(*this) == (int)v;
+			case 6:		return (string)(*this) == (string)v;
+			default:	return false;
+		}
 	}
 
 	string type() const {
@@ -116,7 +169,11 @@ struct Primitive {
 	}
 };
 
-size_t PrimitiveHasher::operator()(const Primitive& primitive) const {
+size_t PrimitiveHasher::operator()(const optional<Primitive>& primitive) const {
+	if(!primitive.has_value()) {
+		return 0;
+	}
+
 	return visit(
 		[](const auto& v) {
 			using T = decay_t<decltype(v)>;
@@ -124,8 +181,8 @@ size_t PrimitiveHasher::operator()(const Primitive& primitive) const {
 			if constexpr (is_same_v<T, PrimitiveDictionary>) {
 				size_t mapHash = 0;
 
-				for(const auto& pair : v) {
-					mapHash ^= PrimitiveHasher()(pair.first)^(PrimitiveHasher()(pair.second) << 1);
+				for(const auto& entry : v) {
+					mapHash ^= PrimitiveHasher()(entry.first)^(PrimitiveHasher()(entry.second) << 1);
 				}
 
 				return mapHash;
@@ -133,10 +190,6 @@ size_t PrimitiveHasher::operator()(const Primitive& primitive) const {
 				return hash<T>()(v);
 			}
 		},
-		primitive.value
+		primitive->value
 	);
-}
-
-bool PrimitiveEqual::operator()(const Primitive& lhs, const Primitive& rhs) const {
-	return lhs == rhs;
 }

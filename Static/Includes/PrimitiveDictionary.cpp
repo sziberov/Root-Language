@@ -29,10 +29,7 @@ struct std::hash<Primitive> {
 template <typename T>
 class PrimitiveDictionary {
 private:
-	struct Entry {
-		optional<T> key,
-					value;
-	};
+	using Entry = pair<optional<T>, optional<T>>;
 
 	unordered_map<optional<T>, vector<size_t>> kIndexes;	// key -> indexes
 	vector<Entry> iEntries;									// index -> entry
@@ -50,7 +47,7 @@ public:
 		auto it = kIndexes.find(key);
 
 		if(it != kIndexes.end() && !it->second.empty()) {
-			return iEntries[it->second.back()].value;
+			return iEntries[it->second.back()].second;
 		}
 
 		return nullopt;
@@ -83,7 +80,7 @@ int main() {
 
 	cout << "Итерация в порядке добавления:" << endl;
 	for(const auto& entry : dict) {
-		cout << "Key: " << (entry.key ? to_string(*entry.key) : "nullopt") << ", Value: " << (entry.value ? to_string(*entry.value) : "nullopt") << endl;
+		cout << "Key: " << (entry.first ? to_string(*entry.first) : "nullopt") << ", Value: " << (entry.second ? to_string(*entry.second) : "nullopt") << endl;
 	}
 
 	cout << "Общее количество ключей: " << dict.size() << endl;
