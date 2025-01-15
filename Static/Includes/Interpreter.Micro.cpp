@@ -106,6 +106,30 @@ public:
 
 			return value;
 		} else
+		if(type == "dictionaryLiteral") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+			auto value = Primitive(PrimitiveDictionary());
+
+			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
+				NodeRef entry_ = (NodeValue)rules("entry", entry);
+
+				get<PrimitiveDictionary>(value.value).emplace(
+					*any_cast<optional<Primitive>>(entry_->get<any>("key")),
+					*any_cast<optional<Primitive>>(entry_->get<any>("value"))
+				);
+			}
+
+		//	return getValueWrapper(value, "Dictionary");
+			return value;
+		} else
+		if(type == "entry") {
+			NodeRef n = any_cast<NodeRef>(arguments[0]);
+
+			return Node {
+				{"key", rules(n->get("type"), n->get<NodeRef>("key"))},
+				{"value", rules()},
+			};
+		} else
 		if(type == "floatLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = Primitive(n->get<double>("value"));
@@ -115,7 +139,7 @@ public:
 		} else
 		if(type == "integerLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive("integer", n->get<int>("value"));
+			auto value = Primitive(n->get<int>("value"));
 
 		//	return getValueWrapper(value, "Integer");
 			return value;
@@ -269,11 +293,44 @@ public:
 			return "nil";
 		}
 
-		if(set<string> {"boolean", "float", "integer", "string"}.contains(primitive->type())) {
+		if(set<string> {"boolean", "float", "integer"}.contains(primitive->type())) {
 			return *primitive;
 		}
+		if(primitive->type() == "string") {
+			return "\""+(string)(*primitive)+"\"";
+		}
 
-		return "";  // TODO
+		/*
+		CompositeRef composite = getValueComposite(value);
+
+		if(composite != nullptr) {
+			return getCompositeString(composite);
+		}
+		*/
+
+		if(primitive->type() == "dictionary") {
+			string result = "{";
+			PrimitiveDictionary dictionary = *primitive;
+			auto it = dictionary.begin();
+
+			while(it != dictionary.end()) {
+				auto& [k, v] = *it;
+
+				result += getValueString(k)+": "+getValueString(v);
+
+				if(next(it) != dictionary.end()) {
+					result += ", ";
+				}
+
+				it++;
+			}
+
+			result += "}";
+
+			return result;
+		}
+
+		return "";
 	}
 
 	void report(int level, NodeRef node, const string& string) {

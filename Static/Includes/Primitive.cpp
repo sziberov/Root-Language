@@ -29,7 +29,8 @@ struct Primitive {
 	Primitive(bool val) : value(Type(in_place_index<0>, val)) {}
 	Primitive(const PrimitiveDictionary& val) : value(Type(in_place_index<1>, val)) {}
 	Primitive(double val) : value(Type(in_place_index<2>, val)) {}
-	Primitive(const string& type, int val) {
+	Primitive(int val) : value(Type(in_place_index<3>, val)) {}
+	Primitive(int val, const string& type) {
 		if(type == "integer") {
 			value = Type(in_place_index<3>, val);
 		} else
@@ -39,11 +40,41 @@ struct Primitive {
 		if(type == "reference") {
 			value = Type(in_place_index<5>, val);
 		} else {
-			throw invalid_argument("Unknown type: "+type);
+			throw invalid_argument("Unknown type: "+type+" for value: "+to_string(val));
 		}
 	}
 	Primitive(const string& val) : value(Type(in_place_index<6>, val)) {}
 	Primitive(NodeRef val) : value(Type(in_place_index<7>, val)) {}
+
+	operator bool() const {
+		switch(value.index()) {
+			case 0:		return get<bool>(value);
+			default:	throw bad_variant_access();
+		}
+	}
+
+	operator PrimitiveDictionary() const {
+		switch(value.index()) {
+			case 1:		return get<PrimitiveDictionary>(value);
+			default:	throw bad_variant_access();
+		}
+	}
+
+	operator double() const {
+		switch(value.index()) {
+			case 2:		return get<double>(value);
+			default:	throw bad_variant_access();
+		}
+	}
+
+	operator int() const {
+		switch(value.index()) {
+			case 3:		return get<3>(value);
+			case 4:		return get<4>(value);
+			case 5:		return get<5>(value);
+			default:	throw bad_variant_access();
+		}
+	}
 
 	operator string() const {
 		switch(value.index()) {
@@ -56,6 +87,13 @@ struct Primitive {
 			case 6:		return get<string>(value);
 			case 7:		return get<NodeRef>(value) ? to_string(*get<NodeRef>(value)) : string();
 			default:	return string();
+		}
+	}
+
+	operator NodeRef() const {
+		switch(value.index()) {
+			case 7:		return get<NodeRef>(value);
+			default:	throw bad_variant_access();
 		}
 	}
 
