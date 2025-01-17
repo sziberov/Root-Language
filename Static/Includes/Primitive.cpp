@@ -10,14 +10,12 @@ using namespace std;
 // ----------------------------------------------------------------
 
 template <typename T, typename Hasher = hash<T>>
-class OrderedDictionary {
-private:
+struct OrderedDictionary {
 	using Entry = pair<optional<T>, optional<T>>;
 
 	unordered_map<optional<T>, vector<size_t>, Hasher, equal_to<optional<T>>> kIndexes;	// key -> indexes
 	vector<Entry> iEntries;																// index -> entry
 
-public:
 	void emplace(const optional<T>& key, const optional<T>& value) {
 		kIndexes[key].push_back(size());
 		iEntries.push_back({
@@ -90,53 +88,73 @@ struct Primitive {
 	Primitive(const string& val) : value(Type(in_place_index<6>, val)) {}
 	Primitive(NodeRef val) : value(Type(in_place_index<7>, val)) {}
 
+	template <typename T>
+	T& get() {
+		return ::get<T>(value);
+	}
+
+	template <typename T>
+	const T& get() const {
+		return ::get<T>(value);
+	}
+
+	template <size_t I>
+	auto& get() {
+		return ::get<I>(value);
+	}
+
+	template <size_t I>
+	const auto& get() const {
+		return ::get<I>(value);
+	}
+
 	operator bool() const {
 		switch(value.index()) {
-			case 0:		return get<bool>(value);
+			case 0:		return get<bool>();
 			default:	throw bad_variant_access();
 		}
 	}
 
 	operator PrimitiveDictionary&() const {
 		switch(value.index()) {
-			case 1:		return get<PrimitiveDictionary>(value);
+			case 1:		return ::get<PrimitiveDictionary>(value);
 			default:	throw bad_variant_access();
 		}
 	}
 
 	operator double() const {
 		switch(value.index()) {
-			case 2:		return get<double>(value);
+			case 2:		return get<double>();
 			default:	throw bad_variant_access();
 		}
 	}
 
 	operator int() const {
 		switch(value.index()) {
-			case 3:		return get<3>(value);
-			case 4:		return get<4>(value);
-			case 5:		return get<5>(value);
+			case 3:		return get<3>();
+			case 4:		return get<4>();
+			case 5:		return get<5>();
 			default:	throw bad_variant_access();
 		}
 	}
 
 	operator string() const {
 		switch(value.index()) {
-			case 0:		return get<bool>(value) ? "true" : "false";
-		//	case 1:		return to_string(get<int>(value));
-			case 2:		return to_string(get<double>(value));
-			case 3:		return to_string(get<3>(value));
-			case 4:		return to_string(get<4>(value));
-			case 5:		return to_string(get<5>(value));
-			case 6:		return get<string>(value);
-			case 7:		return get<NodeRef>(value) ? to_string(*get<NodeRef>(value)) : string();
+			case 0:		return get<bool>() ? "true" : "false";
+		//	case 1:		return to_string(get<int>());
+			case 2:		return to_string(get<double>());
+			case 3:		return to_string(get<3>());
+			case 4:		return to_string(get<4>());
+			case 5:		return to_string(get<5>());
+			case 6:		return get<string>();
+			case 7:		return get<NodeRef>() ? to_string(*get<NodeRef>()) : string();
 			default:	return string();
 		}
 	}
 
 	operator NodeRef() const {
 		switch(value.index()) {
-			case 7:		return get<NodeRef>(value);
+			case 7:		return get<NodeRef>();
 			default:	throw bad_variant_access();
 		}
 	}

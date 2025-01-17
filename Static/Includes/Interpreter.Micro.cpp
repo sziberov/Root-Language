@@ -28,6 +28,15 @@ string tolower(string_view string) {
 	return result;
 }
 
+template <typename T>
+optional<T> any_optcast(const any& value) {
+	if(const T* v = any_cast<T>(&value)) {
+		return optional<T>(*v);
+	} else {
+		return nullopt;
+	}
+}
+
 // ----------------------------------------------------------------
 
 class Interpreter {
@@ -54,7 +63,7 @@ public:
 	deque<Report> reports;
 
 	template<typename... Args>
-	variant<optional<Primitive>, NodeValue> rules(const string& type, Args... args) {
+	any rules(const string& type, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(type == "argument") {
@@ -70,13 +79,13 @@ public:
 		} else
 		if(type == "arrayLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive(PrimitiveDictionary());
+			Primitive value = PrimitiveDictionary();
 
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
 				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_ != nullopt) {
-					get<PrimitiveDictionary>(value.value).emplace(i, *value_);
+					value.get<PrimitiveDictionary>().emplace(i, *value_);
 				}
 			}
 
@@ -85,7 +94,7 @@ public:
 		} else
 		if(type == "booleanLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive(n->get("value") == "true");
+			Primitive value = n->get("value") == "true";
 
 		//	return getValueWrapper(value, "Boolean");
 			return value;
@@ -106,18 +115,16 @@ public:
 
 			return value;
 		} else
-		/*
 		if(type == "dictionaryLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive(PrimitiveDictionary());
+			Primitive value = PrimitiveDictionary();
 
 			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
-				NodeRef entry_ = (NodeValue)rules("entry", entry);
+				auto entry_ = any_optcast<PrimitiveDictionary::Entry>(rules("entry", entry));
 
-				get<PrimitiveDictionary>(value.value).emplace(
-					*any_cast<optional<Primitive>>(entry_->get<any>("key")),
-					*any_cast<optional<Primitive>>(entry_->get<any>("value"))
-				);
+				if(entry_ != nullopt) {
+					value.get<PrimitiveDictionary>().emplace(entry_->first, entry_->second);
+				}
 			}
 
 		//	return getValueWrapper(value, "Dictionary");
@@ -126,22 +133,21 @@ public:
 		if(type == "entry") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
 
-			return Node {
-				{"key", rules(n->get("type"), n->get<NodeRef>("key"))},
-				{"value", rules()},
-			};
+			return make_pair(
+				executeNode(n->get<NodeRef>("key")),
+				executeNode(n->get<NodeRef>("value"))
+			);
 		} else
-		*/
 		if(type == "floatLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive(n->get<double>("value"));
+			Primitive value = n->get<double>("value");
 
 		//	return getValueWrapper(value, "Float");
 			return value;
 		} else
 		if(type == "integerLiteral") {
 			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = Primitive(n->get<int>("value"));
+			Primitive value = n->get<int>("value");
 
 		//	return getValueWrapper(value, "Integer");
 			return value;
@@ -252,14 +258,13 @@ public:
 	optional<Primitive> executeNode(NodeRef node, Args... arguments) {
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		variant<optional<Primitive>, NodeValue> value;
+		optional<Primitive> value;
 
 		position = NP;
-		value = rules(node ? node->get("type") : "", node, arguments...);
+		value = any_optcast<Primitive>(rules(node ? node->get("type") : "", node, arguments...));
 		position = OP;
 
-		return holds_alternative<optional<Primitive>>(value) ?
-							 get<optional<Primitive>>(value) : nullopt;
+		return value;
 	}
 
 	/*
@@ -290,7 +295,7 @@ public:
 		position = OP;
 	}
 
-	string getValueString(optional<Primitive> primitive) {
+	string getValueString(optional<Primitive> primitive, bool explicitStrings = false) {
 		if(primitive == nullopt) {
 			return "nil";
 		}
@@ -299,7 +304,7 @@ public:
 			return *primitive;
 		}
 		if(primitive->type() == "string") {
-			return "\""+(string)(*primitive)+"\"";
+			return explicitStrings ? "'"+(string)(*primitive)+"'" : (string)(*primitive);
 		}
 
 		/*
@@ -311,14 +316,14 @@ public:
 		*/
 
 		if(primitive->type() == "dictionary") {
-			string result = "{";
+			string result = "[";
 			PrimitiveDictionary dictionary = *primitive;
 			auto it = dictionary.begin();
 
 			while(it != dictionary.end()) {
 				auto& [k, v] = *it;
 
-				result += getValueString(k)+": "+getValueString(v);
+				result += getValueString(k, true)+": "+getValueString(v, true);
 
 				if(next(it) != dictionary.end()) {
 					result += ", ";
@@ -327,7 +332,7 @@ public:
 				it++;
 			}
 
-			result += "}";
+			result += "]";
 
 			return result;
 		}
