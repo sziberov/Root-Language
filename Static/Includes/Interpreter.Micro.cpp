@@ -74,7 +74,7 @@ public:
 			type != "nilLiteral" &&
 			!n
 		) {
-			throw invalid_argument("The rule type is not in exceptions list for corresponding node to be present but null pointer is passed: "+type);
+			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
 		}
 
 		if(type == "argument") {
@@ -151,6 +151,40 @@ public:
 
 			return getValueWrapper(value, "Float");
 		} else
+		if(type == "ifStatement") {
+			if(n->empty("condition")) {
+				return nullopt;
+			}
+
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
+			bool condition,
+				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
+
+		//	addScope(namespace);
+
+			auto conditionValue = executeNode(n->get("condition"));
+
+			condition = conditionValue ? (conditionValue->type() == "boolean" ? conditionValue->get<bool>() : true) : false;
+
+			if(condition || !elseif) {
+				NodeRef branch = n->get(condition ? "then" : "else");
+
+				if(branch && branch->get("type") == "functionBody") {
+					executeNodes(branch->get("statements"));
+				} else {
+					setControlTransfer(executeNode(branch), controlTransfer().type);
+				}
+			}
+
+		//	removeScope();
+
+			if(!condition && elseif) {
+				rules("ifStatement", n->get("else"));
+			}
+
+			return controlTransfer().value;
+		} else
 		if(type == "integerLiteral") {
 			Primitive value = n->get<int>("value");
 
@@ -167,6 +201,33 @@ public:
 			removeControlTransfer();
 		} else
 		if(type == "nilLiteral") {
+		} else
+		if(type == "parenthesizedExpression") {
+			return executeNode(n->get("value"));
+		} else
+		if(type == "postfixExpression") {
+			auto value = executeNode(n->get("value"));
+
+			if(!value) {
+				return nullopt;
+			}
+
+			if(set<string> {"float", "integer"}.contains(value->type())) {
+				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
+					value.primitiveValue = value.primitiveValue*1+1;
+
+					return value-1;
+				}
+				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
+					value.primitiveValue = value.primitiveValue*1-1;
+
+					return value+1;
+				}
+			}
+
+			// TODO: Dynamic operators lookup
+
+			return value;
 		} else
 		if(type == "returnStatement") {
 			auto value = executeNode(n->get("value"));
@@ -201,9 +262,51 @@ public:
 			setControlTransfer(value, "throw");
 
 			return value;
+		} else
+		if(type == "whileStatement") {
+			if(n->empty("condition")) {
+				return nullopt;
+			}
+
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
+			bool condition;
+
+		//	addScope(namespace);
+
+			while(true) {
+			//	removeMembers(namespace);
+
+				auto conditionValue = executeNode(n->get("condition"));
+
+				condition = conditionValue ? (conditionValue->type() == "boolean" ? conditionValue->get<bool>() : true) : false;
+
+				if(!condition) {
+					break;
+				}
+
+				if(!n->empty("value") && n->get<Node&>("value").get("type") == "functionBody") {
+					executeNodes(n->get<Node&>("value").get("statements"));
+				} else {
+					setControlTransfer(executeNode(n->get("value")), controlTransfer().type);
+				}
+
+				string CTT = controlTransfer().type.value_or("");
+
+				if(set<string> {"break", "continue"}.contains(CTT)) {
+					resetControlTransfer();
+				}
+				if(set<string> {"break", "return"}.contains(CTT)) {
+					break;
+				}
+			}
+
+		//	removeScope();
+
+			return controlTransfer().value;
 		}
 
-		return nullptr;
+		return nullopt;
 	}
 
 	ControlTransfer& controlTransfer() {

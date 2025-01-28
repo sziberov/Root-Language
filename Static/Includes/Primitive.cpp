@@ -59,6 +59,7 @@ struct Dictionary {
 
 struct Primitive;
 
+using PrimitiveRef = shared_ptr<Primitive>;
 using PrimitiveDictionary = Dictionary<Primitive>;
 using PrimitiveDictionaryHasher = DictionaryHasher<Primitive>;
 
