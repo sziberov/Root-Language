@@ -9,19 +9,21 @@ using namespace std;
 
 // ----------------------------------------------------------------
 
-template <typename T, typename Hasher = hash<T>>
-struct OrderedDictionary {
+template <typename T>
+struct DictionaryHasher {
+	size_t operator()(const optional<T>& value) const;
+};
+
+template <typename T>
+struct Dictionary {
 	using Entry = pair<optional<T>, optional<T>>;
 
-	unordered_map<optional<T>, vector<size_t>, Hasher, equal_to<optional<T>>> kIndexes;	// key -> indexes
-	vector<Entry> iEntries;																// index -> entry
+	unordered_map<optional<T>, vector<size_t>, DictionaryHasher<T>, equal_to<optional<T>>> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;																				// index -> entry
 
 	void emplace(const optional<T>& key, const optional<T>& value) {
 		kIndexes[key].push_back(size());
-		iEntries.push_back({
-			key,
-			value
-		});
+		iEntries.push_back(make_pair(key, value));
 	}
 
 	optional<T> get(const T& key) const {
@@ -34,11 +36,11 @@ struct OrderedDictionary {
 		return nullopt;
 	}
 
-	bool operator==(const OrderedDictionary<T, Hasher>& dictionary) const {
+	bool operator==(const Dictionary<T>& dictionary) const {
 		return false;
 	}
 
-	bool operator!=(const OrderedDictionary<T, Hasher>& dictionary) const {
+	bool operator!=(const Dictionary<T>& dictionary) const {
 		return !(*this == dictionary);
 	}
 
@@ -57,36 +59,33 @@ struct OrderedDictionary {
 
 struct Primitive;
 
-struct PrimitiveHasher {
-	size_t operator()(const optional<Primitive>& primitive) const;
-};
-
-using PrimitiveDictionary = OrderedDictionary<Primitive, PrimitiveHasher>;
+using PrimitiveDictionary = Dictionary<Primitive>;
+using PrimitiveDictionaryHasher = DictionaryHasher<Primitive>;
 
 struct Primitive {
 	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, NodeRef>;
 
 	mutable Type value;
 
-	Primitive(bool val) : value(Type(in_place_index<0>, val)) {}
-	Primitive(const PrimitiveDictionary& val) : value(Type(in_place_index<1>, val)) {}
-	Primitive(double val) : value(Type(in_place_index<2>, val)) {}
-	Primitive(int val) : value(Type(in_place_index<3>, val)) {}
-	Primitive(int val, const string& type) {
+	Primitive(bool v) : value(Type(in_place_index<0>, v)) {}
+	Primitive(const PrimitiveDictionary& v) : value(Type(in_place_index<1>, v)) {}
+	Primitive(double v) : value(Type(in_place_index<2>, v)) {}
+	Primitive(int v) : value(Type(in_place_index<3>, v)) {}
+	Primitive(int v, const string& type) {
 		if(type == "integer") {
-			value = Type(in_place_index<3>, val);
+			value = Type(in_place_index<3>, v);
 		} else
 		if(type == "pointer") {
-			value = Type(in_place_index<4>, val);
+			value = Type(in_place_index<4>, v);
 		} else
 		if(type == "reference") {
-			value = Type(in_place_index<5>, val);
+			value = Type(in_place_index<5>, v);
 		} else {
-			throw invalid_argument("Unknown type: "+type+" for value: "+to_string(val));
+			throw invalid_argument("Unknown type: "+type+" for value: "+to_string(v));
 		}
 	}
-	Primitive(const string& val) : value(Type(in_place_index<6>, val)) {}
-	Primitive(NodeRef val) : value(Type(in_place_index<7>, val)) {}
+	Primitive(const string& v) : value(Type(in_place_index<6>, v)) {}
+	Primitive(NodeRef v) : value(Type(in_place_index<7>, v)) {}
 
 	template <typename T>
 	T& get() {
@@ -187,27 +186,25 @@ struct Primitive {
 	}
 };
 
-size_t PrimitiveHasher::operator()(const optional<Primitive>& primitive) const {
-	if(!primitive.has_value()) {
+template <>
+size_t PrimitiveDictionaryHasher::operator()(const optional<Primitive>& primitive) const {
+	if(!primitive) {
 		return 0;
 	}
 
-	return visit(
-		[](const auto& v) {
-			using T = decay_t<decltype(v)>;
+	return visit([](const auto& v) {
+		using T = decay_t<decltype(v)>;
 
-			if constexpr (is_same_v<T, PrimitiveDictionary>) {
-				size_t mapHash = 0;
+		if constexpr (is_same_v<T, PrimitiveDictionary>) {
+			size_t hash = 0;
 
-				for(const auto& entry : v) {
-					mapHash ^= PrimitiveHasher()(entry.first)^(PrimitiveHasher()(entry.second) << 1);
-				}
-
-				return mapHash;
-			} else {
-				return hash<T>()(v);
+			for(const auto& [key, value] : v) {
+				hash ^= PrimitiveDictionaryHasher()(key)^(PrimitiveDictionaryHasher()(value) << 1);
 			}
-		},
-		primitive->value
-	);
+
+			return hash;
+		} else {
+			return hash<T>()(v);
+		}
+	}, primitive->value);
 }

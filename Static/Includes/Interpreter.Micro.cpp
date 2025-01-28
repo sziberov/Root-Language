@@ -30,11 +30,14 @@ string tolower(string_view string) {
 
 template <typename T>
 optional<T> any_optcast(const any& value) {
+	if(const optional<T>* opt = any_cast<optional<T>>(&value)) {
+		return *opt;
+	} else
 	if(const T* v = any_cast<T>(&value)) {
 		return optional<T>(*v);
-	} else {
-		return nullopt;
 	}
+
+	return nullopt;
 }
 
 // ----------------------------------------------------------------
@@ -63,22 +66,28 @@ public:
 	deque<Report> reports;
 
 	template<typename... Args>
-	any rules(const string& type, Args... args) {
+	any rules(const string& type, NodeRef n = nullptr, Args... args) {
 		vector<any> arguments = {args...};
 
+		if(
+			type != "module" &&
+			type != "nilLiteral" &&
+			!n
+		) {
+			throw invalid_argument("The rule type is not in exceptions list for corresponding node to be present but null pointer is passed: "+type);
+		}
+
 		if(type == "argument") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = executeNode(n->get("value"));
 
 			if(!threw()) {
-				return Node {
-					{"label", !n->empty("label") ? n->get<Node&>("label").get("value") : NodeValue()},
-					{"value", make_any<optional<Primitive>>(value)}
-				};
+				return make_pair(
+					!n->empty("label") ? n->get<Node&>("label").get<string>("value") : "",
+					value
+				);
 			}
 		} else
 		if(type == "arrayLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			Primitive value = PrimitiveDictionary();
 
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
@@ -89,34 +98,36 @@ public:
 				}
 			}
 
-		//	return getValueWrapper(value, "Array");
-			return value;
+			return getValueWrapper(value, "Array");
 		} else
 		if(type == "booleanLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			Primitive value = n->get("value") == "true";
 
-		//	return getValueWrapper(value, "Boolean");
-			return value;
+			return getValueWrapper(value, "Boolean");
 		} else
 		if(type == "breakStatement") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Primitive(n->get<Node&>("label").get<string>("value"))) : nullopt;
+			optional<Primitive> value;
+
+			if(!n->empty("label")) {
+				value = n->get<Node&>("label").get<string>("value");
+			}
 
 			setControlTransfer(value, "break");
 
 			return value;
 		} else
 		if(type == "continueStatement") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
-			auto value = !n->empty("label") ? optional(Primitive(n->get<Node&>("label").get<string>("value"))) : nullopt;
+			optional<Primitive> value;
+
+			if(!n->empty("label")) {
+				value = n->get<Node&>("label").get<string>("value");
+			}
 
 			setControlTransfer(value, "continue");
 
 			return value;
 		} else
 		if(type == "dictionaryLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			Primitive value = PrimitiveDictionary();
 
 			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
@@ -127,30 +138,23 @@ public:
 				}
 			}
 
-		//	return getValueWrapper(value, "Dictionary");
-			return value;
+			return getValueWrapper(value, "Dictionary");
 		} else
 		if(type == "entry") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
-
 			return make_pair(
-				executeNode(n->get<NodeRef>("key")),
-				executeNode(n->get<NodeRef>("value"))
+				executeNode(n->get("key")),
+				executeNode(n->get("value"))
 			);
 		} else
 		if(type == "floatLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			Primitive value = n->get<double>("value");
 
-		//	return getValueWrapper(value, "Float");
-			return value;
+			return getValueWrapper(value, "Float");
 		} else
 		if(type == "integerLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			Primitive value = n->get<int>("value");
 
-		//	return getValueWrapper(value, "Integer");
-			return value;
+			return getValueWrapper(value, "Integer");
 		} else
 		if(type == "module") {
 			addControlTransfer();
@@ -165,7 +169,6 @@ public:
 		if(type == "nilLiteral") {
 		} else
 		if(type == "returnStatement") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = executeNode(n->get("value"));
 
 			if(threw()) {
@@ -178,7 +181,6 @@ public:
 			return value;
 		} else
 		if(type == "stringLiteral") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			::string string = "";
 
 			for(const NodeRef& segment : n->get<NodeArray&>("segments")) {
@@ -191,11 +193,9 @@ public:
 
 			auto value = Primitive(string);
 
-		//	return getValueWrapper(value, "String");
-			return value;
+			return getValueWrapper(value, "String");
 		} else
 		if(type == "throwStatement") {
-			NodeRef n = any_cast<NodeRef>(arguments[0]);
 			auto value = executeNode(n->get("value"));
 
 			setControlTransfer(value, "throw");
@@ -256,12 +256,16 @@ public:
 
 	template<typename... Args>
 	optional<Primitive> executeNode(NodeRef node, Args... arguments) {
+		if(!node) {
+			return nullopt;
+		}
+
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
 		optional<Primitive> value;
 
 		position = NP;
-		value = any_optcast<Primitive>(rules(node ? node->get("type") : "", node, arguments...));
+		value = any_optcast<Primitive>(rules(node->get("type"), node, arguments...));
 		position = OP;
 
 		return value;
@@ -338,6 +342,15 @@ public:
 		}
 
 		return "";
+	}
+
+	/*
+	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
+	 */
+	Primitive getValueWrapper(const Primitive& value, string identifier) {
+		// TODO
+
+		return value;
 	}
 
 	void report(int level, NodeRef node, const string& string) {
