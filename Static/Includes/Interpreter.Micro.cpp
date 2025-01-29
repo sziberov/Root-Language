@@ -40,6 +40,18 @@ optional<T> any_optcast(const any& value) {
 	return nullopt;
 }
 
+template <typename T>
+shared_ptr<T> any_refcast(const any& value) {
+	if(const shared_ptr<T>* ref = any_cast<shared_ptr<T>>(&value)) {
+		return *ref;
+	} else
+	if(const T* v = any_cast<T>(&value)) {
+		return make_shared<T>(*v);
+	}
+
+	return nullptr;
+}
+
 // ----------------------------------------------------------------
 
 class Interpreter {
@@ -47,7 +59,7 @@ public:
 	Interpreter() {};
 
 	struct ControlTransfer {
-		optional<Primitive> value;
+		PrimitiveRef value;
 		optional<string> type;
 	};
 
@@ -93,8 +105,8 @@ public:
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
 				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
-				if(value_ != nullopt) {
-					value.get<PrimitiveDictionary>().emplace(i, *value_);
+				if(value_) {
+					value.get<PrimitiveDictionary>().emplace(make_shared(Primitive(i)), value_);
 				}
 			}
 
@@ -106,10 +118,10 @@ public:
 			return getValueWrapper(value, "Boolean");
 		} else
 		if(type == "breakStatement") {
-			optional<Primitive> value;
+			PrimitiveRef value;
 
 			if(!n->empty("label")) {
-				value = n->get<Node&>("label").get<string>("value");
+				value = make_shared(Primitive(n->get<Node&>("label").get<string>("value")));
 			}
 
 			setControlTransfer(value, "break");
@@ -117,10 +129,10 @@ public:
 			return value;
 		} else
 		if(type == "continueStatement") {
-			optional<Primitive> value;
+			PrimitiveRef value;
 
 			if(!n->empty("label")) {
-				value = n->get<Node&>("label").get<string>("value");
+				value = make_shared(Primitive(n->get<Node&>("label").get<string>("value")));
 			}
 
 			setControlTransfer(value, "continue");
@@ -133,7 +145,7 @@ public:
 			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
 				auto entry_ = any_optcast<PrimitiveDictionary::Entry>(rules("entry", entry));
 
-				if(entry_ != nullopt) {
+				if(entry_) {
 					value.get<PrimitiveDictionary>().emplace(entry_->first, entry_->second);
 				}
 			}
@@ -153,7 +165,7 @@ public:
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
-				return nullopt;
+				return nullptr;
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
@@ -209,19 +221,57 @@ public:
 			auto value = executeNode(n->get("value"));
 
 			if(!value) {
-				return nullopt;
+				return nullptr;
 			}
 
 			if(set<string> {"float", "integer"}.contains(value->type())) {
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-					value.primitiveValue = value.primitiveValue*1+1;
+					cout << getValueString(value) << endl;
+					*value = *value*1+1;
+					cout << getValueString(value) << endl;
 
-					return value-1;
+					return make_shared(Primitive(*value-1));
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-					value.primitiveValue = value.primitiveValue*1-1;
+					cout << getValueString(value) << endl;
+					*value = *value*1-1;
+					cout << getValueString(value) << endl;
 
-					return value+1;
+					return make_shared(Primitive(*value+1));
+				}
+			}
+
+			// TODO: Dynamic operators lookup
+
+			return value;
+		} else
+		if(type == "prefixExpression") {
+			auto value = executeNode(n->get("value"));
+
+			if(!value) {
+				return nullptr;
+			}
+
+			if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!" && value->type() == "boolean") {
+				return make_shared(!(*value));
+			}
+			if(set<string> {"float", "integer"}.contains(value->type())) {
+				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
+					return make_shared(-(*value));
+				}
+				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
+					cout << getValueString(value) << endl;
+					*value = *value*1+1;
+					cout << getValueString(value) << endl;
+
+					return make_shared(*value);
+				}
+				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
+					cout << getValueString(value) << endl;
+					*value = *value*1-1;
+					cout << getValueString(value) << endl;
+
+					return make_shared(*value);
 				}
 			}
 
@@ -265,7 +315,7 @@ public:
 		} else
 		if(type == "whileStatement") {
 			if(n->empty("condition")) {
-				return nullopt;
+				return nullptr;
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
@@ -306,7 +356,7 @@ public:
 			return controlTransfer().value;
 		}
 
-		return nullopt;
+		return nullptr;
 	}
 
 	ControlTransfer& controlTransfer() {
@@ -339,7 +389,7 @@ public:
 	 *
 	 * Specifying a type means explicit control transfer.
 	 */
-	void setControlTransfer(optional<Primitive> value = nullopt, optional<string> type = nullopt) {
+	void setControlTransfer(PrimitiveRef value = nullptr, optional<string> type = nullopt) {
 		ControlTransfer& CT = controlTransfer();
 
 		CT.value = value;
@@ -351,24 +401,24 @@ public:
 	void resetControlTransfer() {
 		ControlTransfer& CT = controlTransfer();
 
-		CT.value = nullopt;
+		CT.value = nullptr;
 		CT.type = nullopt;
 
 	//	print("ctr");
 	}
 
 	template<typename... Args>
-	optional<Primitive> executeNode(NodeRef node, Args... arguments) {
+	PrimitiveRef executeNode(NodeRef node, Args... arguments) {
 		if(!node) {
-			return nullopt;
+			return nullptr;
 		}
 
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		optional<Primitive> value;
+		PrimitiveRef value;
 
 		position = NP;
-		value = any_optcast<Primitive>(rules(node->get("type"), node, arguments...));
+		value = any_refcast<Primitive>(rules(node->get("type"), node, arguments...));
 		position = OP;
 
 		return value;
@@ -386,15 +436,15 @@ public:
 
 		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
 			int NP = node->get<Node&>("range").get("start");  // New position
-			optional<Primitive> value = executeNode(node);
+			PrimitiveRef value = executeNode(node);
 
-			if(node == nodes->back().get<NodeRef>() && controlTransfer().type == nullopt) {  // Implicit control transfer
+			if(node == nodes->back().get<NodeRef>() && !controlTransfer().type) {  // Implicit control transfer
 				setControlTransfer(value);
 			}
 
 			position = NP;  // Consider deinitializers
 
-			if(controlTransfer().type != nullopt) {  // Explicit control transfer is done
+			if(controlTransfer().type) {  // Explicit control transfer is done
 				break;
 			}
 		}
@@ -402,8 +452,8 @@ public:
 		position = OP;
 	}
 
-	string getValueString(optional<Primitive> primitive, bool explicitStrings = false) {
-		if(primitive == nullopt) {
+	string getValueString(PrimitiveRef primitive, bool explicitStrings = false) {
+		if(!primitive) {
 			return "nil";
 		}
 

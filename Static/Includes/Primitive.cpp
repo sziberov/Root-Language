@@ -9,24 +9,26 @@ using namespace std;
 
 // ----------------------------------------------------------------
 
+/*
 template <typename T>
 struct DictionaryHasher {
-	size_t operator()(const optional<T>& value) const;
+	size_t operator()(const shared_ptr<T>& value) const;
 };
+*/
 
 template <typename T>
 struct Dictionary {
-	using Entry = pair<optional<T>, optional<T>>;
+	using Entry = pair<shared_ptr<T>, shared_ptr<T>>;
 
-	unordered_map<optional<T>, vector<size_t>, DictionaryHasher<T>, equal_to<optional<T>>> kIndexes;	// key -> indexes
-	vector<Entry> iEntries;																				// index -> entry
+	unordered_map<shared_ptr<T>, vector<size_t>/*, DictionaryHasher<T>, equal_to<shared_ptr<T>>*/> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;																						// index -> entry
 
-	void emplace(const optional<T>& key, const optional<T>& value) {
+	void emplace(const shared_ptr<T>& key, const shared_ptr<T>& value) {
 		kIndexes[key].push_back(size());
 		iEntries.push_back(make_pair(key, value));
 	}
 
-	optional<T> get(const T& key) const {
+	shared_ptr<T> get(const T& key) const {
 		auto it = kIndexes.find(key);
 
 		if(it != kIndexes.end() && !it->second.empty()) {
@@ -61,7 +63,7 @@ struct Primitive;
 
 using PrimitiveRef = shared_ptr<Primitive>;
 using PrimitiveDictionary = Dictionary<Primitive>;
-using PrimitiveDictionaryHasher = DictionaryHasher<Primitive>;
+//using PrimitiveDictionaryHasher = DictionaryHasher<Primitive>;
 
 struct Primitive {
 	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, NodeRef>;
@@ -159,15 +161,89 @@ struct Primitive {
 		}
 	}
 
+	Primitive& operator=(const Primitive& v) {
+		value = v.value;
+
+		return *this;
+	}
+
+	Primitive operator+(double v) const {
+		switch(value.index()) {
+			case 0:		return get<bool>()+v;
+			case 2:		return get<double>()+v;
+			case 3:		return get<3>()+v;
+			case 6:		return get<string>()+to_string(v);
+			default:	throw invalid_argument("Invalid operand");
+		}
+	}
+
+	Primitive operator-(double v) const {
+		return *this+(-v);
+	}
+
+	Primitive operator+(int v) const {
+		switch(value.index()) {
+			case 0:		return get<bool>()+v;
+			case 2:		return get<double>()+v;
+			case 3:		return get<3>()+v;
+			case 6:		return get<string>()+to_string(v);
+			default:	throw invalid_argument("Invalid operand");
+		}
+	}
+
+	Primitive operator-(int v) const {
+		return *this+(-v);
+	}
+
+	Primitive operator-() const {
+		switch(value.index()) {
+			case 0:		return -get<bool>();
+			case 2:		return -get<double>();
+			case 3:		return -get<3>();
+			case 6:		return -stoi(get<string>());
+			default:	throw invalid_argument("Invalid operand");
+		}
+    }
+
+	Primitive operator*(double v) const {
+		switch(value.index()) {
+			case 0:		return get<bool>()*v;
+			case 2:		return get<double>()*v;
+			case 3:		return get<3>()*v;
+			case 6:		return stod(get<string>())*v;
+			default:	throw invalid_argument("Invalid operand");
+		}
+	}
+
+	Primitive operator*(int v) const {
+		switch(value.index()) {
+			case 0:		return get<bool>()*v;
+			case 2:		return get<double>()*v;
+			case 3:		return get<3>()*v;
+			case 6:		return stoi(get<string>())*v;
+			default:	throw invalid_argument("Invalid operand");
+		}
+	}
+
+	Primitive operator!() const {
+		switch(value.index()) {
+			case 0:		return !get<bool>();
+			case 2:		return !get<double>();
+			case 3:		return !get<3>();
+			case 6:		return !stoi(get<string>());
+			default:	throw invalid_argument("Invalid operand");
+		}
+    }
+
 	bool operator==(const Primitive& v) const {
 		switch(value.index()) {
-			case 0:     return (bool)(*this) == (bool)v;
-			case 1:		return (PrimitiveDictionary)(*this) == (PrimitiveDictionary)v;
-			case 2:		return (double)(*this) == (double)v;
-			case 3:
-			case 4:
-			case 5:		return (int)(*this) == (int)v;
-			case 6:		return (string)(*this) == (string)v;
+			case 0:     return get<bool>() == (bool)v;
+			case 1:		return get<PrimitiveDictionary>() == (PrimitiveDictionary)v;
+			case 2:		return get<double>() == (double)v;
+			case 3:		return get<3>() == (int)v;
+			case 4:		return get<4>() == (int)v;
+			case 5:		return get<5>() == (int)v;
+			case 6:		return get<string>() == (string)v;
 			default:	return false;
 		}
 	}
@@ -187,8 +263,9 @@ struct Primitive {
 	}
 };
 
+/*
 template <>
-size_t PrimitiveDictionaryHasher::operator()(const optional<Primitive>& primitive) const {
+size_t PrimitiveDictionaryHasher::operator()(const PrimitiveRef& primitive) const {
 	if(!primitive) {
 		return 0;
 	}
@@ -209,3 +286,4 @@ size_t PrimitiveDictionaryHasher::operator()(const optional<Primitive>& primitiv
 		}
 	}, primitive->value);
 }
+*/
