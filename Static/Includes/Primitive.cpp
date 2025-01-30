@@ -9,40 +9,36 @@ using namespace std;
 
 // ----------------------------------------------------------------
 
-/*
-template <typename T>
-struct DictionaryHasher {
-	size_t operator()(const shared_ptr<T>& value) const;
-};
-*/
+struct Primitive;
 
-template <typename T>
-struct Dictionary {
-	using Entry = pair<shared_ptr<T>, shared_ptr<T>>;
+using PrimitiveRef = shared_ptr<Primitive>;
 
-	unordered_map<shared_ptr<T>, vector<size_t>/*, DictionaryHasher<T>, equal_to<shared_ptr<T>>*/> kIndexes;	// key -> indexes
-	vector<Entry> iEntries;																						// index -> entry
+struct PrimitiveDictionary {
+	using Entry = pair<PrimitiveRef, PrimitiveRef>;
 
-	void emplace(const shared_ptr<T>& key, const shared_ptr<T>& value) {
+	unordered_map<PrimitiveRef, vector<size_t>> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;									// index -> entry
+
+	void emplace(const PrimitiveRef& key, const PrimitiveRef& value) {
 		kIndexes[key].push_back(size());
 		iEntries.push_back(make_pair(key, value));
 	}
 
-	shared_ptr<T> get(const T& key) const {
+	PrimitiveRef get(const PrimitiveRef& key) const {
 		auto it = kIndexes.find(key);
 
 		if(it != kIndexes.end() && !it->second.empty()) {
 			return iEntries[it->second.back()].second;
 		}
 
-		return nullopt;
+		return nullptr;
 	}
 
-	bool operator==(const Dictionary<T>& dictionary) const {
+	bool operator==(const PrimitiveDictionary& dictionary) const {
 		return false;
 	}
 
-	bool operator!=(const Dictionary<T>& dictionary) const {
+	bool operator!=(const PrimitiveDictionary& dictionary) const {
 		return !(*this == dictionary);
 	}
 
@@ -59,14 +55,8 @@ struct Dictionary {
 	}
 };
 
-struct Primitive;
-
-using PrimitiveRef = shared_ptr<Primitive>;
-using PrimitiveDictionary = Dictionary<Primitive>;
-//using PrimitiveDictionaryHasher = DictionaryHasher<Primitive>;
-
 struct Primitive {
-	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, NodeRef>;
+	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, Node>;
 
 	mutable Type value;
 
@@ -88,7 +78,7 @@ struct Primitive {
 		}
 	}
 	Primitive(const string& v) : value(Type(in_place_index<6>, v)) {}
-	Primitive(NodeRef v) : value(Type(in_place_index<7>, v)) {}
+	Primitive(const Node& v) : value(Type(in_place_index<7>, v)) {}
 
 	template <typename T>
 	T& get() {
@@ -149,14 +139,14 @@ struct Primitive {
 			case 4:		return to_string(get<4>());
 			case 5:		return to_string(get<5>());
 			case 6:		return get<string>();
-			case 7:		return get<NodeRef>() ? to_string(*get<NodeRef>()) : string();
+			case 7:		return to_string(get<Node>());
 			default:	return string();
 		}
 	}
 
-	operator NodeRef() const {
+	operator Node&() const {
 		switch(value.index()) {
-			case 7:		return get<NodeRef>();
+			case 7:		return ::get<Node>(value);
 			default:	throw bad_variant_access();
 		}
 	}
@@ -262,28 +252,3 @@ struct Primitive {
 		}
 	}
 };
-
-/*
-template <>
-size_t PrimitiveDictionaryHasher::operator()(const PrimitiveRef& primitive) const {
-	if(!primitive) {
-		return 0;
-	}
-
-	return visit([](const auto& v) {
-		using T = decay_t<decltype(v)>;
-
-		if constexpr (is_same_v<T, PrimitiveDictionary>) {
-			size_t hash = 0;
-
-			for(const auto& [key, value] : v) {
-				hash ^= PrimitiveDictionaryHasher()(key)^(PrimitiveDictionaryHasher()(value) << 1);
-			}
-
-			return hash;
-		} else {
-			return hash<T>()(v);
-		}
-	}, primitive->value);
-}
-*/

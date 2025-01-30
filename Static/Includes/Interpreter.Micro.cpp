@@ -106,7 +106,7 @@ public:
 				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_) {
-					value.get<PrimitiveDictionary>().emplace(make_shared(Primitive(i)), value_);
+					value.get<PrimitiveDictionary>().emplace(Ref<Primitive>(i), value_);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -121,7 +121,7 @@ public:
 			PrimitiveRef value;
 
 			if(!n->empty("label")) {
-				value = make_shared(Primitive(n->get<Node&>("label").get<string>("value")));
+				value = Ref<Primitive>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "break");
@@ -132,7 +132,7 @@ public:
 			PrimitiveRef value;
 
 			if(!n->empty("label")) {
-				value = make_shared(Primitive(n->get<Node&>("label").get<string>("value")));
+				value = Ref<Primitive>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "continue");
@@ -146,7 +146,7 @@ public:
 				auto entry_ = any_optcast<PrimitiveDictionary::Entry>(rules("entry", entry));
 
 				if(entry_) {
-					value.get<PrimitiveDictionary>().emplace(entry_->first, entry_->second);
+					value.get<PrimitiveDictionary>().emplace(entry_->first, entry_->second);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -230,18 +230,18 @@ public:
 					*value = *value*1+1;
 					cout << getValueString(value) << endl;
 
-					return make_shared(Primitive(*value-1));
+					return Ref(*value-1);
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
 					cout << getValueString(value) << endl;
 					*value = *value*1-1;
 					cout << getValueString(value) << endl;
 
-					return make_shared(Primitive(*value+1));
+					return Ref(*value+1);
 				}
 			}
 
-			// TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
 
 			return value;
 		} else
@@ -253,29 +253,29 @@ public:
 			}
 
 			if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!" && value->type() == "boolean") {
-				return make_shared(!(*value));
+				return Ref(!(*value));
 			}
 			if(set<string> {"float", "integer"}.contains(value->type())) {
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
-					return make_shared(-(*value));
+					return Ref(-(*value));
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
 					cout << getValueString(value) << endl;
 					*value = *value*1+1;
 					cout << getValueString(value) << endl;
 
-					return make_shared(*value);
+					return Ref(*value);
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
 					cout << getValueString(value) << endl;
 					*value = *value*1-1;
 					cout << getValueString(value) << endl;
 
-					return make_shared(*value);
+					return Ref(*value);
 				}
 			}
 
-			// TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
 
 			return value;
 		} else

@@ -12,8 +12,13 @@ bool contains(const Container& container, const T& value) {
 }
 
 template<typename T>
-shared_ptr<decay_t<T>> make_shared(T&& value) {
+shared_ptr<decay_t<T>> Ref(T&& value) {
 	return std::make_shared<decay_t<T>>(forward<T>(value));
+}
+
+template <typename T, typename... Args>
+shared_ptr<T> Ref(Args&&... args) {
+	return std::make_shared<T>(forward<Args>(args)...);
 }
 
 // ----------------------------------------------------------------
@@ -3036,7 +3041,7 @@ public:
 			return node;
 		}
 
-		node = make_shared(Node {
+		node = Ref<Node>({
 			{"type", "unsupported"},
 			{"range", {
 				{"start", position},
@@ -3108,7 +3113,7 @@ public:
 
 				if(node != nullptr) {
 					if(node->get("type") != "separator") {
-						node = make_shared(Node {
+						node = Ref<Node>({
 							{"type", "separator"},
 							{"range", {
 								{"start", position},
@@ -3132,7 +3137,7 @@ public:
 			node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
 
 			if(node == nullptr || node->get("type") != "unsupported") {
-				node = make_shared(Node {
+				node = Ref<Node>({
 					{"type", "unsupported"},
 					{"range", {
 						{"start", position},
