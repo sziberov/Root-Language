@@ -47,8 +47,8 @@ using NodeRef = shared_ptr<Node>;
 using NodeArray = vector<NodeValue>;
 using NodeArrayRef = shared_ptr<NodeArray>;
 
-string to_string(const Node& node);
-string to_string(const NodeArray& node);
+static string to_string(const Node& node);
+static string to_string(const NodeArray& node);
 
 class NodeValue {
 private:
@@ -310,7 +310,7 @@ public:
 	}
 };
 
-string to_string(const NodeValue& value) {
+static string to_string(const NodeValue& value) {
 	if(value.type() == 4) {
 		return "\""+(string)value+"\"";
 	}
@@ -318,7 +318,7 @@ string to_string(const NodeValue& value) {
 	return value;
 }
 
-string to_string(const Node& node) {
+static string to_string(const Node& node) {
 	string result = "{";
 	auto it = node.begin();
 
@@ -342,7 +342,7 @@ string to_string(const Node& node) {
 	return result;
 }
 
-string to_string(const NodeArray& node) {
+static string to_string(const NodeArray& node) {
 	string result = "[";
 	auto it = node.begin();
 

@@ -20,7 +20,7 @@ int find_index(Container container, Predicate predicate) {
 	return it != container.end() ? it-container.begin() : -1;
 }
 
-string tolower(string_view string) {
+static string tolower(string_view string) {
 	auto result = ::string(string);
 
 	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
@@ -30,8 +30,8 @@ string tolower(string_view string) {
 
 template <typename T>
 optional<T> any_optcast(const any& value) {
-	if(const optional<T>* opt = any_cast<optional<T>>(&value)) {
-		return *opt;
+	if(const optional<T>* v = any_cast<optional<T>>(&value)) {
+		return *v;
 	} else
 	if(const T* v = any_cast<T>(&value)) {
 		return optional<T>(*v);
@@ -42,8 +42,8 @@ optional<T> any_optcast(const any& value) {
 
 template <typename T>
 shared_ptr<T> any_refcast(const any& value) {
-	if(const shared_ptr<T>* ref = any_cast<shared_ptr<T>>(&value)) {
-		return *ref;
+	if(const shared_ptr<T>* v = any_cast<shared_ptr<T>>(&value)) {
+		return *v;
 	} else
 	if(const T* v = any_cast<T>(&value)) {
 		return make_shared<T>(*v);
@@ -57,6 +57,12 @@ shared_ptr<T> any_refcast(const any& value) {
 class Interpreter {
 public:
 	Interpreter() {};
+
+	struct Composite {
+		string title;
+	};
+
+	using CompositeRef = shared_ptr<Composite>;
 
 	struct ControlTransfer {
 		PrimitiveRef value;
@@ -73,6 +79,8 @@ public:
 	deque<Token> tokens;
 	NodeRef tree;
 	int position;
+	deque<CompositeRef> composites;
+	deque<CompositeRef> scopes;
 	deque<ControlTransfer> controlTransfers;
 	Preferences preferences;
 	deque<Report> reports;
@@ -169,11 +177,13 @@ public:
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
 		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
+			CompositeRef namespace_ = Ref<Composite>();
 			bool condition,
 				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
 
-		//	addScope(namespace);
+			addScope(namespace_);
 
 			auto conditionValue = executeNode(n->get("condition"));
 
@@ -189,7 +199,7 @@ public:
 				}
 			}
 
-		//	removeScope();
+			removeScope();
 
 			if(!condition && elseif) {
 				rules("ifStatement", n->get("else"));
@@ -204,12 +214,15 @@ public:
 		} else
 		if(type == "module") {
 			addControlTransfer();
-			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr);
+			addScope(getComposite(0) ?: createNamespace("Global"));
+		//	addDefaultMembers(scope());
+			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr/*, (t) => t !== 'throw' ? 0 : -1*/);
 
 			if(threw()) {
 				report(2, nullptr, getValueString(controlTransfer().value));
 			}
 
+			removeScope();
 			removeControlTransfer();
 		} else
 		if(type == "nilLiteral") {
@@ -226,16 +239,12 @@ public:
 
 			if(set<string> {"float", "integer"}.contains(value->type())) {
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-					cout << getValueString(value) << endl;
 					*value = *value*1+1;
-					cout << getValueString(value) << endl;
 
 					return Ref(*value-1);
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-					cout << getValueString(value) << endl;
 					*value = *value*1-1;
-					cout << getValueString(value) << endl;
 
 					return Ref(*value+1);
 				}
@@ -260,16 +269,12 @@ public:
 					return Ref(-(*value));
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-					cout << getValueString(value) << endl;
 					*value = *value*1+1;
-					cout << getValueString(value) << endl;
 
 					return Ref(*value);
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-					cout << getValueString(value) << endl;
 					*value = *value*1-1;
-					cout << getValueString(value) << endl;
 
 					return Ref(*value);
 				}
@@ -302,7 +307,7 @@ public:
 				}
 			}
 
-			auto value = Primitive(string);
+			Primitive value = string;
 
 			return getValueWrapper(value, "String");
 		} else
@@ -319,10 +324,12 @@ public:
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
 		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
+			CompositeRef namespace_ = Ref<Composite>();
 			bool condition;
 
-		//	addScope(namespace);
+			addScope(namespace_);
 
 			while(true) {
 			//	removeMembers(namespace);
@@ -351,12 +358,77 @@ public:
 				}
 			}
 
-		//	removeScope();
+			removeScope();
 
 			return controlTransfer().value;
 		}
 
 		return nullptr;
+	}
+
+	CompositeRef getComposite(int ID) {
+		return ID < composites.size() ? composites[ID] : nullptr;
+	}
+
+	CompositeRef createComposite(const string& title) {
+		auto composite = Ref<Composite>(title);
+
+		composites.push_back(composite);
+
+		return composite;
+	}
+
+	/*
+	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
+	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
+	 */
+	CompositeRef createNamespace(const string& title/*, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr*/) {
+		CompositeRef namespace_ = createComposite(title/*, make_shared(NodeArray {{ "predefined", "Namespace" }}), scope*/);
+
+		/*if(levels != nullopt && *levels != nullptr) {
+			setInheritedLevelIDs(namespace_, *levels);
+		} else
+		if(levels == nullopt) {
+			setMissedLevelIDs(namespace_);
+		} else {
+			setSelfID(namespace_, namespace_);
+		}*/
+
+		return namespace_;
+	}
+
+	CompositeRef scope() {
+		return getScope();
+	}
+
+	CompositeRef getScope(int offset = 0) {
+		return scopes.size() > scopes.size()-1+offset
+			 ? scopes[scopes.size()-1+offset]
+			 : nullptr;
+	}
+
+	/*
+	 * Should be used for a bodies before executing its contents,
+	 * as ARC utilizes a current scope at the moment.
+	 */
+	void addScope(CompositeRef composite) {
+		scopes.push_back(composite);
+	//	print("crs: "+composite.title+", "+getOwnID(composite));
+	}
+
+	/*
+	 * Removes from the stack and optionally automatically destroys a last scope.
+	 */
+	void removeScope(bool destroy = true) {
+	//	print("dss: "+scope.title+", "+getOwnID(scope));
+		CompositeRef composite = scopes.back();
+
+		scopes.pop_back();
+
+		if(destroy) {
+		//	destroyReleasedComposite(composite);
+		}
+	//	print("des: "+composite.title+", "+getOwnID(composite));
 	}
 
 	ControlTransfer& controlTransfer() {
