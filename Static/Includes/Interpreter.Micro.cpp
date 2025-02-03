@@ -60,6 +60,7 @@ public:
 
 	struct Composite {
 		string title;
+		Node IDs;
 	};
 
 	using CompositeRef = shared_ptr<Composite>;
@@ -178,16 +179,13 @@ public:
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
-		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
-			CompositeRef namespace_ = Ref<Composite>();
-			bool condition,
-				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
+			CompositeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
 
 			addScope(namespace_);
 
 			auto conditionValue = executeNode(n->get("condition"));
-
-			condition = conditionValue ? (conditionValue->type() == "boolean" ? conditionValue->get<bool>() : true) : false;
+			bool condition = conditionValue && (conditionValue->type() != "boolean" || conditionValue->get<bool>()),
+				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
 
 			if(condition || !elseif) {
 				NodeRef branch = n->get(condition ? "then" : "else");
@@ -262,11 +260,11 @@ public:
 			}
 
 			if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!" && value->type() == "boolean") {
-				return Ref(!(*value));
+				return Ref(!*value);
 			}
 			if(set<string> {"float", "integer"}.contains(value->type())) {
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
-					return Ref(-(*value));
+					return Ref(-*value);
 				}
 				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
 					*value = *value*1+1;
@@ -325,9 +323,7 @@ public:
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
-		//	let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
-			CompositeRef namespace_ = Ref<Composite>();
-			bool condition;
+			CompositeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
 
 			addScope(namespace_);
 
@@ -335,8 +331,7 @@ public:
 			//	removeMembers(namespace);
 
 				auto conditionValue = executeNode(n->get("condition"));
-
-				condition = conditionValue ? (conditionValue->type() == "boolean" ? conditionValue->get<bool>() : true) : false;
+				bool condition = conditionValue && (conditionValue->type() != "boolean" || conditionValue->get<bool>());
 
 				if(!condition) {
 					break;
@@ -366,33 +361,180 @@ public:
 		return nullptr;
 	}
 
-	CompositeRef getComposite(int ID) {
-		return ID < composites.size() ? composites[ID] : nullptr;
+	CompositeRef getComposite(NodeValue ID) {
+		return ID.type() == 2 && (int)ID < composites.size() ? composites[(int)ID] : nullptr;
 	}
 
-	CompositeRef createComposite(const string& title) {
-		auto composite = Ref<Composite>(title);
+	CompositeRef createComposite(const string& title, CompositeRef scope = nullptr) {
+		cout << "createComposite("+title+")" << endl;
+		auto composite = Ref<Composite>(
+			title,
+			Node {
+				{"own", (int)composites.size()},
+				{"scope", nullptr},
+				{"retainers", NodeArray {}}
+			}
+		);
 
 		composites.push_back(composite);
 
+		if(scope) {
+			setScopeID(composite, scope);
+		}
+
 		return composite;
+	}
+
+	void destroyComposite(CompositeRef composite) {
+		cout << "destroyComposite("+getTitle(composite)+")" << endl;
+	//	composites[ID] = nullptr;
+	}
+
+	void destroyReleasedComposite(CompositeRef composite) {
+		if(composite && !compositeRetained(composite)) {
+			destroyComposite(composite);
+		}
+	}
+
+	void retainComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
+			return;
+		}
+
+		NodeArrayRef retainersIDs = getRetainersIDs(retainedComposite);
+		int retainingID = getOwnID(retainingComposite);
+
+		if(!contains(*retainersIDs, retainingID)) {
+			retainersIDs->push_back(retainingID);
+		}
+	}
+
+	void releaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
+			return;
+		}
+
+		NodeArrayRef retainersIDs = getRetainersIDs(retainedComposite);
+		int retainingID = getOwnID(retainingComposite);
+
+		if(contains(*retainersIDs, retainingID)) {
+			erase(*retainersIDs, retainingID);
+
+			destroyReleasedComposite(retainedComposite);
+		}
+	}
+
+	/*
+	 * Automatically retains or releases composite.
+	 *
+	 * Use of this function is highly recommended when real retainment state is unknown
+	 * at the moment, otherwise basic functions can be used in favour of performance.
+	 */
+	void retainOrReleaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
+			return;
+		}
+
+		if(compositeRetains(retainingComposite, retainedComposite)) {
+			retainComposite(retainingComposite, retainedComposite);
+		} else {
+			releaseComposite(retainingComposite, retainedComposite);
+		}
+	}
+
+	/*
+	 * Returns a real state of direct retainment.
+	 *
+	 * Composite considered really retained if it is used by an at least one of
+	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
+	 */
+	bool compositeRetains(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		return true;
+		/*
+		if(retainingComposite && retainingComposite->life < 2) return (
+			IDsRetain(retainingComposite, retainedComposite) ||
+			typeRetains(retainingComposite->type, retainedComposite) ||
+			importsRetain(retainingComposite, retainedComposite) ||
+			membersRetain(retainingComposite, retainedComposite) ||
+			observersRetain(retainingComposite->observers, retainedComposite)
+		);
+		*/
+	}
+
+	/*
+	 * Returns a formal state of direct or indirect retainment.
+	 *
+	 * Composite considered formally retained if it or at least one of
+	 * its retainers list members (recursively) can be as recognized as the retainer.
+	 *
+	 * retainersIDs is used to exclude a retain cycles and redundant passes
+	 * from the lookup and meant to be set internally only.
+	 */
+	bool compositeRetainsDistant(CompositeRef retainingComposite, CompositeRef retainedComposite, shared_ptr<vector<int>> retainersIDs = Ref<vector<int>>()) {
+		/*
+		if(Array.isArray(retainingComposite)) {
+			for(const CompositeRef& retainingComposite_ : retainingComposite) {
+				if(compositeRetainsDistant(retainingComposite_, retainedComposite)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+		*/
+
+		if(retainedComposite == nullptr || retainingComposite == nullptr) {
+			return false;
+		}
+		if(retainedComposite == retainingComposite) {
+			return true;
+		}
+
+		for(int retainerID : *getRetainersIDs(retainedComposite)) {
+			if(contains(*retainersIDs, retainerID)) {
+				continue;
+			}
+
+			retainersIDs->push_back(retainerID);
+
+			if(compositeRetainsDistant(retainingComposite, getComposite(retainerID), retainersIDs)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/*
+	 * Returns a significant state of general retainment.
+	 *
+	 * Composite considered significantly retained if it is formally retained by
+	 * the global namespace, a current scope composite or a current control trasfer value.
+	 */
+	bool compositeRetained(CompositeRef composite) {
+		return (
+			compositeRetainsDistant(getComposite(0), composite) ||
+			compositeRetainsDistant(scope(), composite) ||
+		//	compositeRetainsDistant(scopes, composite) ||  // May be useful when "with" syntax construct will be added
+			compositeRetainsDistant(getValueComposite(controlTransfer().value), composite)
+		);
 	}
 
 	/*
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
 	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
-	CompositeRef createNamespace(const string& title/*, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr*/) {
-		CompositeRef namespace_ = createComposite(title/*, make_shared(NodeArray {{ "predefined", "Namespace" }}), scope*/);
+	CompositeRef createNamespace(const string& title, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr) {
+		CompositeRef namespace_ = createComposite(title/*, make_shared(NodeArray {{ "predefined", "Namespace" }})*/, scope);
 
-		/*if(levels != nullopt && *levels != nullptr) {
+		if(levels && *levels) {
 			setInheritedLevelIDs(namespace_, *levels);
 		} else
-		if(levels == nullopt) {
+		if(!levels) {
 			setMissedLevelIDs(namespace_);
 		} else {
 			setSelfID(namespace_, namespace_);
-		}*/
+		}
 
 		return namespace_;
 	}
@@ -413,22 +555,19 @@ public:
 	 */
 	void addScope(CompositeRef composite) {
 		scopes.push_back(composite);
-	//	print("crs: "+composite.title+", "+getOwnID(composite));
 	}
 
 	/*
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	void removeScope(bool destroy = true) {
-	//	print("dss: "+scope.title+", "+getOwnID(scope));
 		CompositeRef composite = scopes.back();
 
 		scopes.pop_back();
 
 		if(destroy) {
-		//	destroyReleasedComposite(composite);
+			destroyReleasedComposite(composite);
 		}
-	//	print("des: "+composite.title+", "+getOwnID(composite));
 	}
 
 	ControlTransfer& controlTransfer() {
@@ -445,14 +584,10 @@ public:
 
 	void addControlTransfer() {
 		controlTransfers.push_back(ControlTransfer());
-
-	//	print("act");
 	}
 
 	void removeControlTransfer() {
 		controlTransfers.pop_back();
-
-	//	print("rct: "/*+JSON.stringify(controlTransfer?.value)+", "+JSON.stringify(controlTransfer?.type)*/);
 	}
 
 	/*
@@ -466,8 +601,6 @@ public:
 
 		CT.value = value;
 		CT.type = type;
-
-	//	print("cts: "/*+JSON.stringify(value)+", "+JSON.stringify(type)*/);
 	}
 
 	void resetControlTransfer() {
@@ -475,8 +608,6 @@ public:
 
 		CT.value = nullptr;
 		CT.type = nullopt;
-
-	//	print("ctr");
 	}
 
 	template<typename... Args>
@@ -524,6 +655,86 @@ public:
 		position = OP;
 	}
 
+	string getTitle(CompositeRef composite) {
+		return composite && composite->title.length() ? composite->title : "#"+(string)getOwnID(composite);
+	}
+
+	void setID(CompositeRef composite, const string& key, const NodeValue& value) {
+		if(set<string> {"own", "retainers"}.contains(key)) {
+			return;
+		}
+
+		NodeValue OV, NV;  // Old/new value
+
+		OV = composite->IDs.get(key);
+		NV = composite->IDs.get(key) = value;
+
+		if(OV != NV) {
+			if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+				set<CompositeRef> composites;
+				CompositeRef composite_ = composite;
+
+				while(composite_) {
+					if(composites.contains(composite_)) {
+						composite->IDs.get(key) = OV;
+
+						return;
+					}
+
+					composites.insert(composite_);
+
+					composite_ = getComposite(composite_->IDs.get(key));
+				}
+			}
+
+			retainOrReleaseComposite(composite, getComposite(OV));
+			retainComposite(composite, getComposite(NV));
+		}
+	}
+
+	NodeValue getOwnID(CompositeRef composite, bool nillable = false) {
+		return composite ? composite->IDs.get("own") :
+			   nillable ? NodeValue() :
+			   throw invalid_argument("Composite reference shouldn't be nil");
+	}
+
+	NodeArrayRef getRetainersIDs(CompositeRef composite) {
+		return composite ? composite->IDs.get<NodeArrayRef>("retainers") : nullptr;
+	}
+
+	void setSelfID(CompositeRef composite, CompositeRef selfComposite) {
+		setID(composite, "self", getOwnID(selfComposite));
+	//	setID(composite, "Self", getSelfCompositeID(selfComposite));
+	}
+
+	void setInheritedLevelIDs(CompositeRef inheritingComposite, CompositeRef inheritedComposite) {
+		if(inheritedComposite == inheritingComposite) {
+			return;
+		}
+
+		static set<string> excluded = {"own", "scope", "retainers"};
+
+		for(const auto& [key, value] : inheritingComposite->IDs) {
+			if(!excluded.contains(key)) {
+				setID(inheritingComposite, key, inheritedComposite ? inheritedComposite->IDs.get(key) : NodeValue());
+			}
+		}
+	}
+
+	void setMissedLevelIDs(CompositeRef missingComposite) {
+		static set<string> excluded = {"own", "scope", "retainers"};
+
+		for(const auto& [key, value] : missingComposite->IDs) {
+			if(!excluded.contains(key)) {
+				setID(missingComposite, key, -1);
+			}
+		}
+	}
+
+	void setScopeID(CompositeRef composite, CompositeRef scopeComposite) {
+		setID(composite, "scope", getOwnID(scopeComposite, true));
+	}
+
 	string getValueString(PrimitiveRef primitive, bool explicitStrings = false) {
 		if(!primitive) {
 			return "nil";
@@ -536,13 +747,11 @@ public:
 			return explicitStrings ? "'"+(string)(*primitive)+"'" : (string)(*primitive);
 		}
 
-		/*
-		CompositeRef composite = getValueComposite(value);
+		CompositeRef composite = getValueComposite(primitive);
 
-		if(composite != nullptr) {
-			return getCompositeString(composite);
+		if(composite) {
+		//	return getCompositeString(composite);
 		}
-		*/
 
 		if(primitive->type() == "dictionary") {
 			string result = "[";
@@ -576,6 +785,14 @@ public:
 		// TODO
 
 		return value;
+	}
+
+	CompositeRef getValueComposite(PrimitiveRef value) {
+		if(!value || !set<string> {"pointer", "reference"}.contains(value->type())) {
+			return nullptr;
+		}
+
+		return getComposite((int)*value);
 	}
 
 	void report(int level, NodeRef node, const string& string) {

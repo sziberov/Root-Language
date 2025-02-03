@@ -121,23 +121,21 @@ public:
 
 	operator int() const {
 		switch(type()) {
-			case 0:		return int();
 			case 1:		return get<bool>();
 			case 2:		return get<int>();
 			case 3:		return get<double>();
 			case 4:     return stoi(get<string>());
-			default:	throw bad_variant_access();
+			default:	return int();
 		}
 	}
 
 	operator double() const {
 		switch(type()) {
-			case 0:		return double();
 			case 1:		return get<bool>();
 			case 2:		return get<int>();
 			case 3:		return get<double>();
 			case 4:     return stod(get<string>());
-			default:	throw bad_variant_access();
+			default:	return double();
 		}
 	}
 
@@ -216,13 +214,13 @@ public:
 
 	bool operator==(const NodeValue& v) const {
 		switch(type()) {
-			case 0:     return *this == (nullptr_t)v;
+			case 0:     return v.empty();
 			case 1:		return *this == (bool)v;
 			case 2:		return *this == (int)v;
 			case 3:		return *this == (double)v;
 			case 4:		return *this == (string)v;
-			case 5:		return *this == (NodeRef)v;
-			case 6:		return *this == (NodeArrayRef)v;
+			case 5:		return v.type() == 5 && *this == (NodeRef)v;
+			case 6:		return v.type() == 6 && *this == (NodeArrayRef)v;
 			default:	return false;
 		}
 	}
