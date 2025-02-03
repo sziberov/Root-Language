@@ -61,6 +61,7 @@ public:
 	struct Composite {
 		string title;
 		Node IDs;
+		int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 	};
 
 	using CompositeRef = shared_ptr<Composite>;
@@ -373,7 +374,8 @@ public:
 				{"own", (int)composites.size()},
 				{"scope", nullptr},
 				{"retainers", NodeArray {}}
-			}
+			},
+			1
 		);
 
 		composites.push_back(composite);
@@ -387,7 +389,44 @@ public:
 
 	void destroyComposite(CompositeRef composite) {
 		cout << "destroyComposite("+getTitle(composite)+")" << endl;
-	//	composites[ID] = nullptr;
+		if(composite->life == 2) {
+			return;
+		}
+
+		composite->life = 2;
+
+		int ID = getOwnID(composite);
+		NodeArrayRef retainersIDs = getRetainersIDs(composite);
+
+		for(const CompositeRef& composite_ : composites) {
+		//	if(getRetainersIDs(composite_) && contains(*getRetainersIDs(composite_), ID)) {
+				releaseComposite(composite, composite_);
+
+				/*  Let the objects destroy no matter of errors
+				if(threw()) {
+					return;
+				}
+				*/
+		//	}
+		}
+
+		composites[ID] = nullptr;
+
+		int aliveRetainers = 0;
+
+		for(int retainerID : *retainersIDs) {
+			CompositeRef composite_ = getComposite(retainerID);
+
+			if(composite_ && composite_->life < 2) {
+				aliveRetainers++;
+
+				// TODO: Notify retainers about destroy
+			}
+		}
+
+		if(aliveRetainers > 0) {
+			report(1, nullptr, "Composite #"+(string)getOwnID(composite)+" was destroyed with a non-empty retainer list.");
+		}
 	}
 
 	void destroyReleasedComposite(CompositeRef composite) {
@@ -449,16 +488,13 @@ public:
 	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
 	 */
 	bool compositeRetains(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		return true;
-		/*
-		if(retainingComposite && retainingComposite->life < 2) return (
-			IDsRetain(retainingComposite, retainedComposite) ||
+		return retainingComposite && retainingComposite->life < 2 && (
+			IDsRetain(retainingComposite, retainedComposite) /*||
 			typeRetains(retainingComposite->type, retainedComposite) ||
 			importsRetain(retainingComposite, retainedComposite) ||
 			membersRetain(retainingComposite, retainedComposite) ||
-			observersRetain(retainingComposite->observers, retainedComposite)
+			observersRetain(retainingComposite->observers, retainedComposite)*/
 		);
-		*/
 	}
 
 	/*
@@ -733,6 +769,18 @@ public:
 
 	void setScopeID(CompositeRef composite, CompositeRef scopeComposite) {
 		setID(composite, "scope", getOwnID(scopeComposite, true));
+	}
+
+	bool IDsRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+		static set<string> excluded = {"own", "retainers"};
+
+		for(const auto& [key, value] : retainingComposite->IDs) {
+			if(!excluded.contains(key) && retainingComposite->IDs.get(key) == getOwnID(retainedComposite)) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	string getValueString(PrimitiveRef primitive, bool explicitStrings = false) {
