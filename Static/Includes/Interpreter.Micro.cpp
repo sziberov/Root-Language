@@ -62,6 +62,7 @@ public:
 		string title;
 		Node IDs;
 		int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
+		Node type;
 	};
 
 	using CompositeRef = shared_ptr<Composite>;
@@ -366,8 +367,12 @@ public:
 		return ID.type() == 2 && (int)ID < composites.size() ? composites[(int)ID] : nullptr;
 	}
 
-	CompositeRef createComposite(const string& title, CompositeRef scope = nullptr) {
+	CompositeRef createComposite(const string& title/*, const Node& type*/, CompositeRef scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
+	//	if(!typeIsComposite(type)) {
+	//		return nullptr;
+	//	}
+
 		auto composite = Ref<Composite>(
 			title,
 			Node {
@@ -375,7 +380,8 @@ public:
 				{"scope", nullptr},
 				{"retainers", NodeArray {}}
 			},
-			1
+			1//,
+		//	type
 		);
 
 		composites.push_back(composite);
