@@ -1,5 +1,5 @@
 // Глобальный реестр для CompositeType (для рекурсивного сбора наследования)
-const compositeRegistry = {};
+const compositeRegistry = [];
 
 // ======================
 // Базовый класс Type
@@ -54,7 +54,7 @@ class PrimitiveType extends Type {
 
   acceptsA(other) {
     if(other instanceof OptionalType) return false;
-    const candidate = (other instanceof BracketedType) ? other.unwrap() : other;
+    const candidate = other.unwrap();
     if(candidate instanceof PrimitiveType) {
       return this.name === candidate.name || this.name === 'Number' && (candidate.name === 'Int' || candidate.name === 'Float');  // Дополнительные сравнения для тестов
     }
@@ -136,47 +136,28 @@ class BracketedType extends Type {
 // ======================
 // CompositeType с поддержкой generic-параметров
 // ======================
-function checkCompositeConformance(baseComp, candidateComp, candidateArgs) {
-  // Проверяем, совпадает ли базовый композит с кандидатом или является его предком.
-  if (!(candidateComp.id === baseComp.id || candidateComp.getFullInheritanceChain().has(baseComp.id))) {
-    return false;
-  }
-
-  // Если базовый композит generic, проверяем generic-аргументы.
-  if (baseComp.generics.length > 0) {
-    if (!candidateArgs || candidateArgs.length !== baseComp.generics.length) {
-      return false;
-    }
-    for (let i = 0; i < baseComp.generics.length; i++) {
-      let expectedConstraint = baseComp.generics[i].normalized();
-      let providedArg = candidateArgs[i].normalized();
-      if (!expectedConstraint.acceptsA(providedArg)) return false;
-    }
-  }
-
-  return true;
-}
-
 class CompositeType extends Type {
   /**
    * @param {string} kind - например, "class" или "object"
-   * @param {string} id - идентификатор (название)
+   * @param {string} name - идентификатор (название)
    * @param {string[]} inherits - список идентификаторов родительских типов
    * @param {Type[]} generics - массив generic‑параметров (ограничений), заданных как Type
    */
-  constructor(kind, id, inherits = [], generics = []) {
+  constructor(kind, name, inherits = [], generics = []) {
     super();
     this.kind = kind;
-    this.id = id;
+    this.name = name;
     this.inherits = inherits;
     this.generics = generics; // теперь просто массив Type
-    compositeRegistry[this.id] = this;
+    this.index = compositeRegistry.length;
+    compositeRegistry.push(this);
   }
 
   getFullInheritanceChain() {
+    // Возвращаем множество индексов всех предков.
     const chain = new Set(this.inherits);
-    for (let parentId of this.inherits) {
-      const parent = compositeRegistry[parentId];
+    for (let parentIndex of this.inherits) {
+      const parent = compositeRegistry[parentIndex];
       if (parent) {
         for (let ancestor of parent.getFullInheritanceChain()) {
           chain.add(ancestor);
@@ -186,48 +167,41 @@ class CompositeType extends Type {
     return chain;
   }
 
-  acceptsA(other) {
-    let candidate = other;
-    if(candidate instanceof BracketedType) candidate = candidate.unwrap();
+  static checkConformance(baseComp, candidateComp, candidateArgs) {
+    // Проверяем, совпадает ли базовый композит с кандидатом или является его предком.
+    if (!(candidateComp.index === baseComp.index || candidateComp.getFullInheritanceChain().has(baseComp.index))) {
+      return false;
+    }
 
-    // Если входящий тип – ReferenceType, то выполняем проверку с учётом generic‑аргументов.
-    if (candidate instanceof ReferenceType) {
-      let compCandidate = candidate.composite;
-      // Базовая проверка: входящий композит должен быть равен this либо наследовать его.
-      if (!(compCandidate.id === this.id || compCandidate.getFullInheritanceChain().has(this.id))) {
-        return false;
-      }
-      // Если входящий композит является generic (generics не пуст), то требуем, чтобы у candidate были typeArgs,
-      // и для каждого ограничения выполнялось условие, что ожидаемый generic (constraint) принимает соответствующий аргумент.
-      if (compCandidate.generics && compCandidate.generics.length > 0) {
-        if (!candidate.typeArgs || candidate.typeArgs.length !== compCandidate.generics.length) {
+    // Если базовый композит имеет generic-параметры...
+    if (baseComp.generics.length > 0) {
+      // Если candidateArgs не указано, трактуем это как отсутствие явных аргументов – подставляем список по умолчанию.
+      if (!candidateArgs) {
+        candidateArgs = baseComp.generics;
+      } else {
+        // Если candidateArgs задан (в том числе пустой массив),
+        // то его длина должна совпадать с длиной baseComp.generics.
+        if (candidateArgs.length !== baseComp.generics.length) {
           return false;
         }
-        for (let i = 0; i < compCandidate.generics.length; i++) {
-          let expectedConstraint = compCandidate.generics[i].normalized();
-          let providedArg = candidate.typeArgs[i].normalized();
-          if (!expectedConstraint.acceptsA(providedArg)) return false;
-        }
       }
-      return true;
+      // Проверяем по каждому generic-параметру:
+      for (let i = 0; i < baseComp.generics.length; i++) {
+        let expectedConstraint = baseComp.generics[i].normalized();
+        let providedArg = candidateArgs[i].normalized();
+        if (!expectedConstraint.acceptsA(providedArg)) return false;
+      }
     }
 
-    if(!(candidate instanceof CompositeType)) return false;
-    if(candidate.id === this.id) return true;
-    const fullChain = candidate.getFullInheritanceChain();
-    return fullChain.has(this.id);
+    return true;
   }
 
-  /*
   acceptsA(other) {
-    let candidate = other.unwrap();
-    if (candidate instanceof ReferenceType) {
-      return checkCompositeConformance(this.composite, candidate.composite, candidate.typeArgs);
-    }
-    if (!(candidate instanceof CompositeType)) return false;
-    return checkCompositeConformance(this.composite, candidate, candidate.generics);
+    other = other.unwrap();
+    if(other instanceof CompositeType) return CompositeType.checkConformance(this, other);
+    if(other instanceof ReferenceType) return CompositeType.checkConformance(this, other.composite, other.typeArgs);
+    return false;
   }
-  */
 
   normalized() {
     return this;
@@ -239,11 +213,12 @@ class CompositeType extends Type {
 
   toString() {
     let genStr = "";
-    if(this.generics && this.generics.length > 0) {
+    if (this.generics?.length > 0) {
       genStr = "<" + this.generics.map(t => t.toString()).join(", ") + ">";
     }
+    // Выводим имя и индекс для наглядности.
     const inh = this.inherits.length ? ` inherits [${[...this.getFullInheritanceChain()].join(", ")}]` : "";
-    return `${this.kind} ${this.id}${genStr}${inh}`;
+    return `${this.kind} ${this.name}#${this.index}${genStr}${inh}`;
   }
 }
 
@@ -253,64 +228,36 @@ class CompositeType extends Type {
 class ReferenceType extends Type {
   /**
    * @param {CompositeType} composite - базовый композитный тип
-   * @param {Type[]} typeArgs - массив типовых аргументов (опционально)
+   * @param {Type[]|undefined} typeArgs - массив generic‑аргументов; undefined означает, что они не заданы (будет использовано значение по умолчанию)
    */
-  constructor(composite, typeArgs = []) {
+  constructor(composite, typeArgs) {
     super();
     this.composite = composite;
     this.typeArgs = typeArgs;
   }
 
-  /*
   acceptsA(other) {
-    if(other instanceof CompositeType) {
-      return this.composite.normalized().acceptsA(other.normalized());
-    }
-    if(other instanceof BracketedType) {
-      return this.acceptsA(other.unwrap());
-    }
-    if(other instanceof ReferenceType) {
-      if(!this.composite.normalized().acceptsA(other.composite.normalized())) return false;
-      // Если композит имеет generic-параметры, то сравниваем их.
-      if(this.composite.generics.length > 0) {
-        if(!this.typeArgs || this.typeArgs.length !== this.composite.generics.length) return false;
-        if(!other.typeArgs || other.typeArgs.length !== this.composite.generics.length) return false;
-        for(let i = 0; i < this.composite.generics.length; i++) {
-          let expectedArg = this.typeArgs[i].normalized();
-          let providedArg = other.typeArgs[i].normalized();
-          if(!expectedArg.acceptsA(providedArg)) return false;
-        }
-      }
-      return true;
-    }
+    other = other.unwrap();
+    if (other instanceof CompositeType) return CompositeType.checkConformance(this.composite, other, this.typeArgs);
+    if (other instanceof ReferenceType) return CompositeType.checkConformance(this.composite, other.composite, other.typeArgs);
     return false;
-  }
-  */
-
-  acceptsA(other) {
-    let candidate = other.unwrap();
-    if (candidate instanceof ReferenceType) {
-      return checkCompositeConformance(this.composite, candidate.composite, candidate.typeArgs);
-    }
-    if (!(candidate instanceof CompositeType)) return false;
-    return checkCompositeConformance(this.composite, candidate, candidate.generics);
   }
 
   normalized() {
-    const normArgs = this.typeArgs.map(arg => arg.normalized());
+    let normArgs = this.typeArgs?.map(arg => arg.normalized());
     return new ReferenceType(this.composite, normArgs);
   }
 
   unwrap() {
-    return this.composite.unwrap();
+    return this;
   }
 
   toString() {
     let argsStr = "";
-    if(this.typeArgs && this.typeArgs.length > 0) {
+    if (this.typeArgs?.length > 0) {
       argsStr = "<" + this.typeArgs.map(arg => arg.toString()).join(", ") + ">";
     }
-    return `Reference(${this.composite.id}${argsStr})`;
+    return `Reference(${this.composite.name}#${this.composite.index}${argsStr})`;
   }
 }
 
@@ -328,7 +275,7 @@ class ArrayType extends Type {
 
   acceptsA(other) {
     // Сначала, если other обёрнут (например, в скобки), снимаем обёртку
-    let candidate = (other instanceof BracketedType) ? other.unwrap() : other;
+    let candidate = other.unwrap();
     // Если candidate не является ArrayType, сравнение не проходит.
     if (!(candidate instanceof ArrayType)) return false;
     // Проверяем ковариантность: ожидаемый элемент должен принимать предоставленный элемент.
@@ -360,7 +307,7 @@ class DictionaryType extends Type {
 
   acceptsA(other) {
     // Если аргумент обёрнут, снимаем обёртку.
-    let candidate = (other instanceof BracketedType) ? other.unwrap() : other;
+    let candidate = other.unwrap();
     // Если candidate не является DictionaryType, сравнение не проходит.
     if (!(candidate instanceof DictionaryType)) return false;
     // Проверяем, что для ключей и значений выполняется ковариантное сравнение.
@@ -517,7 +464,7 @@ class VariadicType extends Type {
   }
 
   acceptsA(other) {
-    if (other instanceof BracketedType) return this.acceptsA(other.unwrap());
+    other = other.unwrap();
     if (!(other instanceof VariadicType)) {
       // Если other не является VariadicType – сравниваем ожидаемый innerType с other напрямую
       if (this.innerType === null) return true;
@@ -567,7 +514,7 @@ class InoutType extends Type {
 
   acceptsA(other) {
     // Снимаем обёртку, если other в BracketedType
-    if (other instanceof BracketedType) return this.acceptsA(other.unwrap());
+    other = other.unwrap();
     // InoutType совместим только с другими InoutType: сравнение производится строго по внутреннему типу.
     if (!(other instanceof InoutType)) return false;
     return this.innerType.normalized().acceptsA(other.innerType.normalized());
@@ -662,7 +609,7 @@ class FunctionType extends Type {
   }
 
   acceptsA(other) {
-    if (other instanceof BracketedType) return this.acceptsA(other.unwrap());
+    other = other.unwrap();
     if (!(other instanceof FunctionType)) return false;
 
     // Сравнение generic-параметров с поддержкой вариативности.
@@ -724,10 +671,7 @@ class UnionType extends Type {
   }
 
   acceptsA(other) {
-    // Если other обёрнут в BracketedType, снимаем обёртку.
-    if (other instanceof BracketedType) {
-      return this.acceptsA(other.unwrap());
-    }
+    other = other.unwrap();
     // Для UnionType достаточно, если хотя бы одна альтернатива принимает other.
     for (let alt of this.alternatives) {
       if (alt.normalized().acceptsA(other.normalized())) {
@@ -778,9 +722,7 @@ class IntersectionType extends Type {
   }
 
   acceptsA(other) {
-    if (other instanceof BracketedType) {
-      return this.acceptsA(other.unwrap());
-    }
+    other = other.unwrap();
     // Для IntersectionType other должен быть принят всеми альтернативами.
     for (let alt of this.alternatives) {
       if (!alt.normalized().acceptsA(other.normalized())) {
@@ -824,13 +766,18 @@ const intType = new PrimitiveType("Int");
 const floatType = new PrimitiveType("Float");
 const stringType = new PrimitiveType("String");
 const boolType = new PrimitiveType("Bool");
+const compA = new CompositeType("class", "A");
+const compB = new CompositeType("object", "B", [ compA.index ]);
+const compC = new CompositeType("object", "C", [ compB.index ]);
+const compD = new CompositeType("object", "D", [ compC.index ]);
+const compE = new CompositeType("object", "E", [ compB.index ], [ numberType ]);
 
 // ----- Вспомогательные функции для отчёта о прохождении тестов -----
 let testsPassed = 0, testsTotal = 0;
 function assert(condition, message) {
   testsTotal++;
   if (!condition) {
-    console.error("TEST FAILED:", message);
+    console.error("TEST FAILED: "+message);
 
   } else {
     testsPassed++;
@@ -908,8 +855,6 @@ assert(PREDEF_type.acceptsA(new CompositeType("class", "A")) === true,
 // ---------------------------------------------------------------------------------
 
 // PREDEF_Any – принимает любой композитный тип.
-const compA = new CompositeType("class", "A");
-const compB = new CompositeType("object", "B", ["A"]);
 assert(PREDEF_Any.acceptsA(compA) === true,
        'PREDEF_Any должен принимать CompositeType("A")');
 assert(PREDEF_Any.acceptsA(compB) === true,
@@ -928,42 +873,119 @@ assert(PREDEF_Function.acceptsA(new CompositeType("class", "F")) === false,
        'PREDEF_Function не должен принимать композит с kind "class"');
 
 // ---------------------------------------------------------------------------------
-// 3. Тесты для композитных и ссылочных типов
+// 3. Тесты для композитных и ссылочных типов (расширенные)
 // ---------------------------------------------------------------------------------
 
-const compositeA = new CompositeType("class", "A");
-const compositeB = new CompositeType("object", "B", ["A"]);
-const refB = new ReferenceType(compositeB);
+// Создаём ReferenceType для compB:
+const refB = new ReferenceType(compB);
 
-// Проверяем методы conformsTo и acceptsA
-assert(refB.conformsTo(compositeA) === true,
-       'refB.conformsTo(compositeA) должно возвращать true (B наследует A)');
-assert(refB.conformsTo(compositeB) === true,
-       'refB.conformsTo(compositeB) должно возвращать true');
-assert(refB.acceptsA(compositeB) === true,
-       'refB.acceptsA(compositeB) должно возвращать true');
-assert(compositeB.conformsTo(refB) === true,
-       'compositeB.conformsTo(refB) должно возвращать true');
-assert(compositeA.conformsTo(refB) === false,
-       'compositeA.conformsTo(refB) должно возвращать false');
+// Базовые тесты (как в исходном наборе):
+assert(refB.conformsTo(compA) === true,
+       'refB.conformsTo(compA) должно возвращать true (B наследует A)');
+assert(refB.conformsTo(compB) === true,
+       'refB.conformsTo(compB) должно возвращать true');
+assert(refB.acceptsA(compB) === true,
+       'refB.acceptsA(compB) должно возвращать true');
+assert(compB.conformsTo(refB) === true,
+       'compB.conformsTo(refB) должно возвращать true');
+assert(compA.conformsTo(refB) === false,
+       'compA.conformsTo(refB) должно возвращать false');
+
+// --- Дополнительные проверки наследственности ---
+// Создадим ReferenceType для композитов более глубокого уровня:
+const refC = new ReferenceType(compC);
+const refD = new ReferenceType(compD);
+
+// Поскольку compC наследует от B (и transitively A):
+assert(refC.conformsTo(compB) === true,
+       'refC.conformsTo(compB) должно возвращать true (C наследует B)');
+assert(refC.conformsTo(compA) === true,
+       'refC.conformsTo(compA) должно возвращать true (C наследует B, который наследует A)');
+
+// Для compD (на 4-м уровне):
+assert(refD.conformsTo(compC) === true,
+       'refD.conformsTo(compC) должно возвращать true (D наследует C)');
+assert(refD.conformsTo(compB) === true,
+       'refD.conformsTo(compB) должно возвращать true (D наследует C, а C наследует B)');
+assert(refD.conformsTo(compA) === true,
+       'refD.conformsTo(compA) должно возвращать true (наследование через несколько уровней)');
+
+// --- Проверки для композитов с generic‑параметрами ---
+
+// Создадим корректную ссылку (generic‑аргумент — Number)
+const refE_correct = new ReferenceType(compE, [ numberType ]);
+// Создадим неверную ссылку (generic‑аргумент — String вместо Number)
+const refE_incorrect = new ReferenceType(compE, [ stringType ]);
+
+assert(refE_correct.conformsTo(compE) === true,
+       'refE_correct должен конформить compE (generic соответствует)');
+assert(compE.conformsTo(refE_correct) === true,
+       'compE.conformsTo(refE_correct) должно возвращать true');
+assert(refE_incorrect.conformsTo(compE) === false,
+       'refE_incorrect не должен конформить compE, т.к. generic-аргумент не соответствует');
+
+// --- Дополнительные тесты для разделения между пустым списком ([]) и списком по умолчанию (null) ---
+// Тест 1: Сравнение двух raw-композитов (без явных generic‑аргументов)
+// Здесь мы хотим, чтобы compE принимал compE, то есть чтобы default generic подставлялся.
+assert(
+  compE.acceptsA(compE) === true,
+  'Raw CompositeType("E") должен конформить сам себя, используя default generic arguments'
+);
+
+// Тест 2: Сравнение с ReferenceType, где typeArgs == null (то есть, аргументы не заданы).
+const refE_default = new ReferenceType(compE);
+assert(
+  compE.acceptsA(refE_default) === true,
+  'При typeArgs == null должен использоваться список по умолчанию, поэтому compE.acceptsA(refE_default) должно возвращать true'
+);
+assert(
+  refE_default.acceptsA(compE) === true,
+  'При typeArgs == null должен использоваться список по умолчанию, поэтому refE_default.acceptsA(compE) должно возвращать true'
+);
+
+// Тест 3: Сравнение с ReferenceType, где typeArgs задан как пустой массив [].
+// Это означает, что кандидат явно задаёт пустой список аргументов, что не совпадает с требуемым количеством (1).
+const refE_empty = new ReferenceType(compE, []);
+assert(
+  compE.acceptsA(refE_empty) === false,
+  'При typeArgs == [] (пустой список) и наличии генериков в compE, compE.acceptsA(refE_empty) должно возвращать false'
+);
+assert(
+  refE_empty.acceptsA(compE) === false,
+  'При typeArgs == [] (пустой список) и наличии генериков в compE, refE_empty.acceptsA(compE) должно возвращать false'
+);
+
+// --- Проверки того, что ReferenceType не разворачивается случайно ---
+// Если обернуть ссылку в BracketedType, то она должна остаться ссылкой (то есть её строковое представление должно содержать "Reference(")
+let bracketedRefE = new BracketedType(refE_correct);
+assert(bracketedRefE.toString().includes("Reference("),
+       'Ссылка, обернутая в BracketedType, должна оставаться ссылкой с аргументами, а не разворачиваться в композит');
+
+// Проверим, что вызов unwrap() на ReferenceType не теряет информацию о generic‑аргументах.
+// Предполагается, что реализация ReferenceType.unwrap() в данной архитектуре не разворачивает ссылку до композита.
+let unwrappedRefE = refE_correct.unwrap();
+assert(unwrappedRefE instanceof ReferenceType,
+       'unwrap() на ReferenceType не должен превращать ссылку в обычный композит');
+assert(unwrappedRefE.typeArgs[0].toString() === numberType.toString(),
+       'При unwrap() generic-аргументы ReferenceType должны сохраняться');
 
 // ---------------------------------------------------------------------------------
 // 4. Тесты для Optional и Bracketed типов
 // ---------------------------------------------------------------------------------
 
 // OptionalType: plain значение должно приниматься опциональным типом, а plain не принимает опциональное.
-const optA = new OptionalType(compositeA);
-assert(optA.conformsTo(compositeA) === false,
-       'Optional(compositeA).conformsTo(compositeA) должно быть false');
-assert(compositeA.conformsTo(optA) === true,
-       'compositeA.conformsTo(Optional(compositeA)) должно быть true');
+const optA = new OptionalType(compA);
+assert(optA.conformsTo(compA) === false,
+       'Optional(compA).conformsTo(compA) должно быть false');
+assert(compA.conformsTo(optA) === true,
+       'compA.conformsTo(Optional(compA)) должно быть true');
 
 // BracketedType: разворачивается до базового типа.
-const bracketedA = new BracketedType(compositeA);
-assert(bracketedA.conformsTo(compositeA) === true,
-       'Bracketed(compositeA).conformsTo(compositeA) должно быть true');
-assert(compositeA.conformsTo(bracketedA) === true,
-       'compositeA.conformsTo(Bracketed(compositeA)) должно быть true');
+const bracketedA = new BracketedType(compA);
+assert(bracketedA.conformsTo(compA) === true,
+       'Bracketed(compA).conformsTo(compA) должно быть true');
+assert(compA.conformsTo(bracketedA) === true,
+       'compA.conformsTo(Bracketed(compA)) должно быть true');
 
 // ---------------------------------------------------------------------------------
 // 5. Тесты для коллекционных типов: ArrayType и DictionaryType
@@ -971,7 +993,7 @@ assert(compositeA.conformsTo(bracketedA) === true,
 
 // ArrayType – ковариантность для элементов.
 const animal = new CompositeType("class", "Animal");
-const dog = new CompositeType("class", "Dog", ["Animal"]);
+const dog = new CompositeType("class", "Dog", [animal.index]);
 const arrayAnimal = new ArrayType(animal);
 const arrayDog = new ArrayType(dog);
 
@@ -997,10 +1019,10 @@ assert(dictDog.conformsTo(dictAnimal) === true,
 // ---------------------------------------------------------------------------------
 
 // Примитивный ArrayType не должен быть совместим с композитным типом коллекции
-const compositeArray = new CompositeType("class", "Array", [], [PREDEF_any]);
-const refCompositeArray = new ReferenceType(compositeArray, [animal]);
-assert(arrayAnimal.conformsTo(refCompositeArray) === false,
-       'Примитивный ArrayType не совместим с композитным Array (refCompositeArray)');
+const compArray = new CompositeType("class", "Array", [], [PREDEF_any]);
+const refcompArray = new ReferenceType(compArray, [animal]);
+assert(arrayAnimal.conformsTo(refcompArray) === false,
+       'Примитивный ArrayType не совместим с композитным Array (refcompArray)');
 
 // ---------------------------------------------------------------------------------
 // 7. Тесты для VariadicType
@@ -1159,20 +1181,6 @@ assert(
   'IntersectionType(Int & String) не должен принимать String'
 );
 
-// Создадим базовые композитные типы с наследованием до 3 уровней:
-
-// Уровень 1:
-//const compA = new CompositeType("class", "A"); // базовый класс A
-
-// Уровень 2:
-//const compB = new CompositeType("object", "B", ["A"]); // B наследует A
-
-// Уровень 3:
-const compC = new CompositeType("object", "C", ["B"]); // C наследует B (и transitively A)
-
-// Дополнительный уровень для проверки (уровень 4):
-const compD = new CompositeType("object", "D", ["C"]); // D наследует C, B и A
-
 // Тест 1: IntersectionType([A, B])
 // Ожидается, что тип, наследующий A и B, будет конформен.
 const intersectionAB = new IntersectionType([ compA, compB ]);
@@ -1207,26 +1215,18 @@ assert(
 );
 
 // Тест 3: Проверка с ReferenceType.
-// Создадим ReferenceType, ссылающийся на композит compD.
-const refD = new ReferenceType(compD);
 assert(
   intersectionABC.acceptsA(refD) === true,
   'IntersectionType([A, B, C]) должен принимать ReferenceType(compD)'
 );
 
 // Тест 4: Проверка с композитом с generic‑параметрами.
-// Создадим композит compE, который наследует от compB и имеет один generic-параметр с ограничением Number.
-const compE = new CompositeType("object", "E", ["B"], [ numberType ]);
-// Создадим ReferenceType для compE с корректным generic-аргументом:
-const refE_correct = new ReferenceType(compE, [ numberType ]);
 // Создадим IntersectionType, требующий, чтобы тип удовлетворял и compB, и compE.
 const intersectionBE = new IntersectionType([ compB, compE ]);
 assert(
   intersectionBE.acceptsA(refE_correct) === true,
   'IntersectionType([B, E]) должен принимать ReferenceType(compE, [Number]), когда generic соответствует'
 );
-// Теперь создадим неверный generic-аргумент: например, используем String вместо Number.
-const refE_incorrect = new ReferenceType(compE, [ stringType ]);
 assert(
   intersectionBE.acceptsA(refE_incorrect) === false,
   'IntersectionType([B, E]) не должен принимать ReferenceType(compE, [String]), когда generic не соответствует'
