@@ -6,191 +6,186 @@
 using namespace std;
 
 // Флаги характеристик узла
-enum TypeFlags : uint32_t {
-	Inout           = 1 << 0,
-	Union           = 1 << 1,
-	Variadic        = 1 << 2,
-	Intersection    = 1 << 3,
-	Nillable        = 1 << 4,
-	Default         = 1 << 5,
-	Function        = 1 << 6,
-	Array           = 1 << 7,
-	GenericParams   = 1 << 8,   // для функций: generic-параметры
-	Parameters      = 1 << 9,   // для функций: параметры
-	AwaitsTrue      = 1 << 10,  // awaits без ?
-	ThrowsTrue      = 1 << 11,  // throws без ?
-	AwaitsOptional  = 1 << 12,  // awaits с ? (awaits?)
-	ThrowsOptional  = 1 << 13,  // throws с ? (throws?)
-	Tuple           = 1 << 14,  // узел является контейнером для tuple-элементов
-	InheritedTypes  = 1 << 15,  // для композитных типов: наследуемые типы
-	GenericArguments= 1 << 16   // для композитных типов: generic-аргументы
+enum TypeFlags {
+	Array           = 1 << 0,
+	AwaitsOptional  = 1 << 1,
+	Awaits          = 1 << 2,
+	Default         = 1 << 3,
+	GenericArguments= 1 << 5,
+	GenericParameters   = 1 << 6,
+	InheritedTypes  = 1 << 7,
+	Inout           = 1 << 8,
+	Intersection    = 1 << 9,
+	Nillable        = 1 << 10,
+	Parameters      = 1 << 11,
+	ThrowsOptional  = 1 << 12,
+	Throws          = 1 << 13,
+	Tuple           = 1 << 14,
+	Union           = 1 << 15,
+	Variadic        = 1 << 16,
+	Dictionary      = 1 << 17
 };
 
 // Узел типа
 struct TypeNode {
-	optional<size_t> super; // Индекс родителя
-	string reference;       // Имя типа или иное значение (например, "Function", "Class")
-	uint32_t flags = 0;          // Флаги
-	vector<size_t> children; // Дочерние узлы
+	optional<int> super; // Индекс родителя
+	string predefined;       // Имя типа или иное значение (например, "Function", "Class")
+	int flags = 0;
+	vector<int> children; // Индексы дочерних узлов
 
 	// Дополнительные поля для поддержки tuple и композитов
 	string identifier;      // Например, имя переменной или класса
 	string label;           // Для tuple-элементов (метка перед идентификатором)
 
-	TypeNode(optional<size_t> parent, string ref, uint32_t f = 0)
-		: super(parent), reference(move(ref)), flags(f) {}
+	TypeNode(optional<int> parent, string ref, int f = 0): super(parent), predefined(move(ref)), flags(f) {}
 };
 
 // Класс, инкапсулирующий дерево типов и функции для работы с ним
-class TypeSystem {
+class TypeTree {
 public:
 	vector<TypeNode> tree;
 
 	// Добавление узла в дерево; возвращается индекс добавленного узла.
-	size_t addTypeNode(optional<size_t> parent, string ref, uint32_t flags = 0) {
-		size_t index = tree.size();
+	int addNode(optional<int> parent, string ref, int flags = 0) {
+		int index = tree.size();
+
 		tree.emplace_back(parent, move(ref), flags);
-		if (parent.has_value()) {
+
+		if(parent.has_value()) {
 			tree[*parent].children.push_back(index);
 		}
+
 		return index;
 	}
 
-	// Объявления функций для преобразования типа в строку:
-	string typeToString(size_t index) {
-		return typeToString(tree[index]);
+	string toString(int index) {
+		return toString(tree[index]);
 	}
 
 private:
-	string unionIntersectionTypeToString(const TypeNode& node) {
-		string result = formatChildren(node,
-			node.flags & Union ? " | " : " & ",
-			"", "",
-			node.flags // явно передаем флаги узла
-		);
+	bool isCollection(const TypeNode& node) {
+		switch(node.flags) {
+			case Array:
+			case Dictionary:
+			case GenericArguments:
+			case GenericParameters:
+			case Intersection:
+			case Parameters:
+			case Union:
+				return true;
+		}
+		if(node.predefined == "Function") {
+			return true;
+		}
 
-		uint32_t parent_flags = node.super.has_value() ? tree[*node.super].flags : 0;
-		const bool needs_parens =
-			(parent_flags & Union && node.flags & Union) ||
-			(parent_flags & Intersection && (node.flags & Intersection || node.flags & Union));
-
-		return needs_parens ? "(" + result + ")" : result;
+		return false;
 	}
 
-	// Универсальная функция обработки дочерних элементов
-	string formatChildren(const TypeNode& node,
-						const string& delimiter = ", ",
-						const string& prefix = "",
-						const string& suffix = "",
-						optional<uint32_t> force_flags = nullopt)
-	{
-		string result;
-		uint32_t flags = force_flags.value_or(node.flags);
+	string unionIntersectionToString(const TypeNode& node) {
+		string result = formatChildren(node, node.flags & Union ? " | " : " & ");
 
-		for (size_t i = 0; i < node.children.size(); ++i) {
-			if (i > 0) {
-				if (flags & Intersection)       result += " & ";
-				else if (flags & Union)         result += " | ";
-				else                            result += delimiter;
+		int parent_flags = node.super.has_value() ? tree[*node.super].flags : 0;
+		bool needs_parens = parent_flags & Union && node.flags & Union ||
+							parent_flags & Intersection && (node.flags & (Intersection | Union));
+
+		return needs_parens ? "("+result+")" : result;
+	}
+
+	string formatChildren(const TypeNode& node, const string& delimiter = ", ") {
+		string result;
+
+		for(int i = 0; i < node.children.size(); i++) {
+			if(i > 0) {
+				result += delimiter;
 			}
 
 			const TypeNode& child = tree[node.children[i]];
-			result += typeToString(child);
+			result += toString(child);
 		}
 
-		return (!result.empty() && !prefix.empty() && !suffix.empty())
-				? (prefix + result + suffix)
-				: result;
+		return result;
 	}
 
-	// Объединенная логика модификаторов типа
-	string applyTypeModifiers(const TypeNode& node, string result) {
-		// Array modifier
-		if (node.flags & Array) {
-			result = "[" + result + "]";
+	string applyModifiers(const TypeNode& node, string result) {
+		if(node.flags & Array) {
+			result = "["+result+"]";
 		}
-
-		// Variadic modifier
-		if (node.flags & Variadic) {
+		if(node.flags & Inout) {
+			result = "inout "+result;
+		}
+		if(node.flags & (Nillable | Default)) {
+			if(result.contains(' ')) {
+				result = "("+result+")";
+			}
+			if(node.flags & Default) {
+				result += "!";
+			} else
+			if(node.flags & Nillable) {
+				result += "?";
+			}
+		}
+		if(node.flags & Variadic) {
 			result += "...";
 		}
 
-		// Inout modifier
-		if (node.flags & Inout) {
-			result = "inout " + result;
-		}
-
 		return result;
 	}
 
-	// --- Вспомогательные функции-постпроцессоры ---
-	string wrapInParenthesesIfNeeded(const string& result, uint32_t nodeFlags, uint32_t parentFlags) {
-		if ((parentFlags & Union) && (nodeFlags & Union)) {
-			return "(" + result + ")";
-		}
-		if ((parentFlags & Intersection) && ((nodeFlags & Intersection) || (nodeFlags & Union))) {
-			return "(" + result + ")";
-		}
+	string basicToString(const TypeNode& node) {
+		string result = node.predefined;
 		return result;
 	}
 
-	// Преобразование базового (обычного) типа без обработки детей
-	string basicTypeToString(const TypeNode& node) {
-		string result = node.reference;
-		if (node.flags & Nillable) result += "?";
-		if (node.flags & Default) result += "!";
-		return result;
-	}
-
-	string childTypeToString(const TypeNode& node, string result) {
-		if (!node.children.empty()) {
-			string children_str = formatChildren(node);
-
-			if (!node.reference.empty()) {
-				result += "<" + children_str + ">";
+	string childToString(const TypeNode& node, string result) {
+		if(!node.children.empty()) {
+			if(node.flags & GenericArguments) {
+				result += "<"+formatChildren(node)+">";
 			} else {
-				result += children_str;
+				result += formatChildren(node);
 			}
 		}
+
 		return result;
 	}
 
-	// Функциональный тип
-	string functionTypeToString(const TypeNode& node) {
-		string genParams, parameters, retType;
-		// Обработка дочерних узлов функции
-		for (auto child : node.children) {
+	string functionToString(const TypeNode& node) {
+		string genParams,
+			   parameters = "()",
+			   retType;
+
+		for(auto child : node.children) {
 			const TypeNode& c = tree[child];
-			if (c.flags & GenericParams) {
-				genParams = formatChildren(c);
+
+			if(c.flags & GenericParameters) {
+				genParams = "<"+formatChildren(c)+">";
 			} else
-			if (c.flags & Parameters) {
-				parameters = formatChildren(c);
+			if(c.flags & Parameters) {
+				parameters = "("+formatChildren(c)+")";
 			} else {
-				retType = typeToString(c);
+				retType = " -> "+toString(c);
 			}
 		}
-		string result;
-		if (!genParams.empty()) result += "<" + genParams + ">";
-		result += "(" + parameters + ")";
-		if (node.flags & AwaitsTrue) { result += " awaits"; }
+
+		string result = genParams+parameters;
+		if (node.flags & Awaits) { result += " awaits"; }
 		else if (node.flags & AwaitsOptional) { result += " awaits?"; }
-		if (node.flags & ThrowsTrue) { result += " throws"; }
+		if (node.flags & Throws) { result += " throws"; }
 		else if (node.flags & ThrowsOptional) { result += " throws?"; }
-		if (!retType.empty()) result += " -> " + retType;
-		if (node.flags & Nillable) {
+		result += retType;
+		if(node.flags & Nillable) {
 			if(result.ends_with(')'))
 				result += "?";
 			else
-				result = "(" + result + ")?";
+				result = "("+result+")?";
 		}
+
 		return result;
 	}
 
-	// Tuple-тип (кортеж). Узел с флагом Tuple содержит элементы-кортежа в дочерних узлах.
-	string tupleTypeToString(const TypeNode& node) {
+	string tupleToString(const TypeNode& node) {
 		string result;
-		for (size_t i = 0; i < node.children.size(); i++) {
+
+		for(int i = 0; i < node.children.size(); i++) {
 			if (i > 0) result += ", ";
 			const TypeNode& elem = tree[node.children[i]];
 			string s;
@@ -200,41 +195,61 @@ private:
 			if (!elem.identifier.empty()) {
 				s += elem.identifier;
 			}
-			if (!elem.reference.empty()) {
-				s += ": " + typeToString(elem);
+			if (!elem.predefined.empty()) {
+				s += ": "+toString(elem);
 			}
 			result += s;
 		}
-		return "(" + result + ")";
+
+		return "("+result+")";
 	}
 
 	// Композитный тип (например, класс).
-	string compositeTypeToString(const TypeNode& node) {
-		string result = "class " + node.identifier;
+	string compositeToString(const TypeNode& node) {
+		string result,
+			   identifier = node.identifier,
+			   genParams,
+			   inheritedTypes;
 
-		if (node.flags & InheritedTypes && !node.children.empty()) {
-			result += ": " + formatChildren(node);
+		for(auto child : node.children) {
+			const TypeNode& c = tree[child];
+
+			if(c.flags & GenericParameters) {
+				genParams = "<"+formatChildren(c)+">";
+			} else
+			if(c.flags & InheritedTypes) {
+				inheritedTypes = ": "+formatChildren(c);
+			}
 		}
+
+		if(node.predefined == "Class") {
+			result = "class ";
+		}
+
+		result += identifier+genParams+inheritedTypes;
 
 		return result;
 	}
 
-	// --- Внутренняя функция, учитывающая флаги родителя ---
-	string typeToString(const TypeNode& node) {
-	   // Обработка специальных типов
-	   if (node.flags & (Union | Intersection))
-		   return unionIntersectionTypeToString(node);
-	   if (node.reference == "Function" || (node.flags & Function))
-		   return functionTypeToString(node);
-	   if (node.flags & Tuple)
-		   return tupleTypeToString(node);
-	   if (node.reference == "Class")
-		   return compositeTypeToString(node);
+	string toString(const TypeNode& node) {
+		// Обработка специальных типов
+		if(node.flags & (Union | Intersection)) {
+			return unionIntersectionToString(node);
+		}
+		if(node.predefined == "Function") {
+			return functionToString(node);
+		}
+		if(node.flags & Tuple) {
+			return tupleToString(node);
+		}
+		if(node.predefined == "Class") {
+			return compositeToString(node);
+		}
 
-	   // Обработка обычного типа
-		string result = basicTypeToString(node);
-		result = childTypeToString(node, result);
-		result = applyTypeModifiers(node, result);
+		// Обработка обычного типа
+		string result = basicToString(node);
+		result = childToString(node, result);
+		result = applyModifiers(node, result);
 
 		return result;
    }
@@ -244,160 +259,163 @@ private:
 // Пример использования
 //
 int main() {
-	TypeSystem ts;
+	TypeTree type;
 
-	//    inout A! | _? & Global<B>...
-	// 0: inout    |               ...
-	// 1:       A!
-	// 2:               &
-	// 3:            _?
-	// 4:                 Global< >
-	// 5:                        B
 	{
-		size_t root = ts.addTypeNode(nullopt, "", Inout | Union | Variadic);
-		size_t a = ts.addTypeNode(root, "A", Default);
-		size_t andNode = ts.addTypeNode(root, "", Intersection);
-		size_t nullable_ = ts.addTypeNode(andNode, "_", Nillable);
-		size_t global = ts.addTypeNode(andNode, "Global");
-		size_t b = ts.addTypeNode(global, "B");
+		//    inout A! | _? & Global<B>...
+		// 0: inout    |               ...
+		int root = type.addNode(nullopt, "", Inout | Union | Variadic);
+		// 1:       A!
+		int a = type.addNode(root, "A", Default);
+		// 2:               &
+		int andNode = type.addNode(root, "", Intersection);
+		// 3:            _?
+		int nullable_ = type.addNode(andNode, "_", Nillable);
+		// 4:                 Global< >
+		int global = type.addNode(andNode, "Global", GenericArguments);
+		// 5:                        B
+		int b = type.addNode(global, "B");
 
-		cout << "Type representation: " << ts.typeToString(root) << endl;
+		cout << "Type representation: " << type.toString(root) << endl;
 	}
 
 	// Пример: A | (B | C)
 	{
-		size_t memberType1 = ts.addTypeNode(nullopt, "", Union);
-		size_t A = ts.addTypeNode(memberType1, "A");
-		size_t unionChild = ts.addTypeNode(memberType1, "", Union);
-		size_t B = ts.addTypeNode(unionChild, "B");
-		size_t C = ts.addTypeNode(unionChild, "C");
+		int memberType1 = type.addNode(nullopt, "", Union);
+		int A = type.addNode(memberType1, "A");
+		int unionChild = type.addNode(memberType1, "", Union);
+		int B = type.addNode(unionChild, "B");
+		int C = type.addNode(unionChild, "C");
 		// Ожидаем: A | (B | C)
-		cout << "Type: " << ts.typeToString(memberType1) << endl;
+		cout << "Type: " << type.toString(memberType1) << endl;
 	}
 
 	// Пример более сложного выражения: A | (B | C & D & (E | F))
 	{
 		// Построим дерево вручную:
 		// 0: Корневой узел Union
-		size_t root = ts.addTypeNode(nullopt, "", Union);
-		size_t A = ts.addTypeNode(root, "A");
+		int root = type.addNode(nullopt, "", Union);
+		int A = type.addNode(root, "A");
 		// 1: дочерний узел Union, который будет обёрнут в скобки, т.к. родитель — Union
-		size_t union1 = ts.addTypeNode(root, "", Union);
-		size_t B = ts.addTypeNode(union1, "B");
+		int union1 = type.addNode(root, "", Union);
+		int B = type.addNode(union1, "B");
 		// 2: узел Intersection внутри union1
-		size_t inter1 = ts.addTypeNode(union1, "", Intersection);
-		size_t C = ts.addTypeNode(inter1, "C");
-		size_t D = ts.addTypeNode(inter1, "D");
+		int inter1 = type.addNode(union1, "", Intersection);
+		int C = type.addNode(inter1, "C");
+		int D = type.addNode(inter1, "D");
 		// 3: еще один узел Intersection внутри union1
-		size_t inter2 = ts.addTypeNode(union1, "", Intersection);
-		size_t union2 = ts.addTypeNode(inter2, "", Union);
-		size_t E = ts.addTypeNode(union2, "E");
-		size_t F = ts.addTypeNode(union2, "F");
+		int inter2 = type.addNode(union1, "", Intersection);
+		int union2 = type.addNode(inter2, "", Union);
+		int E = type.addNode(union2, "E");
+		int F = type.addNode(union2, "F");
 
-		// Ожидаем: A | (B | C & D & (E | F))
-		cout << "Type: " << ts.typeToString(root) << endl;
+		cout << "Type: " << type.toString(root) << endl;
 	}
 
 	// --- Функциональные типы ---
 
 	//    () / Function
 	// 0: () / Function
-	size_t funcType1 = ts.addTypeNode(nullopt, "Function", Function);
+	int funcType1 = type.addNode(nullopt, "Function");
 
 	//    <...>(...) awaits? throws? -> _?
 	// 0:            awaits? throws?
+	int funcType2 = type.addNode(nullopt, "Function", AwaitsOptional | ThrowsOptional);
 	// 1: <   >
+	int genParams2 = type.addNode(funcType2, "", GenericParameters);
 	// 2:  ...
+	int genParamChild = type.addNode(genParams2, "", Variadic);
 	// 3:      (   )
+	int params2 = type.addNode(funcType2, "", Parameters);
 	// 4:       ...
+	int paramChild = type.addNode(params2, "", Variadic);
 	// 5:                            -> _?
-	size_t funcType2 = ts.addTypeNode(nullopt, "Function", Function | AwaitsOptional | ThrowsOptional);
-	size_t genParams2 = ts.addTypeNode(funcType2, "", GenericParams);
-	size_t genParamChild = ts.addTypeNode(genParams2, "", Variadic);
-	size_t params2 = ts.addTypeNode(funcType2, "", Parameters);
-	size_t paramChild = ts.addTypeNode(params2, "", Variadic);
-	size_t retType2 = ts.addTypeNode(funcType2, "_", Nillable);
+	int retType2 = type.addNode(funcType2, "_", Nillable);
 
 	//    ([]..., ...) awaits throws -> _
 	// 0:              awaits throws
+	int funcType3 = type.addNode(nullopt, "Function", Awaits | Throws);
 	// 1: (     ,    )
+	int params3 = type.addNode(funcType3, "", Parameters);
 	// 2:  []...
+	int arrayParam = type.addNode(params3, "", Array | Variadic);
 	// 3:         ...
+	int param3 = type.addNode(params3, "", Variadic);
 	// 4:                            -> _
-	size_t funcType3 = ts.addTypeNode(nullopt, "Function", Function | AwaitsTrue | ThrowsTrue);
-	size_t params3 = ts.addTypeNode(funcType3, "", Parameters);
-	size_t arrayParam = ts.addTypeNode(params3, "", Array | Variadic); // будет выведен как []...
-	size_t param3 = ts.addTypeNode(params3, "", Variadic);            // выведется как ...
-	size_t retType3 = ts.addTypeNode(funcType3, "_", 0);
+	int retType3 = type.addNode(funcType3, "_", 0);
 
 	//    (() -> _)?
 	// 0: (()     )?
+	int funcType4 = type.addNode(nullopt, "Function", Nillable);
 	// 1:     -> _
-	size_t funcType4 = ts.addTypeNode(nullopt, "Function", Function | Nillable);
-	size_t retType4 = ts.addTypeNode(funcType4, "_", 0);
+	int retType4 = type.addNode(funcType4, "_", 0);
 
 	//    <T>()
 	// 0:    ()
+	int funcType5 = type.addNode(nullopt, "Function");
 	// 1: < >
+	int genParams5 = type.addNode(funcType5, "", GenericParameters);
 	// 2:  T
-	size_t funcType5 = ts.addTypeNode(nullopt, "Function", Function);
-	size_t genParams5 = ts.addTypeNode(funcType5, "", GenericParams);
-	size_t genParamT = ts.addTypeNode(genParams5, "T", 0);
+	int genParamT = type.addNode(genParams5, "T", 0);
 
-	cout << "Type 1: " << ts.typeToString(funcType1) << endl;
-	cout << "Type 2: " << ts.typeToString(funcType2) << endl;
-	cout << "Type 3: " << ts.typeToString(funcType3) << endl;
-	cout << "Type 4: " << ts.typeToString(funcType4) << endl;
-	cout << "Type 5: " << ts.typeToString(funcType5) << endl;
+	cout << "Type 1: " << type.toString(funcType1) << endl;
+	cout << "Type 2: " << type.toString(funcType2) << endl;
+	cout << "Type 3: " << type.toString(funcType3) << endl;
+	cout << "Type 4: " << type.toString(funcType4) << endl;
+	cout << "Type 5: " << type.toString(funcType5) << endl;
 
 	// --- Массивные типы ---
 
-	// memberType6: fallback вариант: [] / [_?]
-	// 0: узел с флагом Array
-	// 1: дочерний узел с predefined "_" и флагом Nillable
-	size_t memberType6 = ts.addTypeNode(nullopt, "", Array);
-	size_t fallbackChild = ts.addTypeNode(memberType6, "_", Nillable);
+	//    [] / [_?]
+	// 0: [] / [  ]
+	int memberType6 = type.addNode(nullopt, "", Array);
+	// 1:    /  _?
+	int fallbackChild = type.addNode(memberType6, "_", Nillable);
 
-	cout << "Fallback array type: " << ts.typeToString(memberType6) << endl;
+	cout << "Fallback array type: " << type.toString(memberType6) << endl;
 
-	// memberType7: предпочтительный вариант: Array<_?>
-	// 0: узел с reference "Array" и флагом GenericArguments
-	// 1: дочерний узел с predefined "_" и флагом Nillable
-	size_t memberType7 = ts.addTypeNode(nullopt, "Array", GenericArguments);
-	size_t genericChild = ts.addTypeNode(memberType7, "_", Nillable);
+	//    Array<_?>
+	// 0: Array<  >
+	int memberType7 = type.addNode(nullopt, "Array", GenericArguments);
+	// 1:       _?
+	int genericChild = type.addNode(memberType7, "_", Nillable);
 
-	cout << "Preferred array type: " << ts.typeToString(memberType7) << endl;
+	cout << "Preferred array type: " << type.toString(memberType7) << endl;
 
 	// --- Кортежные типы ---
 
 	//    (a: A, b c: B)
 	// 0: (    ,       )
+	int tupleType0 = type.addNode(nullopt, "", Tuple);
 	// 1:  a: A
+	int tupleElem1 = type.addNode(tupleType0, "A");
+	type.tree[tupleElem1].identifier = "a";
 	// 2:        b c: B
-	size_t tupleType0 = ts.addTypeNode(nullopt, "", Tuple);
-	// Первый элемент: a: A
-	size_t tupleElem1 = ts.addTypeNode(tupleType0, "A");
-	ts.tree[tupleElem1].identifier = "a";
-	// Второй элемент: b c: B
-	size_t tupleElem2 = ts.addTypeNode(tupleType0, "B");
-	ts.tree[tupleElem2].label = "b";
-	ts.tree[tupleElem2].identifier = "c";
+	int tupleElem2 = type.addNode(tupleType0, "B");
+	type.tree[tupleElem2].label = "b";
+	type.tree[tupleElem2].identifier = "c";
 
-	cout << "Tuple type: " << ts.typeToString(tupleType0) << endl;
+	cout << "Tuple type: " << type.toString(tupleType0) << endl;
 
 	// --- Композитные типы ---
 
-	//    class A: B<_?>
-	// 0: class A:
-	// 1:          B<  >
-	// 2:            _?
-	size_t compositeType0 = ts.addTypeNode(nullopt, "Class", InheritedTypes);
-	ts.tree[compositeType0].identifier = "A";
-	// Наследуемый тип B с generic-аргументами
-	size_t inheritedType = ts.addTypeNode(compositeType0, "B", GenericArguments);
-	size_t genericArg = ts.addTypeNode(inheritedType, "_", Nillable);
+	//    class A<T: _?>: B<C?, D>
+	// 0: class A<     >
+	int compositeType0 = type.addNode(nullopt, "Class", GenericArguments);
+	type.tree[compositeType0].identifier = "A";
+	// 1:         T: _?
+	int compositeParameter = type.addNode(compositeType0, "_", Nillable);
+	type.tree[compositeParameter].identifier = "T";
+	// 2:               :
+	int inheritedTypes = type.addNode(compositeType0, "", InheritedTypes);
+	// 3:                 B<  ,  >
+	int inheritedType = type.addNode(inheritedTypes, "B", GenericArguments);
+	// 4:                   C?
+	int genericArg = type.addNode(inheritedType, "C", Nillable);
+	// 5:                       D
+	int genericArg2 = type.addNode(inheritedType, "D");
 
-	cout << "Composite type: " << ts.typeToString(compositeType0) << endl;
+	cout << "Composite type: " << type.toString(compositeType0) << endl;
 
 	return 0;
 }
