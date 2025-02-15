@@ -223,28 +223,18 @@ class CompositeType extends Type {
 	}
 
 	static checkConformance(baseComp, candidateComp, candidateArgs) {
-		// Проверяем, совпадает ли базовый композит с кандидатом или является его предком.
-		if (!(candidateComp.index === baseComp.index || candidateComp.getFullInheritanceChain().has(baseComp.index))) {
+		if(candidateComp.index !== baseComp.index && !candidateComp.getFullInheritanceChain().has(baseComp.index)) {
 			return false;
 		}
 
-		// Если базовый композит имеет generic-параметры...
-		if (baseComp.generics.length > 0) {
-			// Если candidateArgs не указано, трактуем это как отсутствие явных аргументов – подставляем список по умолчанию.
-			if (!candidateArgs) {
-				candidateArgs = baseComp.generics;
-			} else {
-				// Если candidateArgs задан (в том числе пустой массив),
-				// то его длина должна совпадать с длиной baseComp.generics.
-				if (candidateArgs.length !== baseComp.generics.length) {
+		if(candidateArgs) {
+			if(candidateComp.generics.length !== candidateArgs.length) {
+				return false;
+			}
+			for(let i = 0; i < candidateComp.generics.length; i++) {
+				if(!candidateComp.generics[i].acceptsA(candidateArgs[i])) {
 					return false;
 				}
-			}
-			// Проверяем по каждому generic-параметру:
-			for (let i = 0; i < baseComp.generics.length; i++) {
-				let expectedConstraint = baseComp.generics[i]
-				let providedArg = candidateArgs[i]
-				if (!expectedConstraint.acceptsA(providedArg)) return false;
 			}
 		}
 
@@ -947,6 +937,10 @@ assert(
 // Тест 2: Сравнение с ReferenceType, где typeArgs == null (то есть, аргументы не заданы).
 const refE_default = new ReferenceType(compE);
 assert(
+	compB.acceptsA(refE_default),
+	'При typeArgs == null должен использоваться список по умолчанию, поэтому compB.acceptsA(refE_default) должно возвращать true'
+);
+assert(
 	compE.acceptsA(refE_default),
 	'При typeArgs == null должен использоваться список по умолчанию, поэтому compE.acceptsA(refE_default) должно возвращать true'
 );
@@ -958,6 +952,10 @@ assert(
 // Тест 3: Сравнение с ReferenceType, где typeArgs задан как пустой массив [].
 // Это означает, что кандидат явно задаёт пустой список аргументов, что не совпадает с требуемым количеством (1).
 const refE_empty = new ReferenceType(compE, []);
+assert(
+	!compB.acceptsA(refE_empty),
+	'При typeArgs == [] (пустой список) и наличии генериков в compE, compB.acceptsA(refE_empty) должно возвращать false'
+);
 assert(
 	!compE.acceptsA(refE_empty),
 	'При typeArgs == [] (пустой список) и наличии генериков в compE, compE.acceptsA(refE_empty) должно возвращать false'
