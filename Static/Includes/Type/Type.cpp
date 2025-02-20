@@ -6,11 +6,17 @@
 #include <string>
 #include <vector>
 #include <set>
+#include <cassert>
 
 using namespace std;
 
-template <typename T>
-using sp = shared_ptr<T>;
+template<typename Container, typename UnaryPredicate>
+Container transform(const Container& container, UnaryPredicate predicate) {
+	Container result;
+	result.reserve(container.size());
+	std::transform(container.begin(), container.end(), back_inserter(result), predicate);
+	return result;
+}
 
 // ----------------------------------------------------------------
 
@@ -129,7 +135,7 @@ struct Type : enable_shared_from_this<Type> {
 	Type(TypeID ID = TypeID::Undefined) : ID(ID) { /*cout << "Type created\n";*/ }
 	virtual ~Type() { /*cout << "Type destroyed\n";*/ }
 
-	virtual bool acceptsA(const TypeRef& type) const { return false; }
+	virtual bool acceptsA(const TypeRef& type) { return false; }
 	virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(shared_from_this()); }
 	virtual bool representedBy(const any& value) const { return false; }
 	virtual TypeRef unwrapped() { return shared_from_this(); }
@@ -151,7 +157,7 @@ struct ParenthesizedType : Type {
 	ParenthesizedType(TypeRef type) : Type(TypeID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
 	~ParenthesizedType() { cout << "(" << innerType->toString() << ") type destroyed\n"; }
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		return innerType->acceptsA(type);
 	}
 
@@ -178,7 +184,7 @@ struct NillableType : Type {
 	NillableType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 	~NillableType() { cout << innerType->toString() << "? type destroyed\n"; }
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		return PredefinedEVoidType->acceptsA(type) ||
 			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
 			   innerType->acceptsA(type);
@@ -213,7 +219,7 @@ struct DefaultType : Type {
 	DefaultType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 	~DefaultType() { cout << innerType->toString() << "? type destroyed\n"; }
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		return PredefinedEVoidType->acceptsA(type) ||
 			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
 			   innerType->acceptsA(type);
@@ -247,7 +253,7 @@ struct UnionType : Type {
 
 	UnionType(const vector<TypeRef>& alternatives) : Type(TypeID::Union), alternatives(alternatives) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		for(const TypeRef& alt : alternatives) {
 			if(alt->acceptsA(type)) {
 				return true;
@@ -309,7 +315,7 @@ struct IntersectionType : Type {
 
 	IntersectionType(const vector<TypeRef>& alternatives) : Type(TypeID::Intersection), alternatives(alternatives) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		for(const TypeRef& alt : alternatives) {
 			if(!alt->acceptsA(type)) {
 				return false;
@@ -374,7 +380,7 @@ struct PredefinedType : Type {
 
 	PredefinedType(PredefinedTypeID subID, function<bool(const TypeRef&)> acceptsFn) : Type(TypeID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		return acceptsFn(type);
 	}
 
@@ -411,7 +417,7 @@ struct PrimitiveType : Type {
 	PrimitiveType(PrimitiveTypeID subID) : Type(TypeID::Primitive), subID(subID) { cout << toString() << " type created\n"; }
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Predefined) {
 			switch(static_pointer_cast<PredefinedType>(type)->subID) {
 				case PredefinedTypeID::PInteger:	return subID == PrimitiveTypeID::Integer;
@@ -460,7 +466,7 @@ struct ArrayType : Type {
 
 	ArrayType(const TypeRef& valueType) : Type(TypeID::Array), valueType(valueType) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::PDictionary) {
 			return true;
 		}
@@ -488,7 +494,7 @@ struct DictionaryType : Type {
 
 	DictionaryType(const TypeRef& keyType, const TypeRef& valueType) : Type(TypeID::Dictionary), keyType(keyType), valueType(valueType) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::PDictionary) {
 			return true;
 		}
@@ -519,7 +525,16 @@ struct CompositeType : Type {
 	vector<int> inherits;
 	vector<TypeRef> generics;
 
-	CompositeType(CompositeTypeID subID, const string& title, const vector<int>& inherits = {}, const vector<TypeRef>& generics = {}) : Type(TypeID::Composite), index(composites.size()), subID(subID), title(title), inherits(inherits), generics(generics) {
+	CompositeType(CompositeTypeID subID,
+				  const string& title,
+				  const vector<int>& inherits = {},
+				  const vector<TypeRef>& generics = {}) : Type(TypeID::Composite),
+														  index(composites.size()),
+														  subID(subID),
+														  title(title),
+														  inherits(inherits),
+														  generics(generics)
+	{
 		composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
 	}
 
@@ -554,7 +569,7 @@ struct CompositeType : Type {
 		return true;
 	}
 
-	bool acceptsA(const TypeRef& type) const override;
+	bool acceptsA(const TypeRef& type) override;
 
 	string toString() const override {
 		string result;
@@ -613,7 +628,7 @@ struct ReferenceType : Type {
 
 	ReferenceType(const shared_ptr<CompositeType>& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Predefined) {
 			return compType->acceptsA(type);
 		}
@@ -666,10 +681,10 @@ struct ReferenceType : Type {
 	}
 };
 
-bool CompositeType::acceptsA(const TypeRef& type) const {
+bool CompositeType::acceptsA(const TypeRef& type) {
 	if(type->ID == TypeID::Predefined) {
 		switch(static_pointer_cast<PredefinedType>(type)->subID) {
- 			case PredefinedTypeID::CAny:			return true;
+			case PredefinedTypeID::CAny:			return true;
 			case PredefinedTypeID::CClass:			return subID == CompositeTypeID::Class;
 			case PredefinedTypeID::CEnumeration:	return subID == CompositeTypeID::Enumeration;
 			case PredefinedTypeID::CFunction:		return subID == CompositeTypeID::Function;
@@ -680,13 +695,13 @@ bool CompositeType::acceptsA(const TypeRef& type) const {
 		}
 	}
 	if(type->ID == TypeID::Composite) {
-		auto compThis = const_pointer_cast<CompositeType>(static_pointer_cast<const CompositeType>(shared_from_this()));
+		auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
 		auto compType = static_pointer_cast<CompositeType>(type);
 
 		return CompositeType::checkConformance(compThis, compType);
 	}
 	if(type->ID == TypeID::Reference) {
-		auto compThis = const_pointer_cast<CompositeType>(static_pointer_cast<const CompositeType>(shared_from_this()));
+		auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
 		auto refType = static_pointer_cast<ReferenceType>(type);
 
 		return CompositeType::checkConformance(compThis, refType->compType, refType->typeArgs);
@@ -697,12 +712,100 @@ bool CompositeType::acceptsA(const TypeRef& type) const {
 
 // ----------------------------------------------------------------
 
+struct FunctionTypeModifiers {
+	optional<bool> inits,
+				   deinits,
+				   awaits,
+				   throws;
+};
+
+struct FunctionType : Type {
+	vector<TypeRef> genericParameterTypes,
+					parameterTypes;
+	TypeRef returnType;
+	FunctionTypeModifiers modifiers;
+
+	FunctionType(const vector<TypeRef>& genericParameterTypes,
+				 const vector<TypeRef>& parameterTypes,
+				 const TypeRef& returnType,
+				 const FunctionTypeModifiers& modifiers) : genericParameterTypes(genericParameterTypes),
+														   parameterTypes(parameterTypes),
+														   returnType(returnType),
+														   modifiers(modifiers) {}
+
+	static bool matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList);
+
+	bool acceptsA(const TypeRef& type) override {
+		if(type->ID == TypeID::Function) {
+			auto funcType = static_pointer_cast<FunctionType>(type);
+
+			return FunctionType::matchTypeLists(genericParameterTypes, funcType->genericParameterTypes) &&
+				   FunctionType::matchTypeLists(parameterTypes, funcType->parameterTypes) &&
+				   (!modifiers.inits || funcType->modifiers.inits == modifiers.inits) &&
+				   (!modifiers.deinits || funcType->modifiers.deinits == modifiers.deinits) &&
+				   (!modifiers.awaits || funcType->modifiers.awaits == modifiers.awaits) &&
+				   (!modifiers.throws || funcType->modifiers.throws == modifiers.throws) &&
+				   returnType->acceptsA(funcType->returnType);
+		}
+
+		return false;
+	}
+
+	TypeRef normalized() override {
+		return make_shared<FunctionType>(
+			transform(genericParameterTypes, [](const TypeRef& v) { return v->normalized(); }),
+			transform(parameterTypes, [](const TypeRef& v) { return v->normalized(); }),
+			returnType->normalized(),
+			modifiers
+		);
+	}
+
+	string toString() const override {
+		string result;
+
+		if(!genericParameterTypes.empty()) {
+			result += "<";
+
+			for(int i = 0; i < genericParameterTypes.size(); i++) {
+				if(i > 0) {
+					result += ", ";
+				}
+
+				result += genericParameterTypes[i]->toString();
+			}
+
+			result += ">";
+		}
+
+		result += "(";
+
+		for(int i = 0; i < parameterTypes.size(); i++) {
+			if(i > 0) {
+				result += ", ";
+			}
+
+			result += parameterTypes[i]->toString();
+		}
+
+		result += ")";
+
+		result += !modifiers.inits ? " inits?" : *modifiers.inits ? " inits" : "";
+		result += !modifiers.deinits ? " deinits?" : *modifiers.deinits ? " deinits" : "";
+		result += !modifiers.awaits ? " awaits?" : *modifiers.awaits ? " awaits" : "";
+		result += !modifiers.throws ? " throws?" : *modifiers.throws ? " throws" : "";
+
+		result += " -> "+returnType->toString();
+
+		return result;
+	}
+};
+
 struct InoutType : Type {
 	TypeRef innerType;
 
 	InoutType(const TypeRef& innerType) : Type(TypeID::Inout), innerType(innerType) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
 	}
 
@@ -728,9 +831,9 @@ struct InoutType : Type {
 struct VariadicType : Type {
 	TypeRef innerType;
 
-	VariadicType(const TypeRef& innerType) : Type(TypeID::Variadic), innerType(innerType) {}
+	VariadicType(const TypeRef& innerType = nullptr) : Type(TypeID::Variadic), innerType(innerType) {}
 
-	bool acceptsA(const TypeRef& type) const override {
+	bool acceptsA(const TypeRef& type) override {
 		if(!innerType) {
 			return true;
 		}
@@ -773,6 +876,52 @@ struct VariadicType : Type {
 		return (innerType ? innerType->toString() : "")+"...";
 	}
 };
+
+bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList) {
+	int expectedSize = expectedList.size(),
+		providedSize = providedList.size();
+
+	function<bool(int, int)> matchFrom = [&](int expectedIndex, int providedIndex) {
+		if(expectedIndex == expectedSize) {
+			return providedIndex == providedSize;
+		}
+
+		const TypeRef& expectedType = expectedList[expectedIndex];
+
+		if(expectedType->ID == TypeID::Variadic) {
+			auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
+
+			if(expectedIndex == expectedSize-1) {
+				return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeRef& t) {
+					return varExpectedType->acceptsA(t);
+				});
+			}
+
+			if(matchFrom(expectedIndex+1, providedIndex)) {
+				return true;
+			}
+
+			for(int currentIndex = providedIndex; currentIndex < providedSize; currentIndex++) {
+				if(!varExpectedType->acceptsA(providedList[currentIndex])) {
+					break;
+				}
+				if(matchFrom(expectedIndex+1, currentIndex+1)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		if(providedIndex < providedSize && expectedType->acceptsA(providedList[providedIndex])) {
+			return matchFrom(expectedIndex+1, providedIndex+1);
+		}
+
+		return false;
+	};
+
+	return matchFrom(0, 0);
+}
 
 // ----------------------------------------------------------------
 
@@ -850,8 +999,99 @@ const TypeRef PredefinedCStructureType = make_shared<PredefinedType>(PredefinedT
 
 // ----------------------------------------------------------------
 
+void matchTypeListsTest() {
+	// Примитивные типы
+	TypeRef intType	= make_shared<PrimitiveType>(PrimitiveTypeID::Integer);
+	TypeRef floatType  = make_shared<PrimitiveType>(PrimitiveTypeID::Float);
+	TypeRef stringType = make_shared<PrimitiveType>(PrimitiveTypeID::String);
+	TypeRef boolType   = make_shared<PrimitiveType>(PrimitiveTypeID::Boolean);
+
+	// Variadic с внутренним типом
+	TypeRef variadicInt	= make_shared<VariadicType>(intType);
+	TypeRef variadicString = make_shared<VariadicType>(stringType);
+
+	// Variadic без внутреннего типа (принимает любой тип)
+	TypeRef variadicAny = make_shared<VariadicType>();
+
+	// Тест 1: Точное совпадение без вариативных типов.
+	vector<TypeRef> expected_1 = { intType, floatType, stringType, boolType },
+					provided_1 = { intType, floatType, stringType, boolType };
+	assert(FunctionType::matchTypeLists(expected_1, provided_1));
+
+	// Тест 2: Несовпадение списков (неправильный порядок).
+	vector<TypeRef> expected_2 = { intType, floatType, stringType },
+					provided_2 = { intType, stringType, floatType };
+	assert(!FunctionType::matchTypeLists(expected_2, provided_2));
+
+	// Тест 3: Variadic как последний элемент с пустым списком provided.
+	vector<TypeRef> expected_3 = { variadicInt },
+					provided_3 = {};
+	assert(FunctionType::matchTypeLists(expected_3, provided_3));
+
+	// Тест 4: Variadic как последний элемент с несколькими элементами.
+	vector<TypeRef> expected_4 = { variadicInt },
+					provided_4 = { intType, intType, intType };
+	assert(FunctionType::matchTypeLists(expected_4, provided_4));
+
+	// Тест 5: Variadic в середине, покрывающий 0 элементов.
+	vector<TypeRef> expected_5 = { intType, variadicInt, stringType },
+					provided_5 = { intType, stringType };
+	assert(FunctionType::matchTypeLists(expected_5, provided_5));
+
+	// Тест 6: Variadic в середине, покрывающий 1 элемент.
+	vector<TypeRef> expected_6 = { intType, variadicInt, stringType },
+					provided_6 = { intType, intType, stringType };
+	assert(FunctionType::matchTypeLists(expected_6, provided_6));
+
+	// Тест 7: Variadic в середине, покрывающий несколько элементов.
+	vector<TypeRef> expected_7 = { intType, variadicInt, stringType },
+					provided_7 = { intType, intType, intType, stringType };
+	assert(FunctionType::matchTypeLists(expected_7, provided_7));
+
+	// Тест 8: Variadic не соответствует (в Variadic ожидается int, а получен float).
+	vector<TypeRef> expected_8 = { intType, variadicInt },
+					provided_8 = { intType, floatType };
+	assert(!FunctionType::matchTypeLists(expected_8, provided_8));
+
+	// Тест 9: Несколько Variadic подряд с внутренними типами.
+	vector<TypeRef> expected_9 = { variadicInt, variadicString },
+					provided_9 = { intType, intType, stringType, stringType };
+	assert(FunctionType::matchTypeLists(expected_9, provided_9));
+
+	// Тест 10: Variadic без внутреннего типа (variadicAny) как последний элемент, принимает любые типы.
+	vector<TypeRef> expected_10 = { variadicAny },
+					provided_10 = { intType, floatType, stringType, boolType };
+	assert(FunctionType::matchTypeLists(expected_10, provided_10));
+
+	// Тест 11: Variadic без внутреннего типа (variadicAny) в середине.
+	vector<TypeRef> expected_11 = { intType, variadicAny, stringType };
+	// Здесь variadicAny может покрыть несколько любых типов.
+	vector<TypeRef> provided_11 = { intType, boolType, floatType, stringType };
+	assert(FunctionType::matchTypeLists(expected_11, provided_11));
+
+	// Тест 12: Variadic без внутреннего типа (variadicAny) в середине, покрывающий 0 элементов.
+	vector<TypeRef> expected_12 = { intType, variadicAny, stringType },
+					provided_12 = { intType, stringType };
+	assert(FunctionType::matchTypeLists(expected_12, provided_12));
+
+	// Тест 13: Variadic в середине, где первый элемент для вариативного типа не соответствует.
+	// Здесь variadicInt (ожидает int) не принимает floatType, поэтому цикл должен прерваться.
+	vector<TypeRef> expected_13 = { intType, variadicInt, stringType },
+					provided_13 = { intType, floatType, stringType };
+	assert(!FunctionType::matchTypeLists(expected_13, provided_13));
+
+	// Тест 14: Variadic в середине, где break происходит не сразу, а после одного успешного совпадения.
+	// Порядок обработки:
+	// - Сначала проверяется пустой диапазон для Variadic — не подходит.
+	// - Затем для currentIndex = 1: intType принимается.
+	// - Для currentIndex = 2: floatType не принимается variadicInt, цикл прерывается, сопоставление не удаётся.
+	vector<TypeRef> expected_14 = { intType, variadicInt, stringType },
+					provided_14 = { intType, intType, floatType, stringType };
+	assert(!FunctionType::matchTypeLists(expected_14, provided_14));
+}
+
 int main() {
-	TypeRef intType = make_shared<PrimitiveType>(PrimitiveTypeID::Integer);
+	TypeRef intType	= make_shared<PrimitiveType>(PrimitiveTypeID::Integer);
 	TypeRef nillableInt = make_shared<NillableType>(intType);
 	TypeRef parenType = make_shared<ParenthesizedType>(nillableInt);
 	TypeRef nillableParenType = make_shared<NillableType>(parenType);
@@ -861,4 +1101,6 @@ int main() {
 	cout << "(int?) accepts int: " << parenType->acceptsA(intType) << "\n";
 	cout << "(int?)? normalized: " << nillableParenType->normalized()->toString() << "\n";
 	cout << "(int?)? unwrapped: " << nillableParenType->unwrapped()->toString() << "\n";
+
+	matchTypeListsTest();
 }

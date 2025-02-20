@@ -528,14 +528,14 @@ class FunctionType extends Type {
 	/**
 	 * @param {Type[]} genericParameters – массив generic-параметров (без идентификаторов, только типы);
 	 *        поддерживается вариативность (элементы могут быть VariadicType).
-	 * @param {Type[]} parameterTypes – список типов параметров (в нём могут встречаться VariadicType)
+	 * @param {Type[]} parameters – список типов параметров (в нём могут встречаться VariadicType)
 	 * @param {Type} returnType – тип возвращаемого значения.
 	 * @param {Object} modifiers – модификаторы: inits, deinits, awaits, throws (каждый: true, false или null).
 	 */
-	constructor(genericParameters = [], parameterTypes = [], returnType, modifiers = {}) {
+	constructor(genericParameters = [], parameters = [], returnType, modifiers = {}) {
 		super();
 		this.genericParameters = genericParameters; // массив Type
-		this.parameterTypes = parameterTypes;         // массив Type (возможно VariadicType)
+		this.parameters = parameters;         // массив Type (возможно VariadicType)
 		this.returnType = returnType;                 // Type
 		this.modifiers = {
 			inits: modifiers.inits !== undefined ? modifiers.inits : null,
@@ -545,51 +545,51 @@ class FunctionType extends Type {
 		};
 	}
 
-	/**
-	 * Сравнение списков параметров с поддержкой VariadicType.
-	 * Алгоритм:
-	 *   Будем идти по expected (E) и provided (P) одновременно.
-	 *   Если текущий E не вариативный, то он должен соответствовать текущему P.
-	 *   Если E – VariadicType:
-	 *     – если это последний элемент списка, то все оставшиеся параметры P должны соответствовать его innerType (если он задан).
-	 *     – иначе попробуем «разбить» P на 0 или больше элементов, соответствующих VariadicType, а затем сравнить оставшиеся части.
-	 */
 	static matchTypeLists(expectedList, providedList) {
-		function matchFrom(i, j) {
-			if (i === expectedList.length) {
-				return j === providedList.length;
+		let expectedSize = expectedList.length,
+			providedSize = providedList.length;
+
+		function matchFrom(expectedIndex, providedIndex) {
+			if (expectedIndex === expectedSize) {
+				return providedIndex === providedSize;
 			}
-			const expectedType = expectedList[i];
+
+			const expectedType = expectedList[expectedIndex];
+
 			if (expectedType instanceof VariadicType) {
-				// Если VariadicType — последний элемент списка,
-				// то все оставшиеся элементы providedList должны удовлетворять expectedType.
-				if (i === expectedList.length - 1) {
-					for (let k = j; k < providedList.length; k++) {
+				if (expectedIndex === expectedSize - 1) {
+					for (let k = providedIndex; k < providedSize; k++) {
 						if (!expectedType.acceptsA(providedList[k])) {
 							return false;
 						}
 					}
+
 					return true;
-				} else {
-					// Если VariadicType не последний — перебираем, сколько элементов будет поглощено.
-					for (let k = j; k <= providedList.length; k++) {
-						let allMatch = true;
-						for (let m = j; m < k; m++) {
-							if (!expectedType.acceptsA(providedList[m])) {
-								allMatch = false;
-								break;
-							}
-						}
-						if (allMatch && matchFrom(i + 1, k)) return true;
-					}
-					return false;
 				}
-			} else {
-				if (j >= providedList.length) return false;
-				if (!expectedType.acceptsA(providedList[j])) return false;
-				return matchFrom(i + 1, j + 1);
+
+				if(matchFrom(expectedIndex+1, providedIndex)) {
+					return true;
+				}
+
+				for(let currentIndex = providedIndex; currentIndex < providedSize; currentIndex++) {
+					if(!expectedType.acceptsA(providedList[currentIndex])) {
+						break;
+					}
+					if(matchFrom(expectedIndex+1, currentIndex+1)) {
+						return true;
+					}
+				}
+
+				return false;
 			}
+
+			if(providedIndex < providedSize && expectedType.acceptsA(providedList[providedIndex])) {
+				return matchFrom(expectedIndex+1, providedIndex+1);
+			}
+
+			return false;
 		}
+
 		return matchFrom(0, 0);
 	}
 
@@ -601,7 +601,7 @@ class FunctionType extends Type {
 		}
 
 		if(!FunctionType.matchTypeLists(this.genericParameters, other.genericParameters)) return false;
-		if(!FunctionType.matchTypeLists(this.parameterTypes, other.parameterTypes)) return false;
+		if(!FunctionType.matchTypeLists(this.parameters, other.parameters)) return false;
 
 		for(let key of ["inits", "deinits", "awaits", "throws"]) {
 			if(this.modifiers[key] !== null) {
@@ -630,7 +630,7 @@ class FunctionType extends Type {
 
 	normalized() {
 		const normGenerics = this.genericParameters.map(g => g.normalized());
-		const normParams = this.parameterTypes.map(p => p.normalized());
+		const normParams = this.parameters.map(p => p.normalized());
 		const normReturn = this.returnType.normalized();
 		return new FunctionType(normGenerics, normParams, normReturn, this.modifiers);
 	}
@@ -640,7 +640,7 @@ class FunctionType extends Type {
 		if (this.genericParameters.length > 0) {
 			genericStr = "<" + this.genericParameters.map(g => g.toString()).join(", ") + ">";
 		}
-		let paramsStr = this.parameterTypes.map(p => p.toString()).join(", ");
+		let paramsStr = this.parameters.map(p => p.toString()).join(", ");
 		let modStr = "";
 		for (let key of ["inits", "deinits", "awaits", "throws"]) {
 			if (this.modifiers[key] !== null) {
@@ -1104,7 +1104,7 @@ assert(
 	'FunctionType с сигнатурой (Int, String) -> void с awaits=true должен конформить такую же функцию'
 );
 
-// Функция с вариативными параметрами: (Variadic(Number), String, Variadic(Bool), Variadic) -> void, awaits=true.
+// Функция с вариативными параметрами: (Number..., String, Bool..., ...) -> void, awaits=true.
 const expectedFuncVariadic = new FunctionType(
 	[], // без дженерик‑параметров
 	[ new VariadicType(numberType), stringType, new VariadicType(boolType), new VariadicType() ],
@@ -1134,12 +1134,98 @@ assert(
 	!func3.conformsTo(expectedFunc),
 	'FunctionType с awaits=true не должен конформить функцию с awaits=false'
 );
+assert(
+	!func3.conformsTo(expectedFuncVariadic),
+	'FunctionType с вариативными параметрами не должен конформить функцию, не удовлетворяющую сигнатуре'
+);
 
 // Тест поддержки обёрнутого типа: функция, обёрнутая в ParenthesizedType, должна работать корректно.
 assert(
 	new ParenthesizedType(func1).conformsTo(expectedFunc),
 	'FunctionType должен корректно работать с типами, обёрнутыми в ParenthesizedType'
 );
+
+//
+
+let variadicInt = new VariadicType(intType);
+let variadicString = new VariadicType(stringType);
+let variadicAny = new VariadicType();
+
+// Тест 1: Точное совпадение без вариативных типов.
+let expected_1 = [ intType, floatType, stringType, boolType ]
+let provided_1 = [ intType, floatType, stringType, boolType ]
+assert(FunctionType.matchTypeLists(expected_1, provided_1));
+
+// Тест 2: Несовпадение списков (неправильный порядок).
+let expected_2 = [ intType, floatType, stringType ]
+let provided_2 = [ intType, stringType, floatType ]
+assert(!FunctionType.matchTypeLists(expected_2, provided_2));
+
+// Тест 3: Variadic как последний элемент с пустым списком provided.
+let expected_3 = [ variadicInt ]
+let provided_3 = []
+assert(FunctionType.matchTypeLists(expected_3, provided_3));
+
+// Тест 4: Variadic как последний элемент с несколькими элементами.
+let expected_4 = [ variadicInt ]
+let provided_4 = [ intType, intType, intType ]
+assert(FunctionType.matchTypeLists(expected_4, provided_4));
+
+// Тест 5: Variadic в середине, покрывающий 0 элементов.
+let expected_5 = [ intType, variadicInt, stringType ]
+let provided_5 = [ intType, stringType ]
+assert(FunctionType.matchTypeLists(expected_5, provided_5));
+
+// Тест 6: Variadic в середине, покрывающий 1 элемент.
+let expected_6 = [ intType, variadicInt, stringType ]
+let provided_6 = [ intType, intType, stringType ]
+assert(FunctionType.matchTypeLists(expected_6, provided_6));
+
+// Тест 7: Variadic в середине, покрывающий несколько элементов.
+let expected_7 = [ intType, variadicInt, stringType ]
+let provided_7 = [ intType, intType, intType, stringType ]
+assert(FunctionType.matchTypeLists(expected_7, provided_7));
+
+// Тест 8: Variadic не соответствует (в Variadic ожидается int, а получен float).
+let expected_8 = [ intType, variadicInt ]
+let provided_8 = [ intType, floatType ]
+assert(!FunctionType.matchTypeLists(expected_8, provided_8));
+
+// Тест 9: Несколько Variadic подряд с внутренними типами.
+let expected_9 = [ variadicInt, variadicString ]
+let provided_9 = [ intType, intType, stringType, stringType ]
+assert(FunctionType.matchTypeLists(expected_9, provided_9));
+
+// Тест 10: Variadic без внутреннего типа (variadicAny) как последний элемент, принимает любые типы.
+let expected_10 = [ variadicAny ]
+let provided_10 = [ intType, floatType, stringType, boolType ]
+assert(FunctionType.matchTypeLists(expected_10, provided_10));
+
+// Тест 11: Variadic без внутреннего типа (variadicAny) в середине.
+let expected_11 = [ intType, variadicAny, stringType ]
+// Здесь variadicAny может покрыть несколько любых типов.
+let provided_11 = [ intType, boolType, floatType, stringType ]
+assert(FunctionType.matchTypeLists(expected_11, provided_11));
+
+// Тест 12: Variadic без внутреннего типа (variadicAny) в середине, покрывающий 0 элементов.
+let expected_12 = [ intType, variadicAny, stringType ]
+let provided_12 = [ intType, stringType ]
+assert(FunctionType.matchTypeLists(expected_12, provided_12));
+
+// Тест 13: Variadic в середине, где первый элемент для вариативного типа не соответствует.
+// Здесь variadicInt (ожидает int) не принимает floatType, поэтому цикл должен прерваться.
+let expected_13 = [ intType, variadicInt, stringType ]
+let provided_13 = [ intType, floatType, stringType ]
+assert(!FunctionType.matchTypeLists(expected_13, provided_13));
+
+// Тест 14: Variadic в середине, где break происходит не сразу, а после одного успешного совпадения.
+// Порядок обработки:
+// - Сначала проверяется пустой диапазон для Variadic — не подходит.
+// - Затем для currentIndex = 1: intType принимается.
+// - Для currentIndex = 2: floatType не принимается variadicInt, цикл прерывается, сопоставление не удаётся.
+let expected_14 = [ intType, variadicInt, stringType ]
+let provided_14 = [ intType, intType, floatType, stringType ]
+assert(!FunctionType.matchTypeLists(expected_14, provided_14));
 
 // ---------------------------------------------------------------------------------
 // 10. Тесты для UnionType
