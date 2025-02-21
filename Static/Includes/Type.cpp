@@ -993,8 +993,7 @@ const TypeRef PredefinedCEnumerationTypeRef = make_shared<PredefinedType>(Predef
 
 const TypeRef PredefinedCFunctionTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function ||
-		   type->ID == TypeID::Function;
+		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
 });
 
 const TypeRef PredefinedCNamespaceTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {

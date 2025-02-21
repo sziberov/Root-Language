@@ -125,7 +125,7 @@ public:
 			return getValueWrapper(value, "Array");
 		} else
 		if(type == "arrayType") {
-			TypeRef valueType = executeTNode(n->get("value")) ?: PredefinedEAnyTypeRef;
+			TypeRef valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 			CompositeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
 
 			if(composite) {
@@ -175,8 +175,8 @@ public:
 			return getValueWrapper(value, "Dictionary");
 		} else
 		if(type == "dictionaryType") {
-			TypeRef keyType = executeTNode(n->get("key")) ?: PredefinedEAnyTypeRef,
-					valueType = executeTNode(n->get("value")) ?: PredefinedEAnyTypeRef;
+			TypeRef keyType = executeTNode(n->get("key")) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
+					valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 			CompositeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
 
 			if(composite) {
@@ -415,11 +415,11 @@ public:
 		return ID.type() == 2 && (int)ID < composites.size() ? composites[(int)ID] : nullptr;
 	}
 
-	CompositeRef createComposite(const string& title/*, const Node& type*/, CompositeRef scope = nullptr) {
+	CompositeRef createComposite(const string& title, const CompositeTypeRef& type, CompositeRef scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
-	//	if(!typeIsComposite(type)) {
-	//		return nullptr;
-	//	}
+		if(!type) {
+			return nullptr;
+		}
 
 		auto composite = Ref<Composite>(
 			title,
@@ -428,8 +428,8 @@ public:
 				{"scope", nullptr},
 				{"retainers", NodeArray {}}
 			},
-			1//,
-		//	type
+			1,
+			type
 		);
 
 		composites.push_back(composite);
@@ -615,7 +615,7 @@ public:
 	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
 	CompositeRef createNamespace(const string& title, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr) {
-		CompositeRef namespace_ = createComposite(title/*, make_shared(NodeArray {{ "predefined", "Namespace" }})*/, scope);
+		CompositeRef namespace_ = createComposite(title, Ref<CompositeType>(CompositeTypeID::Namespace), scope);
 
 		if(levels && *levels) {
 			setInheritedLevelIDs(namespace_, *levels);
@@ -627,6 +627,32 @@ public:
 		}
 
 		return namespace_;
+	}
+
+	bool compositeIsFunction(const CompositeRef& composite) {
+		return composite && PredefinedCFunctionTypeRef->acceptsA(composite->type);
+	}
+
+	bool compositeIsNamespace(const CompositeRef& composite) {
+		return composite && PredefinedCNamespaceTypeRef->acceptsA(composite->type);
+	}
+
+	bool compositeIsObject(const CompositeRef& composite) {
+		return composite && PredefinedCObjectTypeRef->acceptsA(composite->type);
+	}
+
+	bool compositeIsInstantiable(const CompositeRef& composite) {
+		return composite && (
+			PredefinedCClassTypeRef->acceptsA(composite->type) ||
+			PredefinedCStructureTypeRef->acceptsA(composite->type)
+		);
+	}
+
+	bool compositeIsCallable(const CompositeRef& composite) {
+		return (
+			compositeIsFunction(composite) ||
+			compositeIsInstantiable(composite)
+		);
 	}
 
 	CompositeRef scope() {
