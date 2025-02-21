@@ -3,7 +3,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "Node.cpp"
+#include "Type.cpp"
 
 using namespace std;
 
@@ -56,13 +56,13 @@ struct PrimitiveDictionary {
 };
 
 struct Primitive {
-	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, Node>;
+	using Type = variant<bool, PrimitiveDictionary, double, int, int, int, string, TypeRef>;
 
 	mutable Type value;
 
-	Primitive(bool v) : value(Type(in_place_index<0>, v)) {}
-	Primitive(const PrimitiveDictionary& v) : value(Type(in_place_index<1>, v)) {}
-	Primitive(double v) : value(Type(in_place_index<2>, v)) {}
+	Primitive(bool v) : value(v) {}
+	Primitive(const PrimitiveDictionary& v) : value(v) {}
+	Primitive(double v) : value(v) {}
 	Primitive(int v) : value(Type(in_place_index<3>, v)) {}
 	Primitive(int v, const string& type) {
 		if(type == "integer") {
@@ -77,8 +77,8 @@ struct Primitive {
 			throw invalid_argument("Unknown type: "+type+" for value: "+to_string(v));
 		}
 	}
-	Primitive(const string& v) : value(Type(in_place_index<6>, v)) {}
-	Primitive(const Node& v) : value(Type(in_place_index<7>, v)) {}
+	Primitive(const string& v) : value(v) {}
+	Primitive(const TypeRef& v) : value(v ?: throw invalid_argument("Primitive cannot be nil")) {}
 
 	template <typename T>
 	T& get() {
@@ -139,14 +139,14 @@ struct Primitive {
 			case 4:		return to_string(get<4>());
 			case 5:		return to_string(get<5>());
 			case 6:		return get<string>();
-			case 7:		return to_string(get<Node>());
+			case 7:		return get<TypeRef>()->toString();
 			default:	return string();
 		}
 	}
 
-	operator Node&() const {
+	operator TypeRef() const {
 		switch(value.index()) {
-			case 7:		return ::get<Node>(value);
+			case 7:		return ::get<TypeRef>(value);
 			default:	throw bad_variant_access();
 		}
 	}

@@ -41,6 +41,27 @@ struct VariadicType;
 
 // ----------------------------------------------------------------
 
+using TypeRef = shared_ptr<Type>;
+
+using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
+using NillableTypeRef = shared_ptr<NillableType>;
+using DefaultTypeRef = shared_ptr<DefaultType>;
+using UnionTypeRef = shared_ptr<UnionType>;
+using IntersectionTypeRef = shared_ptr<IntersectionType>;
+
+using PredefinedTypeRef = shared_ptr<PredefinedType>;
+using PrimitiveTypeRef = shared_ptr<PrimitiveType>;
+using ArrayTypeRef = shared_ptr<ArrayType>;
+using DictionaryTypeRef = shared_ptr<DictionaryType>;
+using CompositeTypeRef = shared_ptr<CompositeType>;
+using ReferenceTypeRef = shared_ptr<ReferenceType>;
+
+using FunctionTypeRef = shared_ptr<FunctionType>;
+using InoutTypeRef = shared_ptr<InoutType>;
+using VariadicTypeRef = shared_ptr<VariadicType>;
+
+// ----------------------------------------------------------------
+
 enum class TypeID : uint8_t {
 	Undefined,
 
@@ -106,26 +127,24 @@ enum class CompositeTypeID : uint8_t {
 
 // ----------------------------------------------------------------
 
-using TypeRef = shared_ptr<Type>;
+extern const TypeRef PredefinedEVoidTypeRef;
+extern const TypeRef PredefinedEAnyTypeRef;
 
-extern const TypeRef PredefinedEVoidType;
-extern const TypeRef PredefinedEAnyType;
+extern const TypeRef PredefinedPAnyTypeRef;
+extern const TypeRef PredefinedPBooleanTypeRef;
+extern const TypeRef PredefinedPFloatTypeRef;
+extern const TypeRef PredefinedPIntegerTypeRef;
+extern const TypeRef PredefinedPStringTypeRef;
+extern const TypeRef PredefinedPTypeTypeRef;
 
-extern const TypeRef PredefinedPAnyType;
-extern const TypeRef PredefinedPBooleanType;
-extern const TypeRef PredefinedPFloatType;
-extern const TypeRef PredefinedPIntegerType;
-extern const TypeRef PredefinedPStringType;
-extern const TypeRef PredefinedPTypeType;
-
-extern const TypeRef PredefinedCAnyType;
-extern const TypeRef PredefinedCClassType;
-extern const TypeRef PredefinedCEnumerationType;
-extern const TypeRef PredefinedCFunctionType;
-extern const TypeRef PredefinedCNamespaceType;
-extern const TypeRef PredefinedCObjectType;
-extern const TypeRef PredefinedCProtocolType;
-extern const TypeRef PredefinedCStructureType;
+extern const TypeRef PredefinedCAnyTypeRef;
+extern const TypeRef PredefinedCClassTypeRef;
+extern const TypeRef PredefinedCEnumerationTypeRef;
+extern const TypeRef PredefinedCFunctionTypeRef;
+extern const TypeRef PredefinedCNamespaceTypeRef;
+extern const TypeRef PredefinedCObjectTypeRef;
+extern const TypeRef PredefinedCProtocolTypeRef;
+extern const TypeRef PredefinedCStructureTypeRef;
 
 // ----------------------------------------------------------------
 
@@ -185,7 +204,7 @@ struct NillableType : Type {
 	~NillableType() { cout << innerType->toString() << "? type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
-		return PredefinedEVoidType->acceptsA(type) ||
+		return PredefinedEVoidTypeRef->acceptsA(type) ||
 			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
 			   innerType->acceptsA(type);
 	}
@@ -220,7 +239,7 @@ struct DefaultType : Type {
 	~DefaultType() { cout << innerType->toString() << "? type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
-		return PredefinedEVoidType->acceptsA(type) ||
+		return PredefinedEVoidTypeRef->acceptsA(type) ||
 			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
 			   innerType->acceptsA(type);
 	}
@@ -516,7 +535,7 @@ struct DictionaryType : Type {
 	}
 };
 
-vector<shared_ptr<CompositeType>> composites;
+vector<CompositeTypeRef> composites;
 
 struct CompositeType : Type {
 	int index;
@@ -550,7 +569,7 @@ struct CompositeType : Type {
 		return chain;
 	}
 
-	static bool checkConformance(const shared_ptr<CompositeType>& base, const shared_ptr<CompositeType>& candidate, const optional<vector<TypeRef>>& candidateArgs = {}) {
+	static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateArgs = {}) {
 		if(candidate->index != base->index && !candidate->getFullInheritanceChain().contains(base->index)) {
 			return false;
 		}
@@ -623,10 +642,10 @@ struct CompositeType : Type {
 };
 
 struct ReferenceType : Type {
-	shared_ptr<CompositeType> compType;
+	CompositeTypeRef compType;
 	optional<vector<TypeRef>> typeArgs;
 
-	ReferenceType(const shared_ptr<CompositeType>& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
+	ReferenceType(const CompositeTypeRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Predefined) {
@@ -844,7 +863,7 @@ struct VariadicType : Type {
 		auto varType = static_pointer_cast<VariadicType>(type);
 
 		if(!varType->innerType) {
-			return innerType->acceptsA(PredefinedEVoidType);
+			return innerType->acceptsA(PredefinedEVoidTypeRef);
 		}
 
 		return innerType->acceptsA(varType->innerType);
@@ -925,80 +944,82 @@ bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vec
 
 // ----------------------------------------------------------------
 
-const TypeRef PredefinedEVoidType = make_shared<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeRef& type) {
+const TypeRef PredefinedEVoidTypeRef = make_shared<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeRef& type) {
 	return type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
 });
 
-const TypeRef PredefinedEAnyType = make_shared<PredefinedType>(PredefinedTypeID::EAny, [](const TypeRef& type) {
+const TypeRef PredefinedEAnyTypeRef = make_shared<PredefinedType>(PredefinedTypeID::EAny, [](const TypeRef& type) {
 	return true;
 });
 
-const TypeRef PredefinedPAnyType = make_shared<PredefinedType>(PredefinedTypeID::PAny, [](const TypeRef& type) {
+const TypeRef PredefinedPAnyTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PAny, [](const TypeRef& type) {
 	return type->ID == TypeID::Primitive;
 });
 
-const TypeRef PredefinedPBooleanType = make_shared<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeRef& type) {
+const TypeRef PredefinedPBooleanTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeRef& type) {
 	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Boolean;
 });
 
-const TypeRef PredefinedPFloatType = make_shared<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeRef& type) {
+const TypeRef PredefinedPFloatTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeRef& type) {
 	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Float;
 });
 
-const TypeRef PredefinedPIntegerType = make_shared<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeRef& type) {
+const TypeRef PredefinedPIntegerTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeRef& type) {
 	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Integer;
 });
 
-const TypeRef PredefinedPStringType = make_shared<PredefinedType>(PredefinedTypeID::PString, [](const TypeRef& type) {
+const TypeRef PredefinedPStringTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PString, [](const TypeRef& type) {
 	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::String;
 });
 
-const TypeRef PredefinedPTypeType = make_shared<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
+const TypeRef PredefinedPTypeTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
 	return type->ID != TypeID::Undefined;
 });  // TODO: Values check
 
-const TypeRef PredefinedCAnyType = make_shared<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
+const TypeRef PredefinedCAnyTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite ||
 		   type->ID == TypeID::Reference;
 });
 
-const TypeRef PredefinedCClassType = make_shared<PredefinedType>(PredefinedTypeID::CClass, [](const TypeRef& type) {
+const TypeRef PredefinedCClassTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CClass, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Class ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Class;
 });
 
-const TypeRef PredefinedCEnumerationType = make_shared<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeRef& type) {
+const TypeRef PredefinedCEnumerationTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Enumeration ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Enumeration;
 });
 
-const TypeRef PredefinedCFunctionType = make_shared<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
+const TypeRef PredefinedCFunctionTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
+		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function ||
+		   type->ID == TypeID::Function;
 });
 
-const TypeRef PredefinedCNamespaceType = make_shared<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {
+const TypeRef PredefinedCNamespaceTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Namespace ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Namespace;
 });
 
-const TypeRef PredefinedCObjectType = make_shared<PredefinedType>(PredefinedTypeID::CObject, [](const TypeRef& type) {
+const TypeRef PredefinedCObjectTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CObject, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Object ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Object;
 });
 
-const TypeRef PredefinedCProtocolType = make_shared<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeRef& type) {
+const TypeRef PredefinedCProtocolTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Protocol ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Protocol;
 });
 
-const TypeRef PredefinedCStructureType = make_shared<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeRef& type) {
+const TypeRef PredefinedCStructureTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
 });
 
 // ----------------------------------------------------------------
 
+/*
 void matchTypeListsTest() {
 	// Примитивные типы
 	TypeRef intType	= make_shared<PrimitiveType>(PrimitiveTypeID::Integer);
@@ -1104,3 +1125,4 @@ int main() {
 
 	matchTypeListsTest();
 }
+*/
