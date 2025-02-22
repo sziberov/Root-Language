@@ -21,6 +21,7 @@ Container transform(const Container& container, UnaryPredicate predicate) {
 // ----------------------------------------------------------------
 
 struct Type;
+struct ConcreteType;
 
 struct ParenthesizedType;
 struct NillableType;
@@ -42,6 +43,7 @@ struct VariadicType;
 // ----------------------------------------------------------------
 
 using TypeRef = shared_ptr<Type>;
+using ConcreteTypeRef = shared_ptr<ConcreteType>;
 
 using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
 using NillableTypeRef = shared_ptr<NillableType>;
@@ -109,10 +111,11 @@ enum class PredefinedTypeID : uint8_t {
 };
 
 enum class PrimitiveTypeID : uint8_t {
-	Integer,
+	Boolean,
 	Float,
+	Integer,
 	String,
-	Boolean
+	Type
 };
 
 enum class CompositeTypeID : uint8_t {
@@ -150,8 +153,9 @@ extern const TypeRef PredefinedCStructureTypeRef;
 
 struct Type : enable_shared_from_this<Type> {
 	const TypeID ID;
+	const bool concrete;
 
-	Type(TypeID ID = TypeID::Undefined) : ID(ID) { /*cout << "Type created\n";*/ }
+	Type(TypeID ID = TypeID::Undefined, bool concrete = false) : ID(ID), concrete(concrete) { /*cout << "Type created\n";*/ }
 	virtual ~Type() { /*cout << "Type destroyed\n";*/ }
 
 	virtual bool acceptsA(const TypeRef& type) { return false; }
@@ -166,6 +170,14 @@ struct Type : enable_shared_from_this<Type> {
 	static bool acceptsANormalized(const TypeRef& left, const TypeRef& right) {
 		return left->normalized()->acceptsA(right->normalized());
 	}
+};
+
+struct ConcreteType : Type {
+	ConcreteType(TypeID ID) : Type(ID, true) {}
+
+	virtual operator string() const { return toString(); }
+	virtual bool operator==(const TypeRef& v) const { return false; }
+	virtual bool operator!=(const TypeRef& v) const { return !operator==(v); }
 };
 
 // ----------------------------------------------------------------
@@ -430,21 +442,24 @@ struct PredefinedType : Type {
 	}
 };
 
-struct PrimitiveType : Type {
+struct PrimitiveType : ConcreteType {
 	const PrimitiveTypeID subID;
 
-	PrimitiveType(PrimitiveTypeID subID) : Type(TypeID::Primitive), subID(subID) { cout << toString() << " type created\n"; }
+	PrimitiveType(PrimitiveTypeID subID) : ConcreteType(TypeID::Primitive), subID(subID) { cout << toString() << " type created\n"; }
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
+		/*
 		if(type->ID == TypeID::Predefined) {
 			switch(static_pointer_cast<PredefinedType>(type)->subID) {
-				case PredefinedTypeID::PInteger:	return subID == PrimitiveTypeID::Integer;
-				case PredefinedTypeID::PFloat:		return subID == PrimitiveTypeID::Float;
-				case PredefinedTypeID::PString:		return subID == PrimitiveTypeID::String;
 				case PredefinedTypeID::PBoolean:	return subID == PrimitiveTypeID::Boolean;
+				case PredefinedTypeID::PFloat:		return subID == PrimitiveTypeID::Float;
+				case PredefinedTypeID::PInteger:	return subID == PrimitiveTypeID::Integer;
+				case PredefinedTypeID::PString:		return subID == PrimitiveTypeID::String;
+				case PredefinedTypeID::PType:		return subID == PrimitiveTypeID::Type;
 			}
 		}
+		*/
 		if(type->ID == TypeID::Primitive) {
 			return subID == static_pointer_cast<PrimitiveType>(type)->subID;
 		}
@@ -455,11 +470,12 @@ struct PrimitiveType : Type {
 	bool representedBy(const any& value) const override {
 		try {
 			switch(subID) {
-				case PrimitiveTypeID::Integer:	return value.type() == typeid(int);
+				case PrimitiveTypeID::Boolean:	return value.type() == typeid(bool);
 				case PrimitiveTypeID::Float:	return value.type() == typeid(float) ||
 													   value.type() == typeid(double);
+				case PrimitiveTypeID::Integer:	return value.type() == typeid(int);
 				case PrimitiveTypeID::String:	return value.type() == typeid(string);
-				case PrimitiveTypeID::Boolean:	return value.type() == typeid(bool);
+				case PrimitiveTypeID::Type:		return value.type() == typeid(TypeRef);
 			}
 		} catch(const bad_any_cast&) {
 			return false;
@@ -470,25 +486,28 @@ struct PrimitiveType : Type {
 
 	string toString() const override {
 		switch(subID) {
-			case PrimitiveTypeID::Integer:	return "int";
-			case PrimitiveTypeID::Float:	return "float";
-			case PrimitiveTypeID::String:	return "string";
 			case PrimitiveTypeID::Boolean:	return "bool";
+			case PrimitiveTypeID::Float:	return "float";
+			case PrimitiveTypeID::Integer:	return "int";
+			case PrimitiveTypeID::String:	return "string";
+			case PrimitiveTypeID::Type:		return "type";
 		}
 
 		return string();
 	}
 };
 
-struct ArrayType : Type {
+struct ArrayType : ConcreteType {
 	TypeRef valueType;
 
-	ArrayType(const TypeRef& valueType) : Type(TypeID::Array), valueType(valueType) {}
+	ArrayType(const TypeRef& valueType) : ConcreteType(TypeID::Array), valueType(valueType) {}
 
 	bool acceptsA(const TypeRef& type) override {
+		/*
 		if(type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::PDictionary) {
 			return true;
 		}
+		*/
 		if(type->ID == TypeID::Array) {
 			auto arrayType = static_pointer_cast<ArrayType>(type);
 
@@ -507,16 +526,18 @@ struct ArrayType : Type {
 	}
 };
 
-struct DictionaryType : Type {
+struct DictionaryType : ConcreteType {
 	TypeRef keyType,
 			valueType;
 
-	DictionaryType(const TypeRef& keyType, const TypeRef& valueType) : Type(TypeID::Dictionary), keyType(keyType), valueType(valueType) {}
+	DictionaryType(const TypeRef& keyType, const TypeRef& valueType) : ConcreteType(TypeID::Dictionary), keyType(keyType), valueType(valueType) {}
 
 	bool acceptsA(const TypeRef& type) override {
+		/*
 		if(type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::PDictionary) {
 			return true;
 		}
+		*/
 		if(type->ID == TypeID::Dictionary) {
 			auto dictType = static_pointer_cast<DictionaryType>(type);
 
@@ -537,30 +558,30 @@ struct DictionaryType : Type {
 
 vector<CompositeTypeRef> composites;
 
-struct CompositeType : Type {
+struct CompositeType : ConcreteType {
 	int index;
 	const CompositeTypeID subID;
 	string title;
-	vector<int> inherits;
-	vector<TypeRef> generics;
+	vector<int> inheritedTypes;
+	vector<TypeRef> genericParameterTypes;
 
 	CompositeType(CompositeTypeID subID,
 				  const string& title,
-				  const vector<int>& inherits = {},
-				  const vector<TypeRef>& generics = {}) : Type(TypeID::Composite),
-														  index(composites.size()),
-														  subID(subID),
-														  title(title),
-														  inherits(inherits),
-														  generics(generics)
+				  const vector<int>& inheritedTypes = {},
+				  const vector<TypeRef>& genericParameterTypes = {}) : ConcreteType(TypeID::Composite),
+																	   index(composites.size()),
+																	   subID(subID),
+																	   title(title),
+																	   inheritedTypes(inheritedTypes),
+																	   genericParameterTypes(genericParameterTypes)
 	{
 		composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
 	}
 
 	set<int> getFullInheritanceChain() const {
-		auto chain = set<int>(inherits.begin(), inherits.end());
+		auto chain = set<int>(inheritedTypes.begin(), inheritedTypes.end());
 
-		for(int parentIndex : inherits) {
+		for(int parentIndex : inheritedTypes) {
 			set<int> parentChain = composites[parentIndex]->getFullInheritanceChain();
 
 			chain.insert(parentChain.begin(), parentChain.end());
@@ -569,17 +590,17 @@ struct CompositeType : Type {
 		return chain;
 	}
 
-	static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateArgs = {}) {
+	static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
 		if(candidate->index != base->index && !candidate->getFullInheritanceChain().contains(base->index)) {
 			return false;
 		}
 
-		if(candidateArgs) {
-			if(candidate->generics.size() != candidateArgs->size()) {
+		if(candidateGenericArgumentTypes) {
+			if(candidate->genericParameterTypes.size() != candidateGenericArgumentTypes->size()) {
 				return false;
 			}
-			for(int i = 0; i < candidate->generics.size(); i++) {
-				if(!candidate->generics[i]->acceptsA((*candidateArgs)[i])) {
+			for(int i = 0; i < candidate->genericParameterTypes.size(); i++) {
+				if(!candidate->genericParameterTypes[i]->acceptsA((*candidateGenericArgumentTypes)[i])) {
 					return false;
 				}
 			}
@@ -605,25 +626,25 @@ struct CompositeType : Type {
 
 		result += " "+title+"#"+to_string(index);
 
-		if(!generics.empty()) {
+		if(!genericParameterTypes.empty()) {
 			result += "<";
 
-			for(int i = 0; i < generics.size(); i++) {
+			for(int i = 0; i < genericParameterTypes.size(); i++) {
 				if(i > 0) {
 					result += ", ";
 				}
 
-				result += generics[i]->toString();
+				result += genericParameterTypes[i]->toString();
 			}
 
 			result += ">";
 		}
 
-		if(!inherits.empty()) {
+		if(!inheritedTypes.empty()) {
 			set<int> chain = getFullInheritanceChain();
 			bool first = true;
 
-			result += " inherits [";
+			result += " : [";
 
 			for(int index : chain) {
 				if(!first) {
@@ -648,9 +669,11 @@ struct ReferenceType : Type {
 	ReferenceType(const CompositeTypeRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
 
 	bool acceptsA(const TypeRef& type) override {
+		/*
 		if(type->ID == TypeID::Predefined) {
 			return compType->acceptsA(type);
 		}
+		*/
 		if(type->ID == TypeID::Composite) {
 			auto compType = static_pointer_cast<CompositeType>(type);
 
@@ -701,6 +724,7 @@ struct ReferenceType : Type {
 };
 
 bool CompositeType::acceptsA(const TypeRef& type) {
+	/*
 	if(type->ID == TypeID::Predefined) {
 		switch(static_pointer_cast<PredefinedType>(type)->subID) {
 			case PredefinedTypeID::CAny:			return true;
@@ -713,6 +737,7 @@ bool CompositeType::acceptsA(const TypeRef& type) {
 			case PredefinedTypeID::CStructure:		return subID == CompositeTypeID::Structure;
 		}
 	}
+	*/
 	if(type->ID == TypeID::Composite) {
 		auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
 		auto compType = static_pointer_cast<CompositeType>(type);
@@ -973,8 +998,8 @@ const TypeRef PredefinedPStringTypeRef = make_shared<PredefinedType>(PredefinedT
 });
 
 const TypeRef PredefinedPTypeTypeRef = make_shared<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
-	return type->ID != TypeID::Undefined;
-});  // TODO: Values check
+	return type->ID != TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Type;
+});
 
 const TypeRef PredefinedCAnyTypeRef = make_shared<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
 	return type->ID == TypeID::Composite ||
