@@ -6,25 +6,9 @@
 using Location = Lexer::Location;
 using Token = Lexer::Token;
 
-template<typename Container, typename T>
-bool contains(const Container& container, const T& value) {
-	return find(container.begin(), container.end(), value) != container.end();
-}
-
-template<typename T>
-shared_ptr<decay_t<T>> Ref(T&& value) {
-	return std::make_shared<decay_t<T>>(forward<T>(value));
-}
-
-template <typename T, typename... Args>
-shared_ptr<T> Ref(Args&&... args) {
-	return std::make_shared<T>(forward<Args>(args)...);
-}
-
 // ----------------------------------------------------------------
 
-class Parser {
-public:
+struct Parser {
 	Parser() {};
 
 	struct Report {

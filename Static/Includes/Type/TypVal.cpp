@@ -14,8 +14,9 @@
 
 // ----------------------------------------------------------------
 
-struct Type;			// Abstract type
-struct ConcreteType;	// Concrete type, a special case of an abstract type
+struct TypVal;
+struct Type;
+struct Value;
 
 struct ParenthesizedType;
 struct NillableType;
@@ -24,9 +25,9 @@ struct UnionType;
 struct IntersectionType;
 
 struct PredefinedType;
-struct PrimitiveType;
-struct DictionaryType;
-struct CompositeType;
+struct PrimitiveValue;
+struct DictionaryValue;
+struct CompositeValue;
 struct ReferenceType;
 
 struct FunctionType;
@@ -35,8 +36,9 @@ struct VariadicType;
 
 // ----------------------------------------------------------------
 
+using TypValRef = shared_ptr<TypVal>;
 using TypeRef = shared_ptr<Type>;
-using ConcreteTypeRef = shared_ptr<ConcreteType>;
+using ValueRef = shared_ptr<Value>;
 
 using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
 using NillableTypeRef = shared_ptr<NillableType>;
@@ -45,9 +47,9 @@ using UnionTypeRef = shared_ptr<UnionType>;
 using IntersectionTypeRef = shared_ptr<IntersectionType>;
 
 using PredefinedTypeRef = shared_ptr<PredefinedType>;
-using PrimitiveTypeRef = shared_ptr<PrimitiveType>;
-using DictionaryTypeRef = shared_ptr<DictionaryType>;
-using CompositeTypeRef = shared_ptr<CompositeType>;
+using PrimitiveValueRef = shared_ptr<PrimitiveValue>;
+using DictionaryValueRef = shared_ptr<DictionaryValue>;
+using CompositeValueRef = shared_ptr<CompositeValue>;
 using ReferenceTypeRef = shared_ptr<ReferenceType>;
 
 using FunctionTypeRef = shared_ptr<FunctionType>;
@@ -56,7 +58,7 @@ using VariadicTypeRef = shared_ptr<VariadicType>;
 
 // ----------------------------------------------------------------
 
-enum class TypeID : uint8_t {
+enum class TypValID : uint8_t {
 	Undefined,
 
 	Parenthesized,
@@ -102,7 +104,7 @@ enum class PredefinedTypeID : uint8_t {
 	CStructure
 };
 
-enum class PrimitiveTypeID : uint8_t {
+enum class PrimitiveValueID : uint8_t {
 	Boolean,
 	Float,
 	Integer,
@@ -110,7 +112,7 @@ enum class PrimitiveTypeID : uint8_t {
 	Type
 };
 
-enum class CompositeTypeID : uint8_t {
+enum class CompositeValueID : uint8_t {
 	Class,
 	Enumeration,
 	Function,
@@ -143,38 +145,44 @@ extern const TypeRef PredefinedCStructureTypeRef;
 
 // ----------------------------------------------------------------
 
-struct Type : enable_shared_from_this<Type> {
-	const TypeID ID;
+struct TypVal : public enable_shared_from_this<TypVal> {
+	const TypValID ID;
 	const bool concrete;
 
-	Type(TypeID ID = TypeID::Undefined, bool concrete = false) : ID(ID), concrete(concrete) { /*cout << "Type created\n";*/ }
-	virtual ~Type() { /*cout << "Type destroyed\n";*/ }
+	TypVal(TypValID ID = TypValID::Undefined, bool concrete = false) : ID(ID), concrete(concrete) { /*cout << "TypVal created\n";*/ }
+	virtual ~TypVal() { /*cout << "TypVal destroyed\n";*/ }
+
+	virtual bool representedBy(const any& value) const { return false; }
+	virtual string toString() const { return string(); }
+};
+
+struct Type : public TypVal {
+	Type(TypValID ID = TypValID::Undefined) : TypVal(ID, false) { /*cout << "Type created\n";*/ }
 
 	virtual bool acceptsA(const TypeRef& type) { return false; }
-	virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(shared_from_this()); }
-	virtual TypeRef normalized() { return shared_from_this(); }
-	virtual string toString() const { return string(); }
+	virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(static_pointer_cast<Type>(shared_from_this())); }
+	virtual TypeRef normalized() { return static_pointer_cast<Type>(shared_from_this()); }
 
-	// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
+	// Now we are planning to normalize all types for one single time before comparison, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 	// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
 	static bool acceptsANormalized(const TypeRef& left, const TypeRef& right) {
-		return left->acceptsA(right->normalized());
+		return left->normalized()->acceptsA(right->normalized());
 	}
 };
 
-struct ConcreteType : Type {
-	ConcreteType(TypeID ID = TypeID::Undefined) : Type(ID, true) {}
+struct Value : public TypVal {
+	Value(TypValID ID = TypValID::Undefined) : TypVal(ID, true) {}
 
 	virtual operator bool() const { return bool(); }
 	virtual operator double() const { return double(); }
 	virtual operator int() const { return int(); }
 	virtual operator string() const { return toString(); }
-	virtual TypeRef operator+() { return shared_from_this(); }
-	virtual TypeRef operator-() { return shared_from_this(); }
-	virtual TypeRef operator+(TypeRef t) const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator-(TypeRef t) const { return t->concrete ? operator+(static_pointer_cast<ConcreteType>(t)->operator-()) : nullptr; }
-	virtual TypeRef operator*(TypeRef t) const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator/(TypeRef t) const { return Ref<ConcreteType>(); }
+	virtual TypValRef operator+() { return shared_from_this(); }
+	virtual TypValRef operator-() { return shared_from_this(); }
+	virtual TypValRef operator+(TypValRef t) const { return Ref<Value>(); }
+	virtual TypValRef operator-(TypValRef t) const { return t->concrete ? operator+(static_pointer_cast<Value>(t)->operator-()) : nullptr; }
+	virtual TypValRef operator*(TypValRef t) const { return Ref<Value>(); }
+	virtual TypValRef operator/(TypValRef t) const { return Ref<Value>(); }
 	virtual bool operator!() const { return !static_cast<bool>(*this); }
 	virtual bool operator==(const TypeRef& t) const { return false; }
 	virtual bool operator!=(const TypeRef& t) const { return !operator==(t); }
@@ -185,11 +193,15 @@ struct ConcreteType : Type {
 struct ParenthesizedType : Type {
 	TypeRef innerType;
 
-	ParenthesizedType(TypeRef type) : Type(TypeID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
+	ParenthesizedType(TypeRef type) : Type(TypValID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
 	~ParenthesizedType() { cout << "(" << innerType->toString() << ") type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
 		return innerType->acceptsA(type);
+	}
+
+	bool representedBy(const any& value) const override {
+		return innerType->representedBy(value);
 	}
 
 	TypeRef normalized() override {
@@ -204,19 +216,27 @@ struct ParenthesizedType : Type {
 struct NillableType : Type {
 	TypeRef innerType;
 
-	NillableType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+	NillableType(TypeRef type) : Type(TypValID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 	~NillableType() { cout << innerType->toString() << "? type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
 		return PredefinedEVoidTypeRef->acceptsA(type) ||
-			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
+			   type->ID == TypValID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
 			   innerType->acceptsA(type);
 	}
 
-	TypeRef normalized() override {
-		auto normInnerType = innerType->normalized();
+	bool representedBy(const any& value) const override {
+		if(!value.has_value()) {
+			return true;
+		}
 
-		if(normInnerType->ID == TypeID::Nillable) {
+		return innerType->representedBy(value);
+	}
+
+	TypeRef normalized() override {
+		TypeRef normInnerType = innerType->normalized();
+
+		if(normInnerType->ID == TypValID::Nillable) {
 			return normInnerType;
 		}
 
@@ -231,19 +251,27 @@ struct NillableType : Type {
 struct DefaultType : Type {
 	TypeRef innerType;
 
-	DefaultType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+	DefaultType(TypeRef type) : Type(TypValID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 	~DefaultType() { cout << innerType->toString() << "? type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
 		return PredefinedEVoidTypeRef->acceptsA(type) ||
-			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
+			   type->ID == TypValID::Nillable && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
 			   innerType->acceptsA(type);
+	}
+
+	bool representedBy(const any& value) const override {
+		if(!value.has_value()) {
+			return true;
+		}
+
+		return innerType->representedBy(value);
 	}
 
 	TypeRef normalized() override {
 		auto normInnerType = innerType->normalized();
 
-		if(normInnerType->ID == TypeID::Nillable) {
+		if(normInnerType->ID == TypValID::Nillable) {
 			return normInnerType;
 		}
 
@@ -256,9 +284,9 @@ struct DefaultType : Type {
 };
 
 struct UnionType : Type {
-	vector<TypeRef> alternatives;
+	vector<TypValRef> alternatives;
 
-	UnionType(const vector<TypeRef>& alternatives) : Type(TypeID::Union), alternatives(alternatives) {}
+	UnionType(const vector<TypValRef>& alternatives) : Type(TypValID::Union), alternatives(alternatives) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		for(const TypeRef& alt : alternatives) {
@@ -270,13 +298,23 @@ struct UnionType : Type {
 		return false;
 	}
 
+	bool representedBy(const any& value) const override {
+		for(const TypeRef& alt : alternatives) {
+			if(alt->representedBy(value)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	TypeRef normalized() override {
-		vector<TypeRef> normAlts;
+		vector<TypValRef> normAlts;
 
 		for(const TypeRef& alt : alternatives) {
-			TypeRef normAlt = alt->normalized();
+			TypValRef normAlt = alt->normalized();
 
-			if(normAlt->ID == TypeID::Union) {
+			if(normAlt->ID == TypValID::Union) {
 				auto normUnionAlt = static_pointer_cast<UnionType>(normAlt);
 
 				normAlts.insert(normAlts.end(), normUnionAlt->alternatives.begin(), normUnionAlt->alternatives.end());
@@ -308,9 +346,9 @@ struct UnionType : Type {
 };
 
 struct IntersectionType : Type {
-	vector<TypeRef> alternatives;
+	vector<TypValRef> alternatives;
 
-	IntersectionType(const vector<TypeRef>& alternatives) : Type(TypeID::Intersection), alternatives(alternatives) {}
+	IntersectionType(const vector<TypValRef>& alternatives) : Type(TypValID::Intersection), alternatives(alternatives) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		for(const TypeRef& alt : alternatives) {
@@ -322,13 +360,23 @@ struct IntersectionType : Type {
 		return true;
 	}
 
+	bool representedBy(const any& value) const override {
+		for(const TypeRef& alt : alternatives) {
+			if(!alt->representedBy(value)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	TypeRef normalized() override {
-		vector<TypeRef> normAlts;
+		vector<TypValRef> normAlts;
 
 		for(const TypeRef& alt : alternatives) {
-			TypeRef normAlt = alt->normalized();
+			TypValRef normAlt = alt->normalized();
 
-			if(normAlt->ID == TypeID::Intersection) {
+			if(normAlt->ID == TypValID::Intersection) {
 				auto normUnionAlt = static_pointer_cast<IntersectionType>(normAlt);
 
 				normAlts.insert(normAlts.end(), normUnionAlt->alternatives.begin(), normUnionAlt->alternatives.end());
@@ -365,7 +413,7 @@ struct PredefinedType : Type {
 	const PredefinedTypeID subID;
 	function<bool(const TypeRef&)> acceptsFn;
 
-	PredefinedType(PredefinedTypeID subID, function<bool(const TypeRef&)> acceptsFn) : Type(TypeID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
+	PredefinedType(PredefinedTypeID subID, function<bool(const TypeRef&)> acceptsFn) : Type(TypValID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		return acceptsFn(type);
@@ -376,7 +424,7 @@ struct PredefinedType : Type {
 			case PredefinedTypeID::EVoid:			return "void";
 			case PredefinedTypeID::EAny:			return "_";
 
- 			case PredefinedTypeID::PAny:			return "any";
+			case PredefinedTypeID::PAny:			return "any";
 			case PredefinedTypeID::PBoolean:		return "bool";
 			case PredefinedTypeID::PDictionary:		return "dict";
 			case PredefinedTypeID::PFloat:			return "float";
@@ -384,7 +432,7 @@ struct PredefinedType : Type {
 			case PredefinedTypeID::PString:			return "string";
 			case PredefinedTypeID::PType:			return "type";
 
- 			case PredefinedTypeID::CAny:			return "Any";
+			case PredefinedTypeID::CAny:			return "Any";
 			case PredefinedTypeID::CClass:			return "Class";
 			case PredefinedTypeID::CEnumeration:	return "Enumeration";
 			case PredefinedTypeID::CFunction:		return "Function";
@@ -398,20 +446,37 @@ struct PredefinedType : Type {
 	}
 };
 
-struct PrimitiveType : ConcreteType {
-	const PrimitiveTypeID subID;
+struct PrimitiveValue : Value {
+	const PrimitiveValueID subID;
 	const any value;
 
-	PrimitiveType(const bool& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Boolean), value(v) { cout << toString() << " type created\n"; }
-	PrimitiveType(const double& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Float), value(v) { cout << toString() << " type created\n"; }
-	PrimitiveType(const int& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Integer), value(v) { cout << toString() << " type created\n"; }
-	PrimitiveType(const string& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::String), value(v) { cout << toString() << " type created\n"; }
-	PrimitiveType(const TypeRef& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Type), value(v ?: throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
-	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
+	PrimitiveValue(const bool& v) : Value(TypValID::Primitive), subID(PrimitiveValueID::Boolean), value(v) { cout << toString() << " type created\n"; }
+	PrimitiveValue(const double& v) : Value(TypValID::Primitive), subID(PrimitiveValueID::Float), value(v) { cout << toString() << " type created\n"; }
+	PrimitiveValue(const int& v) : Value(TypValID::Primitive), subID(PrimitiveValueID::Integer), value(v) { cout << toString() << " type created\n"; }
+	PrimitiveValue(const string& v) : Value(TypValID::Primitive), subID(PrimitiveValueID::String), value(v) { cout << toString() << " type created\n"; }
+	PrimitiveValue(const TypeRef& v) : Value(TypValID::Primitive), subID(PrimitiveValueID::Type), value(v ?: throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
+	~PrimitiveValue() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
-		if(type->ID == TypeID::Primitive) {
-			return subID == static_pointer_cast<PrimitiveType>(type)->subID;
+		if(type->ID == TypValID::Primitive) {
+			return subID == static_pointer_cast<PrimitiveValue>(type)->subID;
+		}
+
+		return false;
+	}
+
+	bool representedBy(const any& value) const override {
+		try {
+			switch(subID) {
+				case PrimitiveValueID::Boolean:	return value.type() == typeid(bool);
+				case PrimitiveValueID::Float:	return value.type() == typeid(float) ||
+													   value.type() == typeid(double);
+				case PrimitiveValueID::Integer:	return value.type() == typeid(int);
+				case PrimitiveValueID::String:	return value.type() == typeid(string);
+				case PrimitiveValueID::Type:	return value.type() == typeid(TypValRef);
+			}
+		} catch(const bad_any_cast&) {
+			return false;
 		}
 
 		return false;
@@ -419,11 +484,11 @@ struct PrimitiveType : ConcreteType {
 
 	string toString() const override {
 		switch(subID) {
-			case PrimitiveTypeID::Boolean:	return "bool";
-			case PrimitiveTypeID::Float:	return "float";
-			case PrimitiveTypeID::Integer:	return "int";
-			case PrimitiveTypeID::String:	return "string";
-			case PrimitiveTypeID::Type:		return "type";
+			case PrimitiveValueID::Boolean:	return "bool";
+			case PrimitiveValueID::Float:	return "float";
+			case PrimitiveValueID::Integer:	return "int";
+			case PrimitiveValueID::String:	return "string";
+			case PrimitiveValueID::Type:	return "type";
 		}
 
 		return string();
@@ -431,10 +496,10 @@ struct PrimitiveType : ConcreteType {
 
 	operator bool() const override {
 		switch(subID) {
-			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value);
-			case PrimitiveTypeID::Float:	return any_cast<double>(value) > 0;
-			case PrimitiveTypeID::Integer:	return any_cast<int>(value) > 0;
-			case PrimitiveTypeID::String:	return any_cast<string>(value).size() > 0;
+			case PrimitiveValueID::Boolean:	return any_cast<bool>(value);
+			case PrimitiveValueID::Float:	return any_cast<double>(value) > 0;
+			case PrimitiveValueID::Integer:	return any_cast<int>(value) > 0;
+			case PrimitiveValueID::String:	return any_cast<string>(value).size() > 0;
 			default:						return false;
 		}
 	}
@@ -452,15 +517,15 @@ struct PrimitiveType : ConcreteType {
 	}
 };
 
-struct DictionaryType : ConcreteType {
+struct DictionaryValue : Value {
 	TypeRef keyType,
 			valueType;
 
-	DictionaryType(const TypeRef& keyType, const TypeRef& valueType) : ConcreteType(TypeID::Dictionary), keyType(keyType), valueType(valueType) {}
+	DictionaryValue(const TypeRef& keyType, const TypeRef& valueType) : Value(TypValID::Dictionary), keyType(keyType), valueType(valueType) {}
 
 	bool acceptsA(const TypeRef& type) override {
-		if(type->ID == TypeID::Dictionary) {
-			auto dictType = static_pointer_cast<DictionaryType>(type);
+		if(type->ID == TypValID::Dictionary) {
+			auto dictType = static_pointer_cast<DictionaryValue>(type);
 
 			return keyType->acceptsA(dictType->keyType) && valueType->acceptsA(dictType->valueType);
 		}
@@ -469,7 +534,7 @@ struct DictionaryType : ConcreteType {
 	}
 
 	TypeRef normalized() override {
-		return Ref<DictionaryType>(keyType->normalized(), valueType->normalized());
+		return Ref<DictionaryValue>(keyType->normalized(), valueType->normalized());
 	}
 
 	string toString() const override {
@@ -478,26 +543,26 @@ struct DictionaryType : ConcreteType {
 };
 
 // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
-static vector<CompositeTypeRef> composites;
+static vector<CompositeValueRef> composites;
 
-struct CompositeType : ConcreteType {
+struct CompositeValue : Value {
 	int index;
-	const CompositeTypeID subID;
+	const CompositeValueID subID;
 	string title;
 	vector<int> inheritedTypes;
 	vector<TypeRef> genericParameterTypes;
 
-	CompositeType(CompositeTypeID subID,
+	CompositeValue(CompositeValueID subID,
 				  const string& title,
 				  const vector<int>& inheritedTypes = {},
-				  const vector<TypeRef>& genericParameterTypes = {}) : ConcreteType(TypeID::Composite),
+				  const vector<TypeRef>& genericParameterTypes = {}) : Value(TypValID::Composite),
 																	   index(composites.size()),
 																	   subID(subID),
 																	   title(title),
 																	   inheritedTypes(inheritedTypes),
 																	   genericParameterTypes(genericParameterTypes)
 	{
-		composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
+		composites.push_back(static_pointer_cast<CompositeValue>(shared_from_this()));
 	}
 
 	set<int> getFullInheritanceChain() const {
@@ -512,7 +577,7 @@ struct CompositeType : ConcreteType {
 		return chain;
 	}
 
-	static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
+	static bool checkConformance(const CompositeValueRef& base, const CompositeValueRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
 		if(candidate->index != base->index && !candidate->getFullInheritanceChain().contains(base->index)) {
 			return false;
 		}
@@ -537,13 +602,13 @@ struct CompositeType : ConcreteType {
 		string result;
 
 		switch(subID) {
-			case CompositeTypeID::Class:		result += "class";
-			case CompositeTypeID::Enumeration:	result += "enum";
-			case CompositeTypeID::Function:		result += "func";
-			case CompositeTypeID::Namespace:	result += "namespace";
-			case CompositeTypeID::Object:		result += "object";
-			case CompositeTypeID::Protocol:		result += "protocol";
-			case CompositeTypeID::Structure:	result += "structure";
+			case CompositeValueID::Class:		result += "class";
+			case CompositeValueID::Enumeration:	result += "enum";
+			case CompositeValueID::Function:	result += "func";
+			case CompositeValueID::Namespace:	result += "namespace";
+			case CompositeValueID::Object:		result += "object";
+			case CompositeValueID::Protocol:	result += "protocol";
+			case CompositeValueID::Structure:	result += "structure";
 		}
 
 		result += " "+title+"#"+to_string(index);
@@ -585,21 +650,21 @@ struct CompositeType : ConcreteType {
 };
 
 struct ReferenceType : Type {
-	CompositeTypeRef compType;
+	CompositeValueRef compType;
 	optional<vector<TypeRef>> typeArgs;
 
-	ReferenceType(const CompositeTypeRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
+	ReferenceType(const CompositeValueRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypValID::Reference), compType(compType), typeArgs(typeArgs) {}
 
 	bool acceptsA(const TypeRef& type) override {
-		if(type->ID == TypeID::Composite) {
-			auto compType = static_pointer_cast<CompositeType>(type);
+		if(type->ID == TypValID::Composite) {
+			auto compType = static_pointer_cast<CompositeValue>(type);
 
-			return CompositeType::checkConformance(compType, compType, typeArgs);
+			return CompositeValue::checkConformance(compType, compType, typeArgs);
 		}
-		if(type->ID == TypeID::Reference) {
+		if(type->ID == TypValID::Reference) {
 			auto refType = static_pointer_cast<ReferenceType>(type);
 
-			return CompositeType::checkConformance(compType, refType->compType, refType->typeArgs);
+			return CompositeValue::checkConformance(compType, refType->compType, refType->typeArgs);
 		}
 
 		return false;
@@ -607,7 +672,7 @@ struct ReferenceType : Type {
 
 	TypeRef normalized() override {
 		if(!typeArgs) {
-			return shared_from_this();
+			return Type::normalized();
 		}
 
 		vector<TypeRef> normArgs;
@@ -640,15 +705,15 @@ struct ReferenceType : Type {
 	}
 };
 
-bool CompositeType::acceptsA(const TypeRef& type) {
-	if(type->ID == TypeID::Composite) {
-		auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
-		auto compType = static_pointer_cast<CompositeType>(type);
+bool CompositeValue::acceptsA(const TypeRef& type) {
+	if(type->ID == TypValID::Composite) {
+		auto compThis = static_pointer_cast<CompositeValue>(shared_from_this());
+		auto compType = static_pointer_cast<CompositeValue>(type);
 
 		return checkConformance(compThis, compType);
 	}
-	if(type->ID == TypeID::Reference) {
-		auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
+	if(type->ID == TypValID::Reference) {
+		auto compThis = static_pointer_cast<CompositeValue>(shared_from_this());
 		auto refType = static_pointer_cast<ReferenceType>(type);
 
 		return checkConformance(compThis, refType->compType, refType->typeArgs);
@@ -683,7 +748,7 @@ struct FunctionType : Type {
 	static bool matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList);
 
 	bool acceptsA(const TypeRef& type) override {
-		if(type->ID == TypeID::Function) {
+		if(type->ID == TypValID::Function) {
 			auto funcType = static_pointer_cast<FunctionType>(type);
 
 			return FunctionType::matchTypeLists(genericParameterTypes, funcType->genericParameterTypes) &&
@@ -750,16 +815,20 @@ struct FunctionType : Type {
 struct InoutType : Type {
 	TypeRef innerType;
 
-	InoutType(const TypeRef& innerType) : Type(TypeID::Inout), innerType(innerType) {}
+	InoutType(const TypeRef& innerType) : Type(TypValID::Inout), innerType(innerType) {}
 
 	bool acceptsA(const TypeRef& type) override {
-		return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
+		return type->ID == TypValID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
+	}
+
+	bool representedBy(const any& value) const override {
+		return innerType->representedBy(value);
 	}
 
 	TypeRef normalized() override {
 		auto normInner = innerType->normalized();
 
-		if(normInner->ID == TypeID::Inout) {
+		if(normInner->ID == TypValID::Inout) {
 			return normInner;
 		}
 
@@ -774,13 +843,13 @@ struct InoutType : Type {
 struct VariadicType : Type {
 	TypeRef innerType;
 
-	VariadicType(const TypeRef& innerType = nullptr) : Type(TypeID::Variadic), innerType(innerType) {}
+	VariadicType(const TypeRef& innerType = nullptr) : Type(TypValID::Variadic), innerType(innerType) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		if(!innerType) {
 			return true;
 		}
-		if(type->ID != TypeID::Variadic) {
+		if(type->ID != TypValID::Variadic) {
 			return innerType->acceptsA(type);
 		}
 
@@ -793,9 +862,23 @@ struct VariadicType : Type {
 		return innerType->acceptsA(varType->innerType);
 	}
 
+	bool representedBy(const any& value) const override {
+		if(!innerType) {
+			return true;
+		}
+
+		/*
+		if(Array.isArray(value)) {
+			return value.every(v => this.innerType.representedBy(v));
+		}
+		*/
+
+		return innerType->representedBy(value);
+	}
+
 	TypeRef normalized() override {
 		if(!innerType) {
-			return shared_from_this();
+			return Type::normalized();
 		}
 
 		return Ref<VariadicType>(innerType->normalized());
@@ -817,7 +900,7 @@ bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vec
 
 		const TypeRef& expectedType = expectedList[expectedIndex];
 
-		if(expectedType->ID == TypeID::Variadic) {
+		if(expectedType->ID == TypValID::Variadic) {
 			auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
 
 			if(expectedIndex == expectedSize-1) {
@@ -855,7 +938,7 @@ bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vec
 // ----------------------------------------------------------------
 
 const TypeRef PredefinedEVoidTypeRef = Ref<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeRef& type) {
-	return type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
+	return type->ID == TypValID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
 });
 
 const TypeRef PredefinedEAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::EAny, [](const TypeRef& type) {
@@ -863,71 +946,71 @@ const TypeRef PredefinedEAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::EAny
 });
 
 const TypeRef PredefinedPAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::PAny, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive;
+	return type->ID == TypValID::Primitive;
 });
 
 const TypeRef PredefinedPBooleanTypeRef = Ref<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Boolean;
+	return type->ID == TypValID::Primitive && static_pointer_cast<PrimitiveValue>(type)->subID == PrimitiveValueID::Boolean;
 });
 
-const TypeRef PredefinedPDictionaryTypeRef = Ref<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeRef& type) {
-	return type->ID == TypeID::Dictionary;
+const TypeRef PredefinedPDictionaryValueRef = Ref<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeRef& type) {
+	return type->ID == TypValID::Dictionary;
 });
 
 const TypeRef PredefinedPFloatTypeRef = Ref<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Float;
+	return type->ID == TypValID::Primitive && static_pointer_cast<PrimitiveValue>(type)->subID == PrimitiveValueID::Float;
 });
 
 const TypeRef PredefinedPIntegerTypeRef = Ref<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Integer;
+	return type->ID == TypValID::Primitive && static_pointer_cast<PrimitiveValue>(type)->subID == PrimitiveValueID::Integer;
 });
 
 const TypeRef PredefinedPStringTypeRef = Ref<PredefinedType>(PredefinedTypeID::PString, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::String;
+	return type->ID == TypValID::Primitive && static_pointer_cast<PrimitiveValue>(type)->subID == PrimitiveValueID::String;
 });
 
 const TypeRef PredefinedPTypeTypeRef = Ref<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
-	return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Type;
+	return type->ID == TypValID::Primitive && static_pointer_cast<PrimitiveValue>(type)->subID == PrimitiveValueID::Type;
 });
 
 const TypeRef PredefinedCAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite ||
-		   type->ID == TypeID::Reference;
+	return type->ID == TypValID::Composite ||
+		   type->ID == TypValID::Reference;
 });
 
 const TypeRef PredefinedCClassTypeRef = Ref<PredefinedType>(PredefinedTypeID::CClass, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Class ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Class;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Class ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Class;
 });
 
 const TypeRef PredefinedCEnumerationTypeRef = Ref<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Enumeration ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Enumeration;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Enumeration ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Enumeration;
 });
 
 const TypeRef PredefinedCFunctionTypeRef = Ref<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Function ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Function;
 });
 
 const TypeRef PredefinedCNamespaceTypeRef = Ref<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Namespace ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Namespace;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Namespace ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Namespace;
 });
 
 const TypeRef PredefinedCObjectTypeRef = Ref<PredefinedType>(PredefinedTypeID::CObject, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Object ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Object;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Object ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Object;
 });
 
 const TypeRef PredefinedCProtocolTypeRef = Ref<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Protocol ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Protocol;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Protocol ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Protocol;
 });
 
 const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeRef& type) {
-	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
-		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
+	return type->ID == TypValID::Composite && static_pointer_cast<CompositeValue>(type)->subID == CompositeValueID::Structure ||
+		   type->ID == TypValID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeValueID::Structure;
 });
 
 // ----------------------------------------------------------------
@@ -935,82 +1018,82 @@ const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID
 /*
 void matchTypeListsTest() {
 	// Примитивные типы
-	TypeRef intType	= Ref<PrimitiveType>(PrimitiveTypeID::Integer);
-	TypeRef floatType  = Ref<PrimitiveType>(PrimitiveTypeID::Float);
-	TypeRef stringType = Ref<PrimitiveType>(PrimitiveTypeID::String);
-	TypeRef boolType   = Ref<PrimitiveType>(PrimitiveTypeID::Boolean);
+	TypValRef intType	= Ref<PrimitiveValue>(PrimitiveValueID::Integer);
+	TypValRef floatType  = Ref<PrimitiveValue>(PrimitiveValueID::Float);
+	TypValRef stringType = Ref<PrimitiveValue>(PrimitiveValueID::String);
+	TypValRef boolType   = Ref<PrimitiveValue>(PrimitiveValueID::Boolean);
 
 	// Variadic с внутренним типом
-	TypeRef variadicInt	= Ref<VariadicType>(intType);
-	TypeRef variadicString = Ref<VariadicType>(stringType);
+	TypValRef variadicInt	= Ref<VariadicType>(intType);
+	TypValRef variadicString = Ref<VariadicType>(stringType);
 
 	// Variadic без внутреннего типа (принимает любой тип)
-	TypeRef variadicAny = Ref<VariadicType>();
+	TypValRef variadicAny = Ref<VariadicType>();
 
 	// Тест 1: Точное совпадение без вариативных типов.
-	vector<TypeRef> expected_1 = { intType, floatType, stringType, boolType },
+	vector<TypValRef> expected_1 = { intType, floatType, stringType, boolType },
 					provided_1 = { intType, floatType, stringType, boolType };
 	assert(FunctionType::matchTypeLists(expected_1, provided_1));
 
 	// Тест 2: Несовпадение списков (неправильный порядок).
-	vector<TypeRef> expected_2 = { intType, floatType, stringType },
+	vector<TypValRef> expected_2 = { intType, floatType, stringType },
 					provided_2 = { intType, stringType, floatType };
 	assert(!FunctionType::matchTypeLists(expected_2, provided_2));
 
 	// Тест 3: Variadic как последний элемент с пустым списком provided.
-	vector<TypeRef> expected_3 = { variadicInt },
+	vector<TypValRef> expected_3 = { variadicInt },
 					provided_3 = {};
 	assert(FunctionType::matchTypeLists(expected_3, provided_3));
 
 	// Тест 4: Variadic как последний элемент с несколькими элементами.
-	vector<TypeRef> expected_4 = { variadicInt },
+	vector<TypValRef> expected_4 = { variadicInt },
 					provided_4 = { intType, intType, intType };
 	assert(FunctionType::matchTypeLists(expected_4, provided_4));
 
 	// Тест 5: Variadic в середине, покрывающий 0 элементов.
-	vector<TypeRef> expected_5 = { intType, variadicInt, stringType },
+	vector<TypValRef> expected_5 = { intType, variadicInt, stringType },
 					provided_5 = { intType, stringType };
 	assert(FunctionType::matchTypeLists(expected_5, provided_5));
 
 	// Тест 6: Variadic в середине, покрывающий 1 элемент.
-	vector<TypeRef> expected_6 = { intType, variadicInt, stringType },
+	vector<TypValRef> expected_6 = { intType, variadicInt, stringType },
 					provided_6 = { intType, intType, stringType };
 	assert(FunctionType::matchTypeLists(expected_6, provided_6));
 
 	// Тест 7: Variadic в середине, покрывающий несколько элементов.
-	vector<TypeRef> expected_7 = { intType, variadicInt, stringType },
+	vector<TypValRef> expected_7 = { intType, variadicInt, stringType },
 					provided_7 = { intType, intType, intType, stringType };
 	assert(FunctionType::matchTypeLists(expected_7, provided_7));
 
 	// Тест 8: Variadic не соответствует (в Variadic ожидается int, а получен float).
-	vector<TypeRef> expected_8 = { intType, variadicInt },
+	vector<TypValRef> expected_8 = { intType, variadicInt },
 					provided_8 = { intType, floatType };
 	assert(!FunctionType::matchTypeLists(expected_8, provided_8));
 
 	// Тест 9: Несколько Variadic подряд с внутренними типами.
-	vector<TypeRef> expected_9 = { variadicInt, variadicString },
+	vector<TypValRef> expected_9 = { variadicInt, variadicString },
 					provided_9 = { intType, intType, stringType, stringType };
 	assert(FunctionType::matchTypeLists(expected_9, provided_9));
 
 	// Тест 10: Variadic без внутреннего типа (variadicAny) как последний элемент, принимает любые типы.
-	vector<TypeRef> expected_10 = { variadicAny },
+	vector<TypValRef> expected_10 = { variadicAny },
 					provided_10 = { intType, floatType, stringType, boolType };
 	assert(FunctionType::matchTypeLists(expected_10, provided_10));
 
 	// Тест 11: Variadic без внутреннего типа (variadicAny) в середине.
-	vector<TypeRef> expected_11 = { intType, variadicAny, stringType };
+	vector<TypValRef> expected_11 = { intType, variadicAny, stringType };
 	// Здесь variadicAny может покрыть несколько любых типов.
-	vector<TypeRef> provided_11 = { intType, boolType, floatType, stringType };
+	vector<TypValRef> provided_11 = { intType, boolType, floatType, stringType };
 	assert(FunctionType::matchTypeLists(expected_11, provided_11));
 
 	// Тест 12: Variadic без внутреннего типа (variadicAny) в середине, покрывающий 0 элементов.
-	vector<TypeRef> expected_12 = { intType, variadicAny, stringType },
+	vector<TypValRef> expected_12 = { intType, variadicAny, stringType },
 					provided_12 = { intType, stringType };
 	assert(FunctionType::matchTypeLists(expected_12, provided_12));
 
 	// Тест 13: Variadic в середине, где первый элемент для вариативного типа не соответствует.
 	// Здесь variadicInt (ожидает int) не принимает floatType, поэтому цикл должен прерваться.
-	vector<TypeRef> expected_13 = { intType, variadicInt, stringType },
+	vector<TypValRef> expected_13 = { intType, variadicInt, stringType },
 					provided_13 = { intType, floatType, stringType };
 	assert(!FunctionType::matchTypeLists(expected_13, provided_13));
 
@@ -1019,16 +1102,16 @@ void matchTypeListsTest() {
 	// - Сначала проверяется пустой диапазон для Variadic — не подходит.
 	// - Затем для currentIndex = 1: intType принимается.
 	// - Для currentIndex = 2: floatType не принимается variadicInt, цикл прерывается, сопоставление не удаётся.
-	vector<TypeRef> expected_14 = { intType, variadicInt, stringType },
+	vector<TypValRef> expected_14 = { intType, variadicInt, stringType },
 					provided_14 = { intType, intType, floatType, stringType };
 	assert(!FunctionType::matchTypeLists(expected_14, provided_14));
 }
 
 int main() {
-	TypeRef intType	= Ref<PrimitiveType>(PrimitiveTypeID::Integer);
-	TypeRef nillableInt = Ref<NillableType>(intType);
-	TypeRef parenType = Ref<ParenthesizedType>(nillableInt);
-	TypeRef nillableParenType = Ref<NillableType>(parenType);
+	TypValRef intType	= Ref<PrimitiveValue>(PrimitiveValueID::Integer);
+	TypValRef nillableInt = Ref<NillableType>(intType);
+	TypValRef parenType = Ref<ParenthesizedType>(nillableInt);
+	TypValRef nillableParenType = Ref<NillableType>(parenType);
 
 	cout << "int accepts int: " << intType->acceptsA(intType) << "\n";
 	cout << "int? accepts int: " << nillableInt->acceptsA(intType) << "\n";

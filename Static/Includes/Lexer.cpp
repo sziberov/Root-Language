@@ -12,24 +12,11 @@
 #include <map>
 #include <unordered_set>
 
-using namespace std;
-
-template<typename Container, typename Predicate>
-bool some(const Container& container, Predicate predicate) {
-	return any_of(container.begin(), container.end(), predicate);
-}
-
-template<typename Container, typename UnaryPredicate>
-Container filter(const Container& container, UnaryPredicate predicate) {
-	Container result;
-	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
-	return result;
-}
+#include "Std.cpp"
 
 // ----------------------------------------------------------------
 
-class Lexer {
-public:
+struct Lexer {
 	struct Location {
 		int line,
 			column;

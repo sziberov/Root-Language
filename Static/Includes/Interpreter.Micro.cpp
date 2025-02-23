@@ -7,56 +7,9 @@
 
 using Report = Parser::Report;
 
-template<typename Container, typename T>
-int index_of(Container container, const T& value) {
-	auto it = find(container.begin(), container.end(), value);
-
-	return it != container.end() ? it-container.begin() : -1;
-}
-
-template<typename Container, typename Predicate>
-int find_index(Container container, Predicate predicate) {
-	auto it = find_if(container.begin(), container.end(), predicate);
-
-	return it != container.end() ? it-container.begin() : -1;
-}
-
-static string tolower(string_view string) {
-	auto result = ::string(string);
-
-	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
-
-	return result;
-}
-
-template <typename T>
-optional<T> any_optcast(const any& value) {
-	if(const optional<T>* v = any_cast<optional<T>>(&value)) {
-		return *v;
-	} else
-	if(const T* v = any_cast<T>(&value)) {
-		return optional<T>(*v);
-	}
-
-	return nullopt;
-}
-
-template <typename T>
-shared_ptr<T> any_refcast(const any& value) {
-	if(const shared_ptr<T>* v = any_cast<shared_ptr<T>>(&value)) {
-		return *v;
-	} else
-	if(const T* v = any_cast<T>(&value)) {
-		return make_shared<T>(*v);
-	}
-
-	return nullptr;
-}
-
 // ----------------------------------------------------------------
 
-class Interpreter {
-public:
+struct Interpreter {
 	Interpreter() {};
 
 	struct Composite {
@@ -131,7 +84,7 @@ public:
 			if(composite) {
 				return ReferenceType(composite->type, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
 			} else {
-				return ArrayType(valueType);
+				return DictionaryType(PredefinedPIntegerTypeRef, valueType);
 			}
 
 			return nullptr;
@@ -273,6 +226,31 @@ public:
 			// TODO: Dynamic operators lookup, check for values mutability, observers notification
 
 			return value;
+		} else
+		if(type == "predefinedType") {
+			string predefinedTypeTitle = n->get("value");
+
+			if(predefinedTypeTitle == "void")			return PredefinedEVoidTypeRef;
+			if(predefinedTypeTitle == "_")				return PredefinedEAnyTypeRef;
+
+			if(predefinedTypeTitle == "any")			return PredefinedPAnyTypeRef;
+			if(predefinedTypeTitle == "bool")			return PredefinedPBooleanTypeRef;
+			if(predefinedTypeTitle == "dict")			return PredefinedPDictionaryTypeRef;
+			if(predefinedTypeTitle == "float")			return PredefinedPFloatTypeRef;
+			if(predefinedTypeTitle == "int")			return PredefinedPIntegerTypeRef;
+			if(predefinedTypeTitle == "string")			return PredefinedPStringTypeRef;
+			if(predefinedTypeTitle == "type")			return PredefinedPTypeTypeRef;
+
+			if(predefinedTypeTitle == "Any")			return PredefinedCAnyTypeRef;
+			if(predefinedTypeTitle == "Class")			return PredefinedCClassTypeRef;
+			if(predefinedTypeTitle == "Enumeration")	return PredefinedCEnumerationTypeRef;
+			if(predefinedTypeTitle == "Function")		return PredefinedCFunctionTypeRef;
+			if(predefinedTypeTitle == "Namespace")		return PredefinedCNamespaceTypeRef;
+			if(predefinedTypeTitle == "Object")			return PredefinedCObjectTypeRef;
+			if(predefinedTypeTitle == "Protocol")		return PredefinedCProtocolTypeRef;
+			if(predefinedTypeTitle == "Structure")		return PredefinedCStructureTypeRef;
+
+			return PredefinedEAnyTypeRef;
 		} else
 		if(type == "prefixExpression") {
 			auto value = executeVNode(n->get("value"));
