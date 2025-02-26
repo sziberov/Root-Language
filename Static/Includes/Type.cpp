@@ -12,8 +12,7 @@
 
 // ----------------------------------------------------------------
 
-struct Type;			// Abstract type
-struct ConcreteType;	// Concrete type, a special case of an abstract type
+struct Type;
 
 struct ParenthesizedType;
 struct NillableType;
@@ -34,7 +33,6 @@ struct VariadicType;
 // ----------------------------------------------------------------
 
 using TypeRef = shared_ptr<Type>;
-using ConcreteTypeRef = shared_ptr<ConcreteType>;
 
 using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
 using NillableTypeRef = shared_ptr<NillableType>;
@@ -151,31 +149,31 @@ struct Type : enable_shared_from_this<Type> {
 	virtual bool acceptsA(const TypeRef& type) { return false; }
 	virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(shared_from_this()); }
 	virtual TypeRef normalized() { return shared_from_this(); }
-	virtual string toString() const { return string(); }
+	virtual string toString() const { return string(); }  // User-friendly representation
+
+	virtual operator bool() const { return bool(); }
+	virtual operator double() const { return double(); }
+	virtual operator int() const { return int(); }
+	virtual operator string() const { return string(); }  // Machine-friendly representation
+	virtual TypeRef operator+() const { return Ref<Type>(); }
+	virtual TypeRef operator-() const { return Ref<Type>(); }
+	virtual TypeRef operator+(TypeRef type) const { return Ref<Type>(); }
+	virtual TypeRef operator-(TypeRef type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
+	virtual TypeRef operator*(TypeRef type) const { return Ref<Type>(); }
+	virtual TypeRef operator/(TypeRef type) const { return Ref<Type>(); }
+	virtual bool operator!() const { return !operator bool(); }
+	virtual bool operator==(const TypeRef& type) { return acceptsA(type) && conformsTo(type); }
+	virtual bool operator!=(const TypeRef& type) { return !operator==(type); }
 
 	// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 	// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
 	static bool acceptsANormalized(const TypeRef& left, const TypeRef& right) {
 		return left && left->acceptsA(right ? right->normalized() : PredefinedEVoidTypeRef);
 	}
-};
 
-struct ConcreteType : Type {
-	ConcreteType(TypeID ID = TypeID::Undefined) : Type(ID, true) {}
-
-	virtual operator bool() const { return bool(); }
-	virtual operator double() const { return double(); }
-	virtual operator int() const { return int(); }
-	virtual operator string() const { return toString(); }
-	virtual TypeRef operator+() const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator-() const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator+(TypeRef type) const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator-(TypeRef type) const { return type->concrete ? operator+(static_pointer_cast<ConcreteType>(type)->operator-()) : nullptr; }
-	virtual TypeRef operator*(TypeRef type) const { return Ref<ConcreteType>(); }
-	virtual TypeRef operator/(TypeRef type) const { return Ref<ConcreteType>(); }
-	virtual bool operator!() const { return !static_cast<bool>(*this); }
-	virtual bool operator==(const TypeRef& type) { return false; }
-	virtual bool operator!=(const TypeRef& type) { return !operator==(type); }
+	static bool acceptsAConcrete(const TypeRef& left, const TypeRef& right) {
+		return left && right && right->concrete && left->acceptsA(right);
+	}
 };
 
 // ----------------------------------------------------------------
@@ -229,19 +227,19 @@ struct NillableType : Type {
 struct DefaultType : Type {
 	TypeRef innerType;
 
-	DefaultType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
-	~DefaultType() { cout << innerType->toString() << "? type destroyed\n"; }
+	DefaultType(TypeRef type) : Type(TypeID::Default), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+	~DefaultType() { cout << innerType->toString() << "! type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
 		return PredefinedEVoidTypeRef->acceptsA(type) ||
-			   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
+			   type->ID == TypeID::Default && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
 			   innerType->acceptsA(type);
 	}
 
 	TypeRef normalized() override {
 		auto normInnerType = innerType->normalized();
 
-		if(normInnerType->ID == TypeID::Nillable) {
+		if(normInnerType->ID == TypeID::Default) {
 			return normInnerType;
 		}
 
@@ -396,20 +394,18 @@ struct PredefinedType : Type {
 	}
 };
 
-struct PrimitiveType : ConcreteType {
+struct PrimitiveType : Type {
 	const PrimitiveTypeID subID;
 	const any value;
 
-	PrimitiveType(const bool& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Boolean), value(v) {}
-	PrimitiveType(const double& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Float), value(v) {}
-	/*
-	PrimitiveType(const double& v) : ConcreteType(TypeID::Primitive),
+	PrimitiveType(const bool& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Boolean), value(v) {}
+	PrimitiveType(const double& v) : Type(TypeID::Primitive, true),
 									 subID(v != static_cast<int>(v) ? PrimitiveTypeID::Float : PrimitiveTypeID::Integer),
-									 value(v != static_cast<int>(v) ? v : static_cast<int>(v)) {}
-	*/
-	PrimitiveType(const int& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Integer), value(v) {}
-	PrimitiveType(const string& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::String), value(v) {}
-	PrimitiveType(const TypeRef& v) : ConcreteType(TypeID::Primitive), subID(PrimitiveTypeID::Type), value(v ?: throw invalid_argument("Primitive type cannot be represented by nil")) {}
+									 value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) {}
+	PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) {}
+	PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) {}
+	PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) {}
+	PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?: throw invalid_argument("Primitive type cannot be represented by nil")) {}
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
@@ -418,13 +414,17 @@ struct PrimitiveType : ConcreteType {
 
 	string toString() const override {
 		switch(subID) {
-			case PrimitiveTypeID::String:	return "'"+static_cast<string>(*this)+"'";
-			default:						return	   static_cast<string>(*this);
+			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) ? "true" : "false";
+			case PrimitiveTypeID::Float:	return format("{}", any_cast<double>(value));
+			case PrimitiveTypeID::Integer:	return to_string(any_cast<int>(value));
+			case PrimitiveTypeID::String:	return "'"+any_cast<string>(value)+"'";
+			case PrimitiveTypeID::Type:		return "type "+any_cast<TypeRef>(value)->toString();
+			default:						return string();
 		}
 	}
 
 	operator bool() const override {
-		return static_cast<double>(*this) > 0;
+		return operator double() > 0;
 	}
 
 	operator double() const override {
@@ -439,89 +439,90 @@ struct PrimitiveType : ConcreteType {
 	}
 
 	operator int() const override {
-		return static_cast<double>(*this);
+		return operator double();
 	}
 
 	operator string() const override {
 		switch(subID) {
-			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) ? "true" : "false";
-			case PrimitiveTypeID::Float:	return format("{}", any_cast<double>(value));
-			case PrimitiveTypeID::Integer:	return to_string(any_cast<int>(value));
 			case PrimitiveTypeID::String:	return any_cast<string>(value);
-			case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->toString();  // TODO: Remove explicit strings from here
-			default:						return string();
+			case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator string();
+			default:						return toString();
 		}
 	}
 
 	TypeRef operator+() const override {
 		return subID == PrimitiveTypeID::Type
 			 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
-			 : Ref<PrimitiveType>(static_cast<double>(*this));
+			 : Ref<PrimitiveType>(operator double());
 	}
 
 	TypeRef operator-() const override {
 		return subID == PrimitiveTypeID::Type
 			 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
-			 : Ref<PrimitiveType>(-static_cast<double>(*this));
+			 : Ref<PrimitiveType>(-operator double());
 	}
 
 	TypeRef operator+(TypeRef type) const override {
 		if(type->ID != TypeID::Primitive) {
-			return ConcreteType::operator+();
+			return Type::operator+();
 		}
 
 		auto primType = static_pointer_cast<PrimitiveType>(type);
 
 		if(subID == PrimitiveTypeID::String || primType->subID == PrimitiveTypeID::String) {
-			return Ref<PrimitiveType>(static_cast<string>(*this)+static_cast<string>(*primType));
+			return Ref<PrimitiveType>(operator string()+primType->operator string());
 		}
 
-		return Ref<PrimitiveType>(static_cast<double>(*this)+static_cast<double>(*primType));
+		return Ref<PrimitiveType>(operator double()+primType->operator double());
 	}
 
 	TypeRef operator*(TypeRef type) const override {
 		if(type->ID != TypeID::Primitive) {
-			return ConcreteType::operator*(type);
+			return Type::operator*(type);
 		}
 
 		auto primType = static_pointer_cast<PrimitiveType>(type);
 
-		return Ref<PrimitiveType>(static_cast<double>(*this)*static_cast<double>(*primType));
+		return Ref<PrimitiveType>(operator double()*primType->operator double());
 	}
 
 	TypeRef operator/(TypeRef type) const override {
 		if(type->ID != TypeID::Primitive) {
-			return ConcreteType::operator/(type);
+			return Type::operator/(type);
 		}
 
 		auto primType = static_pointer_cast<PrimitiveType>(type);
 
-		return Ref<PrimitiveType>(static_cast<double>(*this)/static_cast<double>(*primType));
+		return Ref<PrimitiveType>(operator double()/primType->operator double());
 	}
 
 	bool operator==(const TypeRef& type) override {
 		if(type->ID != TypeID::Primitive) {
-			return ConcreteType::operator==(type);
+			return Type::operator==(type);
 		}
 
 		auto primType = static_pointer_cast<PrimitiveType>(type);
 
 		switch(subID) {
-			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) == static_cast<bool>(*primType);
-			case PrimitiveTypeID::Float:	return any_cast<double>(value) == static_cast<double>(*primType);
-			case PrimitiveTypeID::Integer:	return any_cast<int>(value) == static_cast<int>(*primType);
-			case PrimitiveTypeID::String:	return any_cast<string>(value) == static_cast<string>(*primType);
+			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) == primType->operator bool();
+			case PrimitiveTypeID::Float:	return any_cast<double>(value) == primType->operator double();
+			case PrimitiveTypeID::Integer:	return any_cast<int>(value) == primType->operator int();
+			case PrimitiveTypeID::String:	return any_cast<string>(value) == primType->operator string();
 			case PrimitiveTypeID::Type:		return acceptsA(primType) && conformsTo(primType);
-			default:						return ConcreteType::operator==(type);
+			default:						return Type::operator==(type);
 		}
 	}
 };
 
-struct DictionaryType : ConcreteType {
+struct DictionaryType : Type {
+	using Entry = pair<TypeRef, TypeRef>;
+
 	TypeRef keyType,
 			valueType;
+	unordered_map<TypeRef, vector<size_t>> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;								// index -> entry
 
-	DictionaryType(const TypeRef& keyType, const TypeRef& valueType) : ConcreteType(TypeID::Dictionary), keyType(keyType), valueType(valueType) {}
+	DictionaryType(const TypeRef& keyType, const TypeRef& valueType, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Dictionary) {
@@ -540,23 +541,70 @@ struct DictionaryType : ConcreteType {
 	string toString() const override {
 		return "["+keyType->toString()+": "+valueType->toString()+"]";
 	}
+
+	bool operator==(const TypeRef& type) override {
+		if(type->ID != TypeID::Dictionary) {
+			return Type::operator==(type);
+		}
+
+		return false;
+	}
+
+	int emplace(const TypeRef& key, const TypeRef& value) {
+		if(!concrete) {
+			return 1;
+		}
+		if(!keyType->acceptsA(key)) {
+			return 2;
+		}
+		if(!valueType->acceptsA(value)) {
+			return 3;
+		}
+
+		kIndexes[key].push_back(size());
+		iEntries.push_back(make_pair(key, value));
+
+		return 0;
+	}
+
+	TypeRef get(const TypeRef& key) const {
+		auto it = kIndexes.find(key);
+
+		if(it != kIndexes.end() && !it->second.empty()) {
+			return iEntries[it->second.back()].second;
+		}
+
+		return nullptr;
+	}
+
+	auto begin() const {
+		return iEntries.begin();
+	}
+
+	auto end() const {
+		return iEntries.end();
+	}
+
+	size_t size() const {
+		return iEntries.size();
+	}
 };
 
 // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
 static vector<CompositeTypeRef> composites;
 
-struct CompositeType : ConcreteType {
+struct CompositeType : Type {
 	const CompositeTypeID subID;
 	string title;
 	int index;
 	int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-	vector<int> inheritedTypes;
+	vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
 	vector<TypeRef> genericParameterTypes;
 
 	CompositeType(CompositeTypeID subID,
 				  const string& title,
 				  const vector<int>& inheritedTypes = {},
-				  const vector<TypeRef>& genericParameterTypes = {}) : ConcreteType(TypeID::Composite),
+				  const vector<TypeRef>& genericParameterTypes = {}) : Type(TypeID::Composite, true),
 																	   index(composites.size()),
 																	   subID(subID),
 																	   title(title),
