@@ -2,7 +2,6 @@
 
 #include "Lexer.cpp"
 #include "Parser.cpp"
-#include "Primitive.cpp"
 #include "Type.cpp"
 
 using Report = Parser::Report;
@@ -12,17 +11,8 @@ using Report = Parser::Report;
 struct Interpreter {
 	Interpreter() {};
 
-	struct Composite {
-		string title;
-		Node IDs;
-		int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-		CompositeTypeRef type;
-	};
-
-	using CompositeRef = shared_ptr<Composite>;
-
 	struct ControlTransfer {
-		PrimitiveRef value;
+		TypeRef value;
 		optional<string> type;
 	};
 
@@ -36,8 +26,8 @@ struct Interpreter {
 	deque<Token> tokens;
 	NodeRef tree;
 	int position;
-	deque<CompositeRef> composites;
-	deque<CompositeRef> scopes;
+//	deque<CompositeTypeRef> composites;
+	deque<CompositeTypeRef> scopes;
 	deque<ControlTransfer> controlTransfers;
 	Preferences preferences;
 	deque<Report> reports;
@@ -65,13 +55,17 @@ struct Interpreter {
 			}
 		} else
 		if(type == "arrayLiteral") {
-			Primitive value = PrimitiveDictionary();
+			auto value = Ref<DictionaryType>(
+				PredefinedPIntegerTypeRef,
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				true
+			);
 
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
 				auto value_ = executeVNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_) {
-					value.get<PrimitiveDictionary>().emplace(Ref<Primitive>(i), value_);  // TODO: Copy or link value in accordance to type
+					value->emplace(Ref<PrimitiveType>(i), value_);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -79,10 +73,10 @@ struct Interpreter {
 		} else
 		if(type == "arrayType") {
 			TypeRef valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
-			CompositeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
+			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
 
 			if(composite) {
-				return ReferenceType(composite->type, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
+				return ReferenceType(composite, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
 			} else {
 				return DictionaryType(PredefinedPIntegerTypeRef, valueType);
 			}
@@ -90,13 +84,13 @@ struct Interpreter {
 			return nullptr;
 		} else
 		if(type == "booleanLiteral") {
-			return getValueWrapper(n->get("value") == "true", "Boolean");
+			return getValueWrapper(Ref<PrimitiveType>(n->get("value") == "true"), "Boolean");
 		} else
 		if(type == "breakStatement") {
-			PrimitiveRef value;
+			TypeRef value;
 
 			if(!n->empty("label")) {
-				value = Ref<Primitive>(n->get<Node&>("label").get<string>("value"));
+				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "break");
@@ -104,10 +98,10 @@ struct Interpreter {
 			return value;
 		} else
 		if(type == "continueStatement") {
-			PrimitiveRef value;
+			TypeRef value;
 
 			if(!n->empty("label")) {
-				value = Ref<Primitive>(n->get<Node&>("label").get<string>("value"));
+				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "continue");
@@ -115,13 +109,17 @@ struct Interpreter {
 			return value;
 		} else
 		if(type == "dictionaryLiteral") {
-			Primitive value = PrimitiveDictionary();
+			auto value = Ref<DictionaryType>(
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				true
+			);
 
 			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
-				auto entry_ = any_optcast<PrimitiveDictionary::Entry>(rules("entry", entry));
+				auto entry_ = any_optcast<DictionaryType::Entry>(rules("entry", entry));
 
 				if(entry_) {
-					value.get<PrimitiveDictionary>().emplace(entry_->first, entry_->second);  // TODO: Copy or link value in accordance to type
+					value->emplace(entry_->first, entry_->second);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -130,10 +128,10 @@ struct Interpreter {
 		if(type == "dictionaryType") {
 			TypeRef keyType = executeTNode(n->get("key")) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
 					valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
-			CompositeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
+			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
 
 			if(composite) {
-				return ReferenceType(composite->type, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
+				return ReferenceType(composite, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
 			} else {
 				return DictionaryType(keyType, valueType);
 			}
@@ -147,7 +145,7 @@ struct Interpreter {
 			);
 		} else
 		if(type == "floatLiteral") {
-			return getValueWrapper(n->get<double>("value"), "Float");
+			return getValueWrapper(Ref<PrimitiveType>(n->get<double>("value")), "Float");
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
@@ -156,12 +154,12 @@ struct Interpreter {
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
-			CompositeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
+			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
 
 			addScope(namespace_);
 
 			auto conditionValue = executeVNode(n->get("condition"));
-			bool condition = conditionValue && (conditionValue->type() != "boolean" || conditionValue->get<bool>()),
+			bool condition = conditionValue && *conditionValue,
 				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
 
 			if(condition || !elseif) {
@@ -183,7 +181,7 @@ struct Interpreter {
 			return controlTransfer().value;
 		} else
 		if(type == "integerLiteral") {
-			return getValueWrapper(n->get<int>("value"), "Integer");
+			return getValueWrapper(Ref<PrimitiveType>(n->get<int>("value")), "Integer");
 		} else
 		if(type == "module") {
 			addControlTransfer();
@@ -210,17 +208,24 @@ struct Interpreter {
 				return nullptr;
 			}
 
-			if(set<string> {"float", "integer"}.contains(value->type())) {
-				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-					*value = *value*1+1;
+			if(value->ID == TypeID::Primitive) {
+			//	auto primValue = static_pointer_cast<PrimitiveType>(value);
 
-					return Ref(*value-1);
-				}
-				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-					*value = *value*1-1;
+			//	if(
+			//		primValue->subID == PrimitiveTypeID::Float ||
+			//		primValue->subID == PrimitiveTypeID::Integer
+			//	) {
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
+						*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
 
-					return Ref(*value+1);
-				}
+						return value->operator-(Ref<PrimitiveType>(1));
+					}
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
+						*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+
+						return value->operator+(Ref<PrimitiveType>(1));
+					}
+			//	}
 			}
 
 			// TODO: Dynamic operators lookup, check for values mutability, observers notification
@@ -259,23 +264,32 @@ struct Interpreter {
 				return nullptr;
 			}
 
-			if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!" && value->type() == "boolean") {
-				return Ref(!*value);
-			}
-			if(set<string> {"float", "integer"}.contains(value->type())) {
-				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
-					return Ref(-*value);
-				}
-				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-					*value = *value*1+1;
+			if(value->ID == TypeID::Primitive) {
+			//	auto primValue = static_pointer_cast<PrimitiveType>(value);
 
-					return Ref(*value);
-				}
-				if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-					*value = *value*1-1;
+			//	if(primValue->subID == PrimitiveTypeID::Boolean) {
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!") {
+						return Ref<PrimitiveType>(value->operator!());
+					}
+			//	}
+			//	if(
+			//		primValue->subID == PrimitiveTypeID::Float ||
+			//		primValue->subID == PrimitiveTypeID::Integer
+			//	) {
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
+						return value->operator-();
+					}
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
+						*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
 
-					return Ref(*value);
-				}
+						return value;
+					}
+					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
+						*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+
+						return value;
+					}
+			//	}
 			}
 
 			// TODO: Dynamic operators lookup, check for values mutability, observers notification
@@ -305,7 +319,7 @@ struct Interpreter {
 				}
 			}
 
-			return getValueWrapper(string, "String");
+			return getValueWrapper(Ref<PrimitiveType>(string), "String");
 		} else
 		if(type == "throwStatement") {
 			auto value = executeVNode(n->get("value"));
@@ -321,10 +335,10 @@ struct Interpreter {
 				return nullptr;
 			}
 
-			return Primitive(type);
+			return Ref<PrimitiveType>(type);
 		} else
 		if(type == "typeIdentifier") {
-			CompositeRef composite = getValueComposite(executeVNode(n->get("identifier")));
+			CompositeTypeRef composite = getValueComposite(executeVNode(n->get("identifier")));
 
 			if(!composite || compositeIsObject(composite)) {
 				report(1, n, "Composite is an object or wasn\'t found.");
@@ -341,7 +355,7 @@ struct Interpreter {
 					}
 				}
 
-				return ReferenceType(composite->type, genericArguments);  // TODO: Check if type accepts passed generic arguments
+				return ReferenceType(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
 			}
 		} else
 		if(type == "whileStatement") {
@@ -351,7 +365,7 @@ struct Interpreter {
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
-			CompositeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
+			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
 
 			addScope(namespace_);
 
@@ -359,7 +373,7 @@ struct Interpreter {
 			//	removeMembers(namespace);
 
 				auto conditionValue = executeVNode(n->get("condition"));
-				bool condition = conditionValue && (conditionValue->type() != "boolean" || conditionValue->get<bool>());
+				bool condition = conditionValue && *conditionValue;
 
 				if(!condition) {
 					break;
@@ -389,26 +403,13 @@ struct Interpreter {
 		return nullptr;
 	}
 
-	CompositeRef getComposite(NodeValue ID) {
+	CompositeTypeRef getComposite(NodeValue ID) {
 		return ID.type() == 2 && (int)ID < composites.size() ? composites[(int)ID] : nullptr;
 	}
 
-	CompositeRef createComposite(const string& title, const CompositeTypeRef& type, CompositeRef scope = nullptr) {
+	CompositeTypeRef createComposite(const string& title, CompositeTypeID type, CompositeTypeRef scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
-		if(!type) {
-			return nullptr;
-		}
-
-		auto composite = Ref<Composite>(
-			title,
-			Node {
-				{"own", (int)composites.size()},
-				{"scope", nullptr},
-				{"retainers", NodeArray {}}
-			},
-			1,
-			type
-		);
+		auto composite = Ref<CompositeType>(type, title);
 
 		composites.push_back(composite);
 
@@ -419,7 +420,7 @@ struct Interpreter {
 		return composite;
 	}
 
-	void destroyComposite(CompositeRef composite) {
+	void destroyComposite(CompositeTypeRef composite) {
 		cout << "destroyComposite("+getTitle(composite)+")" << endl;
 		if(composite->life == 2) {
 			return;
@@ -430,7 +431,7 @@ struct Interpreter {
 		int ID = getOwnID(composite);
 		NodeArrayRef retainersIDs = getRetainersIDs(composite);
 
-		for(const CompositeRef& composite_ : composites) {
+		for(const CompositeTypeRef& composite_ : composites) {
 		//	if(getRetainersIDs(composite_) && contains(*getRetainersIDs(composite_), ID)) {
 				releaseComposite(composite, composite_);
 
@@ -447,7 +448,7 @@ struct Interpreter {
 		int aliveRetainers = 0;
 
 		for(int retainerID : *retainersIDs) {
-			CompositeRef composite_ = getComposite(retainerID);
+			CompositeTypeRef composite_ = getComposite(retainerID);
 
 			if(composite_ && composite_->life < 2) {
 				aliveRetainers++;
@@ -461,13 +462,13 @@ struct Interpreter {
 		}
 	}
 
-	void destroyReleasedComposite(CompositeRef composite) {
+	void destroyReleasedComposite(CompositeTypeRef composite) {
 		if(composite && !compositeRetained(composite)) {
 			destroyComposite(composite);
 		}
 	}
 
-	void retainComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+	void retainComposite(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -480,7 +481,7 @@ struct Interpreter {
 		}
 	}
 
-	void releaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+	void releaseComposite(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -501,7 +502,7 @@ struct Interpreter {
 	 * Use of this function is highly recommended when real retainment state is unknown
 	 * at the moment, otherwise basic functions can be used in favour of performance.
 	 */
-	void retainOrReleaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+	void retainOrReleaseComposite(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite) {
 		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
 			return;
 		}
@@ -519,7 +520,7 @@ struct Interpreter {
 	 * Composite considered really retained if it is used by an at least one of
 	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
 	 */
-	bool compositeRetains(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+	bool compositeRetains(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite) {
 		return retainingComposite && retainingComposite->life < 2 && (
 			IDsRetain(retainingComposite, retainedComposite) /*||
 			typeRetains(retainingComposite->type, retainedComposite) ||
@@ -538,10 +539,10 @@ struct Interpreter {
 	 * retainersIDs is used to exclude a retain cycles and redundant passes
 	 * from the lookup and meant to be set internally only.
 	 */
-	bool compositeRetainsDistant(CompositeRef retainingComposite, CompositeRef retainedComposite, shared_ptr<vector<int>> retainersIDs = Ref<vector<int>>()) {
+	bool compositeRetainsDistant(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite, shared_ptr<vector<int>> retainersIDs = Ref<vector<int>>()) {
 		/*
 		if(Array.isArray(retainingComposite)) {
-			for(const CompositeRef& retainingComposite_ : retainingComposite) {
+			for(const CompositeTypeRef& retainingComposite_ : retainingComposite) {
 				if(compositeRetainsDistant(retainingComposite_, retainedComposite)) {
 					return true;
 				}
@@ -579,7 +580,7 @@ struct Interpreter {
 	 * Composite considered significantly retained if it is formally retained by
 	 * the global namespace, a current scope composite or a current control trasfer value.
 	 */
-	bool compositeRetained(CompositeRef composite) {
+	bool compositeRetained(CompositeTypeRef composite) {
 		return (
 			compositeRetainsDistant(getComposite(0), composite) ||
 			compositeRetainsDistant(scope(), composite) ||
@@ -592,8 +593,8 @@ struct Interpreter {
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
 	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
-	CompositeRef createNamespace(const string& title, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr) {
-		CompositeRef namespace_ = createComposite(title, Ref<CompositeType>(CompositeTypeID::Namespace), scope);
+	CompositeTypeRef createNamespace(const string& title, CompositeTypeRef scope = nullptr, optional<CompositeTypeRef> levels = nullptr) {
+		CompositeTypeRef namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
 
 		if(levels && *levels) {
 			setInheritedLevelIDs(namespace_, *levels);
@@ -607,37 +608,37 @@ struct Interpreter {
 		return namespace_;
 	}
 
-	bool compositeIsFunction(const CompositeRef& composite) {
-		return composite && PredefinedCFunctionTypeRef->acceptsA(composite->type);
+	bool compositeIsFunction(const CompositeTypeRef& composite) {
+		return composite && PredefinedCFunctionTypeRef->acceptsA(composite);
 	}
 
-	bool compositeIsNamespace(const CompositeRef& composite) {
-		return composite && PredefinedCNamespaceTypeRef->acceptsA(composite->type);
+	bool compositeIsNamespace(const CompositeTypeRef& composite) {
+		return composite && PredefinedCNamespaceTypeRef->acceptsA(composite);
 	}
 
-	bool compositeIsObject(const CompositeRef& composite) {
-		return composite && PredefinedCObjectTypeRef->acceptsA(composite->type);
+	bool compositeIsObject(const CompositeTypeRef& composite) {
+		return composite && PredefinedCObjectTypeRef->acceptsA(composite);
 	}
 
-	bool compositeIsInstantiable(const CompositeRef& composite) {
+	bool compositeIsInstantiable(const CompositeTypeRef& composite) {
 		return composite && (
-			PredefinedCClassTypeRef->acceptsA(composite->type) ||
-			PredefinedCStructureTypeRef->acceptsA(composite->type)
+			PredefinedCClassTypeRef->acceptsA(composite) ||
+			PredefinedCStructureTypeRef->acceptsA(composite)
 		);
 	}
 
-	bool compositeIsCallable(const CompositeRef& composite) {
+	bool compositeIsCallable(const CompositeTypeRef& composite) {
 		return (
 			compositeIsFunction(composite) ||
 			compositeIsInstantiable(composite)
 		);
 	}
 
-	CompositeRef scope() {
+	CompositeTypeRef scope() {
 		return getScope();
 	}
 
-	CompositeRef getScope(int offset = 0) {
+	CompositeTypeRef getScope(int offset = 0) {
 		return scopes.size() > scopes.size()-1+offset
 			 ? scopes[scopes.size()-1+offset]
 			 : nullptr;
@@ -647,7 +648,7 @@ struct Interpreter {
 	 * Should be used for a bodies before executing its contents,
 	 * as ARC utilizes a current scope at the moment.
 	 */
-	void addScope(CompositeRef composite) {
+	void addScope(CompositeTypeRef composite) {
 		scopes.push_back(composite);
 	}
 
@@ -655,7 +656,7 @@ struct Interpreter {
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	void removeScope(bool destroy = true) {
-		CompositeRef composite = scopes.back();
+		CompositeTypeRef composite = scopes.back();
 
 		scopes.pop_back();
 
@@ -690,7 +691,7 @@ struct Interpreter {
 	 *
 	 * Specifying a type means explicit control transfer.
 	 */
-	void setControlTransfer(PrimitiveRef value = nullptr, optional<string> type = nullopt) {
+	void setControlTransfer(TypeRef value = nullptr, optional<string> type = nullopt) {
 		ControlTransfer& CT = controlTransfer();
 
 		CT.value = value;
@@ -722,13 +723,26 @@ struct Interpreter {
 	}
 
 	template<typename... Args>
-	PrimitiveRef executeVNode(NodeRef node, Args... arguments) {
-		return executeNode<Primitive>(node, arguments...);
+	TypeRef executeVNode(NodeRef node, Args... arguments) {
+		auto v = executeNode<Type>(node, arguments...);
+
+		if(v && v->concrete) {
+			return v;
+		}
+
+		return nullptr;
 	}
 
 	template<typename... Args>
 	TypeRef executeTNode(NodeRef node, Args... arguments) {
-		return executeNode<Type>(node, arguments...);
+		auto v = executeNode<Type>(node, arguments...);
+
+	//  Anonymous protocols are concrete
+	//	if(v && !v->concrete) {
+			return v;
+	//	}
+
+	//	return nullptr;
 	}
 
 	/*
@@ -743,7 +757,7 @@ struct Interpreter {
 
 		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
 			int NP = node->get<Node&>("range").get("start");  // New position
-			PrimitiveRef value = executeVNode(node);
+			TypeRef value = executeVNode(node);
 
 			if(node == nodes->back().get<NodeRef>() && !controlTransfer().type) {  // Implicit control transfer
 				setControlTransfer(value);
@@ -759,11 +773,11 @@ struct Interpreter {
 		position = OP;
 	}
 
-	string getTitle(CompositeRef composite) {
+	string getTitle(CompositeTypeRef composite) {
 		return composite && composite->title.length() ? composite->title : "#"+(string)getOwnID(composite);
 	}
 
-	void setID(CompositeRef composite, const string& key, const NodeValue& value) {
+	void setID(CompositeTypeRef composite, const string& key, const NodeValue& value) {
 		if(set<string> {"own", "retainers"}.contains(key)) {
 			return;
 		}
@@ -775,8 +789,8 @@ struct Interpreter {
 
 		if(OV != NV) {
 			if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
-				set<CompositeRef> composites;
-				CompositeRef composite_ = composite;
+				set<CompositeTypeRef> composites;
+				CompositeTypeRef composite_ = composite;
 
 				while(composite_) {
 					if(composites.contains(composite_)) {
@@ -796,22 +810,22 @@ struct Interpreter {
 		}
 	}
 
-	NodeValue getOwnID(CompositeRef composite, bool nillable = false) {
+	NodeValue getOwnID(CompositeTypeRef composite, bool nillable = false) {
 		return composite ? composite->IDs.get("own") :
 			   nillable ? NodeValue() :
 			   throw invalid_argument("Composite reference shouldn't be nil");
 	}
 
-	NodeArrayRef getRetainersIDs(CompositeRef composite) {
+	NodeArrayRef getRetainersIDs(CompositeTypeRef composite) {
 		return composite ? composite->IDs.get<NodeArrayRef>("retainers") : nullptr;
 	}
 
-	void setSelfID(CompositeRef composite, CompositeRef selfComposite) {
+	void setSelfID(CompositeTypeRef composite, CompositeTypeRef selfComposite) {
 		setID(composite, "self", getOwnID(selfComposite));
 	//	setID(composite, "Self", getSelfCompositeID(selfComposite));
 	}
 
-	void setInheritedLevelIDs(CompositeRef inheritingComposite, CompositeRef inheritedComposite) {
+	void setInheritedLevelIDs(CompositeTypeRef inheritingComposite, CompositeTypeRef inheritedComposite) {
 		if(inheritedComposite == inheritingComposite) {
 			return;
 		}
@@ -825,7 +839,7 @@ struct Interpreter {
 		}
 	}
 
-	void setMissedLevelIDs(CompositeRef missingComposite) {
+	void setMissedLevelIDs(CompositeTypeRef missingComposite) {
 		static set<string> excluded = {"own", "scope", "retainers"};
 
 		for(const auto& [key, value] : missingComposite->IDs) {
@@ -835,11 +849,11 @@ struct Interpreter {
 		}
 	}
 
-	void setScopeID(CompositeRef composite, CompositeRef scopeComposite) {
+	void setScopeID(CompositeTypeRef composite, CompositeTypeRef scopeComposite) {
 		setID(composite, "scope", getOwnID(scopeComposite, true));
 	}
 
-	bool IDsRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
+	bool IDsRetain(CompositeTypeRef retainingComposite, CompositeTypeRef retainedComposite) {
 		static set<string> excluded = {"own", "retainers"};
 
 		for(const auto& [key, value] : retainingComposite->IDs) {
@@ -851,64 +865,30 @@ struct Interpreter {
 		return false;
 	}
 
-	string getValueString(PrimitiveRef primitive, bool explicitStrings = false) {
-		if(!primitive) {
-			return "nil";
-		}
-
-		if(set<string> {"boolean", "float", "integer"}.contains(primitive->type())) {
-			return *primitive;
-		}
-		if(primitive->type() == "string") {
-			return explicitStrings ? "'"+(string)(*primitive)+"'" : (string)(*primitive);
-		}
-
-		CompositeRef composite = getValueComposite(primitive);
-
-		if(composite) {
-		//	return getCompositeString(composite);
-		}
-
-		if(primitive->type() == "dictionary") {
-			string result = "[";
-			PrimitiveDictionary dictionary = *primitive;
-			auto it = dictionary.begin();
-
-			while(it != dictionary.end()) {
-				auto& [k, v] = *it;
-
-				result += getValueString(k, true)+": "+getValueString(v, true);
-
-				if(next(it) != dictionary.end()) {
-					result += ", ";
-				}
-
-				it++;
-			}
-
-			result += "]";
-
-			return result;
-		}
-
-		return "";
+	string getValueString(TypeRef primitive, bool explicitStrings = false) {
+		return primitive ? primitive->toString() : "nil";
 	}
 
 	/*
 	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
 	 */
-	Primitive getValueWrapper(const Primitive& value, string identifier) {
+	TypeRef getValueWrapper(const TypeRef& value, string identifier) {
 		// TODO
 
 		return value;
 	}
 
-	CompositeRef getValueComposite(PrimitiveRef value) {
-		if(!value || !set<string> {"pointer", "reference"}.contains(value->type())) {
-			return nullptr;
+	CompositeTypeRef getValueComposite(TypeRef value) {
+		if(value) {
+			if(value->ID == TypeID::Composite) {
+				return static_pointer_cast<CompositeType>(value);
+			}
+			if(value->ID == TypeID::Reference) {
+				return static_pointer_cast<ReferenceType>(value)->compType;
+			}
 		}
 
-		return getComposite((int)*value);
+		return nullptr;
 	}
 
 	void report(int level, NodeRef node, const string& string) {

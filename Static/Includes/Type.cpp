@@ -9,6 +9,7 @@
 #include <cassert>
 
 #include "Std.cpp"
+#include "Node.cpp"
 
 // ----------------------------------------------------------------
 
@@ -153,8 +154,9 @@ struct Type : enable_shared_from_this<Type> {
 
 	virtual operator bool() const { return bool(); }
 	virtual operator double() const { return double(); }
-	virtual operator int() const { return int(); }
+	virtual operator int() const { return operator double(); }
 	virtual operator string() const { return string(); }  // Machine-friendly representation
+	virtual TypeRef operator=(TypeRef type) { return shared_from_this(); }
 	virtual TypeRef operator+() const { return Ref<Type>(); }
 	virtual TypeRef operator-() const { return Ref<Type>(); }
 	virtual TypeRef operator+(TypeRef type) const { return Ref<Type>(); }
@@ -396,17 +398,17 @@ struct PredefinedType : Type {
 
 struct PrimitiveType : Type {
 	const PrimitiveTypeID subID;
-	const any value;
+	mutable any value;
 
-	PrimitiveType(const bool& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Boolean), value(v) {}
+	PrimitiveType(const bool& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Boolean), value(v) { cout << toString() << " type created\n"; }
 	PrimitiveType(const double& v) : Type(TypeID::Primitive, true), subID(v != static_cast<int>(v) ? PrimitiveTypeID::Float : PrimitiveTypeID::Integer),
-																	value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) {}
-	PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) {}
-	PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) {}
-	PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) {}
+																	value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) { cout << toString() << " type created\n"; }
+	PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) { cout << toString() << " type created\n"; }
+	PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) { cout << toString() << " type created\n"; }
+	PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) { cout << toString() << " type created\n"; }
 	PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
 																									   (!v->concrete ? v : throw invalid_argument("Primitive type isn't mean to store concrete types")) :
-																									   					   throw invalid_argument("Primitive type cannot be represented by nil")) {}
+																									   					   throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
@@ -463,6 +465,18 @@ struct PrimitiveType : Type {
 		}
 	}
 
+	TypeRef operator=(TypeRef type) override {
+		if(type->ID == TypeID::Primitive) {
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			if(primType->subID == subID) {
+				value = primType->value;
+			}
+		}
+
+		return shared_from_this();
+	}
+
 	TypeRef operator+() const override {
 		return subID == PrimitiveTypeID::Type
 			 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
@@ -487,6 +501,16 @@ struct PrimitiveType : Type {
 		}
 
 		return Ref<PrimitiveType>(operator double()+primType->operator double());
+	}
+
+	TypeRef operator-(TypeRef type) const override {
+		if(type->ID != TypeID::Primitive) {
+			return Type::operator-();
+		}
+
+		auto primType = static_pointer_cast<PrimitiveType>(type);
+
+		return Ref<PrimitiveType>(operator double()-primType->operator double());
 	}
 
 	TypeRef operator*(TypeRef type) const override {
@@ -535,7 +559,7 @@ struct DictionaryType : Type {
 	unordered_map<TypeRef, vector<size_t>> kIndexes;	// key -> indexes
 	vector<Entry> iEntries;								// index -> entry
 
-	DictionaryType(const TypeRef& keyType, const TypeRef& valueType, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
+	DictionaryType(const TypeRef& keyType = PredefinedEAnyTypeRef, const TypeRef& valueType = PredefinedEAnyTypeRef, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
 
 	bool acceptsA(const TypeRef& type) override {
 		if(type->ID == TypeID::Dictionary) {
@@ -552,7 +576,28 @@ struct DictionaryType : Type {
 	}
 
 	string toString() const override {
-		return "["+keyType->toString()+": "+valueType->toString()+"]";
+		if(!concrete) {
+			return "["+keyType->toString()+": "+valueType->toString()+"]";
+		}
+
+		string result = "[";
+		auto it = begin();
+
+		while(it != end()) {
+			auto& [k, v] = *it;
+
+			result += k->toString()+": "+v->toString();
+
+			if(next(it) != end()) {
+				result += ", ";
+			}
+
+			it++;
+		}
+
+		result += "]";
+
+		return result;
 	}
 
 	bool operator==(const TypeRef& type) override {
@@ -586,11 +631,11 @@ struct DictionaryType : Type {
 		return nullptr;
 	}
 
-	auto begin() const {
+	vector<Entry>::const_iterator begin() const {
 		return iEntries.begin();
 	}
 
-	auto end() const {
+	vector<Entry>::const_iterator end() const {
 		return iEntries.end();
 	}
 
@@ -600,13 +645,17 @@ struct DictionaryType : Type {
 };
 
 // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
-static vector<CompositeTypeRef> composites;
+static deque<CompositeTypeRef> composites;
 
 struct CompositeType : Type {
 	const CompositeTypeID subID;
 	string title;
-	int index;
-	int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
+	Node IDs = Node {
+		{"own", composites.size() > 0 ? composites.back()->IDs.get<int>("own")+1 : 0 },
+		{"scope", nullptr},
+		{"retainers", NodeArray {}}
+	};
+	int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 	vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
 	vector<TypeRef> genericParameterTypes;
 
@@ -614,13 +663,13 @@ struct CompositeType : Type {
 				  const string& title,
 				  const vector<int>& inheritedTypes = {},
 				  const vector<TypeRef>& genericParameterTypes = {}) : Type(TypeID::Composite, true),
-																	   index(composites.size()),
 																	   subID(subID),
 																	   title(title),
 																	   inheritedTypes(inheritedTypes),
 																	   genericParameterTypes(genericParameterTypes)
 	{
-		composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
+	//	if(composites.size() > 0 && IDs.get("own") == composites.back()->IDs.get("own")) {}
+	//	composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
 	}
 
 	set<int> getFullInheritanceChain() const {
@@ -636,7 +685,7 @@ struct CompositeType : Type {
 	}
 
 	static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
-		if(candidate->index != base->index && !candidate->getFullInheritanceChain().contains(base->index)) {
+		if(candidate->IDs.get("own") != base->IDs.get("own") && !candidate->getFullInheritanceChain().contains(base->IDs.get("own"))) {
 			return false;
 		}
 
@@ -645,7 +694,7 @@ struct CompositeType : Type {
 				return false;
 			}
 			for(int i = 0; i < candidate->genericParameterTypes.size(); i++) {
-				if(!candidate->genericParameterTypes[i]->acceptsA((*candidateGenericArgumentTypes)[i])) {
+				if(!candidate->genericParameterTypes[i]->acceptsA(candidateGenericArgumentTypes->at(i))) {
 					return false;
 				}
 			}
@@ -669,7 +718,7 @@ struct CompositeType : Type {
 			case CompositeTypeID::Structure:	result += "structure";
 		}
 
-		result += " "+title+"#"+to_string(index);
+		result += " "+title+"#"+to_string(IDs.get("own"));
 
 		if(!genericParameterTypes.empty()) {
 			result += "<";
@@ -704,6 +753,10 @@ struct CompositeType : Type {
 		}
 
 		return result;
+	}
+
+	operator double() const override {
+		return IDs.get("own");
 	}
 };
 
@@ -759,7 +812,7 @@ struct ReferenceType : Type {
 			argsStr += ">";
 		}
 
-		return "Reference("+compType->title+"#"+to_string(compType->index)+argsStr+")";
+		return "Reference("+compType->title+"#"+to_string(compType->IDs.get("own"))+argsStr+")";
 	}
 };
 
