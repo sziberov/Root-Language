@@ -399,17 +399,30 @@ struct PrimitiveType : Type {
 	const any value;
 
 	PrimitiveType(const bool& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Boolean), value(v) {}
-	PrimitiveType(const double& v) : Type(TypeID::Primitive, true),
-									 subID(v != static_cast<int>(v) ? PrimitiveTypeID::Float : PrimitiveTypeID::Integer),
-									 value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) {}
+	PrimitiveType(const double& v) : Type(TypeID::Primitive, true), subID(v != static_cast<int>(v) ? PrimitiveTypeID::Float : PrimitiveTypeID::Integer),
+																	value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) {}
 	PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) {}
 	PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) {}
 	PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) {}
-	PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?: throw invalid_argument("Primitive type cannot be represented by nil")) {}
+	PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
+																									   (!v->concrete ? v : throw invalid_argument("Primitive type isn't mean to store concrete types")) :
+																									   					   throw invalid_argument("Primitive type cannot be represented by nil")) {}
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
-		return type->ID == TypeID::Primitive && subID == static_pointer_cast<PrimitiveType>(type)->subID;
+		if(type->ID == TypeID::Primitive) {
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			if(subID == primType->subID) {
+				if(subID == PrimitiveTypeID::Type) {
+					return any_cast<TypeRef>(value)->acceptsA(any_cast<TypeRef>(primType->value));
+				}
+
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	string toString() const override {
@@ -433,7 +446,7 @@ struct PrimitiveType : Type {
 			case PrimitiveTypeID::Float:	return any_cast<double>(value);
 			case PrimitiveTypeID::Integer:	return any_cast<int>(value);
 			case PrimitiveTypeID::String:	return stod(any_cast<string>(value));
-			case PrimitiveTypeID::Type:		return 1;
+			case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator double();
 			default:						return double();
 		}
 	}
@@ -543,35 +556,31 @@ struct DictionaryType : Type {
 	}
 
 	bool operator==(const TypeRef& type) override {
-		if(type->ID != TypeID::Dictionary) {
-			return Type::operator==(type);
-		}
-
-		return false;
+		return false;  // TODO
 	}
 
-	int emplace(const TypeRef& key, const TypeRef& value) {
+	void emplace(const TypeRef& key, const TypeRef& value) {
 		if(!concrete) {
-			return 1;
+			throw invalid_argument("Abstract dictionary type cannot contain values");
 		}
-		if(!keyType->acceptsA(key)) {
-			return 2;
+		if(!key->conformsTo(keyType)) {
+			throw invalid_argument("Key '"+key->toString()+"' does not conform to expected type '"+keyType->toString()+"'");
 		}
-		if(!valueType->acceptsA(value)) {
-			return 3;
+		if(!value->conformsTo(valueType)) {
+			throw invalid_argument("Value '"+value->toString()+"' does not conform to expected type '"+valueType->toString()+"'");
 		}
 
 		kIndexes[key].push_back(size());
 		iEntries.push_back(make_pair(key, value));
-
-		return 0;
 	}
 
 	TypeRef get(const TypeRef& key) const {
-		auto it = kIndexes.find(key);
+		if(concrete) {
+			auto it = kIndexes.find(key);
 
-		if(it != kIndexes.end() && !it->second.empty()) {
-			return iEntries[it->second.back()].second;
+			if(it != kIndexes.end() && !it->second.empty()) {
+				return iEntries[it->second.back()].second;
+			}
 		}
 
 		return nullptr;
@@ -1049,10 +1058,10 @@ const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID
 /*
 void matchTypeListsTest() {
 	// Примитивные типы
-	TypeRef intType	= Ref<PrimitiveType>(PrimitiveTypeID::Integer);
-	TypeRef floatType  = Ref<PrimitiveType>(PrimitiveTypeID::Float);
-	TypeRef stringType = Ref<PrimitiveType>(PrimitiveTypeID::String);
-	TypeRef boolType   = Ref<PrimitiveType>(PrimitiveTypeID::Boolean);
+	TypeRef intType	= Ref<PrimitiveType>(0);
+	TypeRef floatType  = Ref<PrimitiveType>(0.5);
+	TypeRef stringType = Ref<PrimitiveType>("a");
+	TypeRef boolType   = Ref<PrimitiveType>(true);
 
 	// Variadic с внутренним типом
 	TypeRef variadicInt	= Ref<VariadicType>(intType);
@@ -1138,8 +1147,74 @@ void matchTypeListsTest() {
 	assert(!FunctionType::matchTypeLists(expected_14, provided_14));
 }
 
+void acceptsTypeAndValueTest() {
+	// Abstract can accept abstract: nillable accepts nillable...
+	// Abstract can accept concrete: predefined accepts primitive, composite or dictionary...
+
+	// Concrete can accept concrete?: composite accepts composite
+	// Concrete can't accept abstract
+
+	// Abstract can't accept themselves
+	// Concrete can accept themselves
+
+	// Type can be considered concrete if it is:
+	//	- Concrete by definition (primitive, composite)
+	//	- Initialized as concrete (dictionary)
+	//	- Lhs type (e.g. predefined "type") can treat it like that
+
+	// Nillable(Nillable(Primitive(Int))) accepts Primitive(Int)
+	// Nillable(Nillable(Primitive(Int))) doesn't accept Nillable(Primitive(Int))
+	// Nillable(Predefined(Int)) accepts Primitive(Int)
+	// Nillable(Predefined(Int)) doesn't accept Nillable(Predefined(Int))
+	// Nillable(Predefined(Int)) doesn't accept Predefined(Int)
+	// Nillable(Primitive(Int)) doesn't accept Nillable(Primitive(Int))
+	// Predefined(Int) accepts Primitive(Int)
+	// Predefined(Int) doesn't accept Nillable(Predefined(Int))
+	// Predefined(Int) doesn't accept Predefined(Int)
+	// Predefined(String) accepts Primitive(String)
+	// Predefined(String) doesn't accept Predefined(String)
+	// Primitive(Int) accepts Primitive(Int)
+	// Primitive(Int) doesn't accept Nillable(Primitive(Int))
+	// Primitive(Int) doesn't accept Predefined(Int)
+	// Primitive(Int) doesn't accept Primitive(String)
+	// Primitive(String) accepts Primitive(String)
+	// Primitive(String) doesn't accept Predefined(String)
+	// Primitive(String) doesn't accept Primitive(Int)
+	// Union(Predefined(Int), Predefined(String)) accepts Primitive(Int)
+	// Union(Predefined(Int), Predefined(String)) accepts Primitive(String)
+	// Union(Predefined(Int), Predefined(String)) doesn't accept Predefined(Int)
+	// Union(Predefined(Int), Predefined(String)) doesn't accept Predefined(String)
+	// Union(Predefined(Int), Predefined(String)) doesn't accept Union(Predefined(Int), Predefined(String))
+	// Union(Predefined(Int), Predefined(String)) doesn't accept Union(Primitive(Int), Primitive(String))
+
+	assert(Ref<NillableType>(Ref<NillableType>(Ref<PrimitiveType>(0)))->acceptsA(Ref<PrimitiveType>(0)));
+	assert(!Ref<NillableType>(Ref<NillableType>(Ref<PrimitiveType>(0)))->acceptsA(Ref<NillableType>(Ref<PrimitiveType>(0))));
+	assert(Ref<NillableType>(PredefinedPIntegerTypeRef)->acceptsA(Ref<PrimitiveType>(0)));
+	assert(!Ref<NillableType>(PredefinedPIntegerTypeRef)->acceptsA(Ref<NillableType>(PredefinedPIntegerTypeRef)));
+	assert(!Ref<NillableType>(PredefinedPIntegerTypeRef)->acceptsA(PredefinedPIntegerTypeRef));
+	assert(!Ref<NillableType>(Ref<PrimitiveType>(0))->acceptsA(Ref<NillableType>(Ref<PrimitiveType>(0))));
+	assert(PredefinedPIntegerTypeRef->acceptsA(Ref<PrimitiveType>(0)));
+	assert(!PredefinedPIntegerTypeRef->acceptsA(Ref<NillableType>(Ref<PrimitiveType>(0))));
+	assert(!PredefinedPIntegerTypeRef->acceptsA(PredefinedPIntegerTypeRef));
+	assert(PredefinedPStringTypeRef->acceptsA(Ref<PrimitiveType>("a")));
+	assert(!PredefinedPStringTypeRef->acceptsA(PredefinedPStringTypeRef));
+	assert(Ref<PrimitiveType>(0)->acceptsA(Ref<PrimitiveType>(0)));
+	assert(!Ref<PrimitiveType>(0)->acceptsA(Ref<NillableType>(Ref<PrimitiveType>(0))));
+	assert(!Ref<PrimitiveType>(0)->acceptsA(PredefinedPIntegerTypeRef));
+	assert(!Ref<PrimitiveType>(0)->acceptsA(Ref<PrimitiveType>("a")));
+	assert(Ref<PrimitiveType>("a")->acceptsA(Ref<PrimitiveType>("a")));
+	assert(!Ref<PrimitiveType>("a")->acceptsA(PredefinedPStringTypeRef));
+	assert(!Ref<PrimitiveType>("a")->acceptsA(Ref<PrimitiveType>(0)));
+	assert(Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(Ref<PrimitiveType>(0)));
+	assert(Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(Ref<PrimitiveType>("a")));
+	assert(!Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(PredefinedPIntegerTypeRef));
+	assert(!Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(PredefinedPStringTypeRef));
+	assert(!Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })));
+	assert(!Ref<UnionType>(vector<TypeRef> { PredefinedPIntegerTypeRef, PredefinedPStringTypeRef })->acceptsA(Ref<UnionType>(vector<TypeRef> { Ref<PrimitiveType>(0), Ref<PrimitiveType>("a") })));
+}
+
 int main() {
-	TypeRef intType	= Ref<PrimitiveType>(PrimitiveTypeID::Integer);
+	TypeRef intType	= Ref<PrimitiveType>(0);
 	TypeRef nillableInt = Ref<NillableType>(intType);
 	TypeRef parenType = Ref<ParenthesizedType>(nillableInt);
 	TypeRef nillableParenType = Ref<NillableType>(parenType);
@@ -1150,6 +1225,7 @@ int main() {
 	cout << "(int?)? normalized: " << nillableParenType->normalized()->toString() << "\n";
 
 	matchTypeListsTest();
+	acceptsTypeAndValueTest();
 
 	cout << Ref<PrimitiveType>(true)->operator+(Ref<PrimitiveType>(123))->toString() + "\n";
 }
