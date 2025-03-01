@@ -178,8 +178,8 @@ struct Type : enable_shared_from_this<Type> {
 	}
 };
 
-static string to_string(const TypeRef& type) {
-	return type ? type->toString() : "nil";
+static string to_string(const TypeRef& type, bool raw = false) {
+	return type ? (raw ? type->operator string() : type->toString()) : "nil";
 }
 
 // ----------------------------------------------------------------
@@ -564,7 +564,7 @@ struct DictionaryType : Type {
 
 	struct Comparator {
 		bool operator()(const TypeRef& lhs, const TypeRef& rhs) const {
-			return lhs == rhs || !lhs && !rhs || lhs && lhs->operator==(rhs);
+			return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->operator==(rhs);
 		}
 	};
 
@@ -730,16 +730,40 @@ struct DictionaryType : Type {
 static deque<CompositeTypeRef> composites;
 
 struct CompositeType : Type {
+	enum MemberModifiers : uint16_t {
+		Infix = 1 << 0,
+		Postfix = 1 << 1,
+		Prefix = 1 << 2,
+
+		Private = 1 << 3,
+		Protected = 1 << 4,
+		Public = 1 << 5,
+
+		Final = 1 << 6,
+		Lazy = 1 << 7,
+		Static = 1 << 8,
+		Virtual = 1 << 9
+	};
+
+	struct MemberOverload {
+		int modifiers;
+		TypeRef type,
+				value;
+	};
+
+	using Member = vector<MemberOverload>;
+
 	const CompositeTypeID subID;
 	string title;
 	Node IDs = Node {
-		{"own", composites.size() > 0 ? composites.back()->IDs.get<int>("own")+1 : 0 },
+		{"own", composites.size() > 0 ? composites.back()->IDs.get<int>("own")+1 : 0},
 		{"scope", nullptr},
 		{"retainers", NodeArray {}}
 	};
 	int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 	vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
 	vector<TypeRef> genericParameterTypes;
+	unordered_map<string, Member> members;
 
 	CompositeType(CompositeTypeID subID,
 				  const string& title,

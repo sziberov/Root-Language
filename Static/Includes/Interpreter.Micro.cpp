@@ -323,7 +323,13 @@ struct Interpreter {
 				if(segment->get("type") == "stringSegment") {
 					string += segment->get<::string>("value");
 				} else {  // stringExpression
-					string += to_string(executeNode(segment->get("value")));
+					auto value = executeNode(segment->get("value"));
+
+					if(threw()) {
+						return nullptr;
+					}
+
+					string += to_string(value, true);
 				}
 			}
 
