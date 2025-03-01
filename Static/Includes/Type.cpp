@@ -178,6 +178,10 @@ struct Type : enable_shared_from_this<Type> {
 	}
 };
 
+static string to_string(const TypeRef& type) {
+	return type ? type->toString() : "nil";
+}
+
 // ----------------------------------------------------------------
 
 struct ParenthesizedType : Type {
@@ -374,7 +378,7 @@ struct PredefinedType : Type {
 			case PredefinedTypeID::EVoid:			return "void";
 			case PredefinedTypeID::EAny:			return "_";
 
- 			case PredefinedTypeID::PAny:			return "any";
+			case PredefinedTypeID::PAny:			return "any";
 			case PredefinedTypeID::PBoolean:		return "bool";
 			case PredefinedTypeID::PDictionary:		return "dict";
 			case PredefinedTypeID::PFloat:			return "float";
@@ -382,7 +386,7 @@ struct PredefinedType : Type {
 			case PredefinedTypeID::PString:			return "string";
 			case PredefinedTypeID::PType:			return "type";
 
- 			case PredefinedTypeID::CAny:			return "Any";
+			case PredefinedTypeID::CAny:			return "Any";
 			case PredefinedTypeID::CClass:			return "Class";
 			case PredefinedTypeID::CEnumeration:	return "Enumeration";
 			case PredefinedTypeID::CFunction:		return "Function";
@@ -408,7 +412,7 @@ struct PrimitiveType : Type {
 	PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) { cout << toString() << " type created\n"; }
 	PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
 																									   (!v->concrete ? v : throw invalid_argument("Primitive type isn't mean to store concrete types")) :
-																									   					   throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
+																														   throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
 	~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
 	bool acceptsA(const TypeRef& type) override {
@@ -552,12 +556,24 @@ struct PrimitiveType : Type {
 };
 
 struct DictionaryType : Type {
+	struct Hasher {
+		size_t operator()(const TypeRef& t) const {
+			return 0;  // TODO
+		}
+	};
+
+	struct Comparator {
+		bool operator()(const TypeRef& lhs, const TypeRef& rhs) const {
+			return lhs == rhs || !lhs && !rhs || lhs && lhs->operator==(rhs);
+		}
+	};
+
 	using Entry = pair<TypeRef, TypeRef>;
 
 	TypeRef keyType,
 			valueType;
-	unordered_map<TypeRef, vector<size_t>> kIndexes;	// key -> indexes
-	vector<Entry> iEntries;								// index -> entry
+	unordered_map<TypeRef, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
+	vector<Entry> iEntries;													// index -> entry
 
 	DictionaryType(const TypeRef& keyType = PredefinedEAnyTypeRef, const TypeRef& valueType = PredefinedEAnyTypeRef, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
 
@@ -586,7 +602,7 @@ struct DictionaryType : Type {
 		while(it != end()) {
 			auto& [k, v] = *it;
 
-			result += k->toString()+": "+v->toString();
+			result += to_string(k)+": "+to_string(v);
 
 			if(next(it) != end()) {
 				result += ", ";
@@ -604,19 +620,85 @@ struct DictionaryType : Type {
 		return false;  // TODO
 	}
 
-	void emplace(const TypeRef& key, const TypeRef& value) {
+	void emplace(const TypeRef& key, const TypeRef& value, bool replace = false) {
 		if(!concrete) {
 			throw invalid_argument("Abstract dictionary type cannot contain values");
 		}
-		if(!key->conformsTo(keyType)) {
-			throw invalid_argument("Key '"+key->toString()+"' does not conform to expected type '"+keyType->toString()+"'");
+		if(
+			key && !key->conformsTo(keyType) ||
+			!key && !PredefinedEVoidTypeRef->conformsTo(keyType)
+		) {
+			throw invalid_argument("'"+to_string(key)+"' does not conform to expected key type '"+keyType->toString()+"'");
 		}
-		if(!value->conformsTo(valueType)) {
-			throw invalid_argument("Value '"+value->toString()+"' does not conform to expected type '"+valueType->toString()+"'");
+		if(
+			value && !value->conformsTo(valueType) ||
+			!value && !PredefinedEVoidTypeRef->conformsTo(valueType)
+		) {
+			throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+valueType->toString()+"'");
 		}
 
-		kIndexes[key].push_back(size());
-		iEntries.push_back(make_pair(key, value));
+		if(!replace) {
+			kIndexes[key].push_back(size());
+			iEntries.push_back(make_pair(key, value));
+		} else
+		if(auto it = kIndexes.find(key); it != kIndexes.end() && !it->second.empty()) {
+			size_t keepIndex = it->second[0];
+			iEntries[keepIndex].second = value;
+
+			for(int j = static_cast<int>(it->second.size())-1; j >= 1; j--) {
+				removeAtIndex(it->second[j]);
+			}
+
+			it->second.resize(1);
+		}
+	}
+
+	void replace(const TypeRef& key, const TypeRef& value) {
+		emplace(key, value, true);
+	}
+
+	void removeAtIndex(size_t idxToRemove) {
+		iEntries.erase(begin()+idxToRemove);
+
+		for(auto& [key, indexes] : kIndexes) {
+			for(size_t& index : indexes) {
+				if(index > idxToRemove) {
+					index--;
+				}
+			}
+		}
+	}
+
+	void removeFirst(const TypeRef& key) {
+		auto it = kIndexes.find(key);
+
+		if(it == kIndexes.end() || it->second.empty()) {
+			return;
+		}
+
+		size_t idxToRemove = it->second.front();
+		it->second.erase(it->second.begin());
+		removeAtIndex(idxToRemove);
+
+		if(it->second.empty()) {
+			kIndexes.erase(it);
+		}
+	}
+
+	void removeLast(const TypeRef& key) {
+		auto it = kIndexes.find(key);
+
+		if(it == kIndexes.end() || it->second.empty()) {
+			return;
+		}
+
+		size_t idxToRemove = it->second.back();
+		it->second.pop_back();
+		removeAtIndex(idxToRemove);
+
+		if(it->second.empty()) {
+			kIndexes.erase(it);
+		}
 	}
 
 	TypeRef get(const TypeRef& key) const {
@@ -1281,5 +1363,13 @@ int main() {
 	acceptsTypeAndValueTest();
 
 	cout << Ref<PrimitiveType>(true)->operator+(Ref<PrimitiveType>(123))->toString() + "\n";
+
+	auto dictType = Ref<DictionaryType>(PredefinedEAnyTypeRef, PredefinedEAnyTypeRef, true);
+
+	dictType->emplace(Ref<PrimitiveType>(1), Ref<PrimitiveType>(2));
+	dictType->emplace(Ref<PrimitiveType>(1), Ref<PrimitiveType>(3));
+	dictType->emplace(Ref<PrimitiveType>(2), Ref<PrimitiveType>(4));
+
+	cout << dictType->toString() << endl;
 }
 */

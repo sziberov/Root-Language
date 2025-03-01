@@ -32,8 +32,48 @@ struct Interpreter {
 	Preferences preferences;
 	deque<Report> reports;
 
+	any any_rules(const string& type, NodeRef n) {
+		if(!n) {
+			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
+		}
+
+		if(type == "argument") {
+			auto key = !n->empty("label") ? n->get<Node&>("label").get<string>("value") : "";
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			return make_pair(
+				key,
+				value
+			);
+		} else
+		if(type == "entry") {
+			auto key = executeNode(n->get("key"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			return make_pair(
+				key,
+				value
+			);
+		}
+
+		return nullptr;
+	}
+
 	template<typename... Args>
-	any rules(const string& type, NodeRef n = nullptr, Args... args) {
+	TypeRef rules(const string& type, NodeRef n = nullptr, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(
@@ -44,16 +84,6 @@ struct Interpreter {
 			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
 		}
 
-		if(type == "argument") {
-			auto value = executeVNode(n->get("value"));
-
-			if(!threw()) {
-				return make_pair(
-					!n->empty("label") ? n->get<Node&>("label").get<string>("value") : "",
-					value
-				);
-			}
-		} else
 		if(type == "arrayLiteral") {
 			auto value = Ref<DictionaryType>(
 				PredefinedPIntegerTypeRef,
@@ -62,7 +92,7 @@ struct Interpreter {
 			);
 
 			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
-				auto value_ = executeVNode(n->get<NodeArray&>("values")[i]);
+				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_) {
 					value->emplace(Ref<PrimitiveType>(i), value_);  // TODO: Copy or link value in accordance to type
@@ -72,19 +102,19 @@ struct Interpreter {
 			return getValueWrapper(value, "Array");
 		} else
 		if(type == "arrayType") {
-			TypeRef valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+			TypeRef valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
 
 			if(composite) {
-				return ReferenceType(composite, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
+				return Ref<ReferenceType>(composite, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
 			} else {
-				return DictionaryType(PredefinedPIntegerTypeRef, valueType);
+				return Ref<DictionaryType>(PredefinedPIntegerTypeRef, valueType);
 			}
 
 			return nullptr;
 		} else
 		if(type == "booleanLiteral") {
-			return getValueWrapper(Ref<PrimitiveType>(n->get("value") == "true"), "Boolean");
+			return getValueWrapper(n->get("value") == "true", "Boolean");
 		} else
 		if(type == "breakStatement") {
 			TypeRef value;
@@ -116,7 +146,7 @@ struct Interpreter {
 			);
 
 			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
-				auto entry_ = any_optcast<DictionaryType::Entry>(rules("entry", entry));
+				auto entry_ = any_optcast<DictionaryType::Entry>(any_rules("entry", entry));
 
 				if(entry_) {
 					value->emplace(entry_->first, entry_->second);  // TODO: Copy or link value in accordance to type
@@ -126,26 +156,20 @@ struct Interpreter {
 			return getValueWrapper(value, "Dictionary");
 		} else
 		if(type == "dictionaryType") {
-			TypeRef keyType = executeTNode(n->get("key")) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
-					valueType = executeTNode(n->get("value")) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+			TypeRef keyType = executeNode(n->get("key"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
+					valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
 
 			if(composite) {
-				return ReferenceType(composite, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
+				return Ref<ReferenceType>(composite, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
 			} else {
-				return DictionaryType(keyType, valueType);
+				return Ref<DictionaryType>(keyType, valueType);
 			}
 
 			return nullptr;
 		} else
-		if(type == "entry") {
-			return make_pair(
-				executeVNode(n->get("key")),
-				executeVNode(n->get("value"))
-			);
-		} else
 		if(type == "floatLiteral") {
-			return getValueWrapper(Ref<PrimitiveType>(n->get<double>("value")), "Float");
+			return getValueWrapper(n->get<double>("value"), "Float");
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
@@ -158,7 +182,7 @@ struct Interpreter {
 
 			addScope(namespace_);
 
-			auto conditionValue = executeVNode(n->get("condition"));
+			auto conditionValue = executeNode(n->get("condition"));
 			bool condition = conditionValue && *conditionValue,
 				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
 
@@ -166,9 +190,9 @@ struct Interpreter {
 				NodeRef branch = n->get(condition ? "then" : "else");
 
 				if(branch && branch->get("type") == "functionBody") {
-					executeVNodes(branch->get("statements"));
+					executeNodes(branch->get("statements"));
 				} else {
-					setControlTransfer(executeVNode(branch), controlTransfer().type);
+					setControlTransfer(executeNode(branch), controlTransfer().type);
 				}
 			}
 
@@ -181,16 +205,16 @@ struct Interpreter {
 			return controlTransfer().value;
 		} else
 		if(type == "integerLiteral") {
-			return getValueWrapper(Ref<PrimitiveType>(n->get<int>("value")), "Integer");
+			return getValueWrapper(n->get<int>("value"), "Integer");
 		} else
 		if(type == "module") {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
 		//	addDefaultMembers(scope());
-			executeVNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr/*, (t) => t !== 'throw' ? 0 : -1*/);
+			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr/*, (t) => t !== 'throw' ? 0 : -1*/);
 
 			if(threw()) {
-				report(2, nullptr, getValueString(controlTransfer().value));
+				report(2, nullptr, to_string(controlTransfer().value));
 			}
 
 			removeScope();
@@ -199,33 +223,26 @@ struct Interpreter {
 		if(type == "nilLiteral") {
 		} else
 		if(type == "parenthesizedExpression") {
-			return executeVNode(n->get("value"));
+			return executeNode(n->get("value"));
 		} else
 		if(type == "postfixExpression") {
-			auto value = executeVNode(n->get("value"));
+			auto value = executeNode(n->get("value"));
 
 			if(!value) {
 				return nullptr;
 			}
 
-			if(value->ID == TypeID::Primitive) {
-			//	auto primValue = static_pointer_cast<PrimitiveType>(value);
+			if(value->ID == TypeID::Primitive && !n->empty("operator")) {
+				if(n->get<Node&>("operator").get("value") == "++") {
+					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
 
-			//	if(
-			//		primValue->subID == PrimitiveTypeID::Float ||
-			//		primValue->subID == PrimitiveTypeID::Integer
-			//	) {
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-						*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+					return value->operator-(Ref<PrimitiveType>(1));
+				}
+				if(n->get<Node&>("operator").get("value") == "--") {
+					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
 
-						return value->operator-(Ref<PrimitiveType>(1));
-					}
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-						*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
-
-						return value->operator+(Ref<PrimitiveType>(1));
-					}
-			//	}
+					return value->operator+(Ref<PrimitiveType>(1));
+				}
 			}
 
 			// TODO: Dynamic operators lookup, check for values mutability, observers notification
@@ -258,38 +275,29 @@ struct Interpreter {
 			return PredefinedEAnyTypeRef;
 		} else
 		if(type == "prefixExpression") {
-			auto value = executeVNode(n->get("value"));
+			auto value = executeNode(n->get("value"));
 
 			if(!value) {
 				return nullptr;
 			}
 
-			if(value->ID == TypeID::Primitive) {
-			//	auto primValue = static_pointer_cast<PrimitiveType>(value);
+			if(value->ID == TypeID::Primitive && !n->empty("operator") ) {
+				if(n->get<Node&>("operator").get("value") == "!") {
+					return Ref<PrimitiveType>(value->operator!());
+				}
+				if(n->get<Node&>("operator").get("value") == "-") {
+					return value->operator-();
+				}
+				if(n->get<Node&>("operator").get("value") == "++") {
+					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
 
-			//	if(primValue->subID == PrimitiveTypeID::Boolean) {
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "!") {
-						return Ref<PrimitiveType>(value->operator!());
-					}
-			//	}
-			//	if(
-			//		primValue->subID == PrimitiveTypeID::Float ||
-			//		primValue->subID == PrimitiveTypeID::Integer
-			//	) {
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "-") {
-						return value->operator-();
-					}
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "++") {
-						*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+					return value;
+				}
+				if(n->get<Node&>("operator").get("value") == "--") {
+					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
 
-						return value;
-					}
-					if(!n->empty("operator") && n->get<Node&>("operator").get("value") == "--") {
-						*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
-
-						return value;
-					}
-			//	}
+					return value;
+				}
 			}
 
 			// TODO: Dynamic operators lookup, check for values mutability, observers notification
@@ -297,14 +305,14 @@ struct Interpreter {
 			return value;
 		} else
 		if(type == "returnStatement") {
-			auto value = executeVNode(n->get("value"));
+			auto value = executeNode(n->get("value"));
 
 			if(threw()) {
 				return nullptr;
 			}
 
 			setControlTransfer(value, "return");
-			report(0, n, getValueString(value));
+			report(0, n, to_string(value));
 
 			return value;
 		} else
@@ -315,21 +323,21 @@ struct Interpreter {
 				if(segment->get("type") == "stringSegment") {
 					string += segment->get<::string>("value");
 				} else {  // stringExpression
-					string += getValueString(executeVNode(segment->get("value")));
+					string += to_string(executeNode(segment->get("value")));
 				}
 			}
 
-			return getValueWrapper(Ref<PrimitiveType>(string), "String");
+			return getValueWrapper(string, "String");
 		} else
 		if(type == "throwStatement") {
-			auto value = executeVNode(n->get("value"));
+			auto value = executeNode(n->get("value"));
 
 			setControlTransfer(value, "throw");
 
 			return value;
 		} else
 		if(type == "typeExpression") {
-			auto type = executeTNode(n->get("type_"));
+			auto type = executeNode(n->get("type_"), false);
 
 			if(!type) {
 				return nullptr;
@@ -338,7 +346,7 @@ struct Interpreter {
 			return Ref<PrimitiveType>(type);
 		} else
 		if(type == "typeIdentifier") {
-			CompositeTypeRef composite = getValueComposite(executeVNode(n->get("identifier")));
+			CompositeTypeRef composite = getValueComposite(executeNode(n->get("identifier")));
 
 			if(!composite || compositeIsObject(composite)) {
 				report(1, n, "Composite is an object or wasn\'t found.");
@@ -348,14 +356,14 @@ struct Interpreter {
 				vector<TypeRef> genericArguments;
 
 				for(const NodeRef& type : n->get<NodeArray&>("genericArguments")) {
-					auto type_ = executeTNode(type);
+					auto type_ = executeNode(type, false);
 
 					if(type_) {
 						genericArguments.push_back(type_);
 					}
 				}
 
-				return ReferenceType(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
+				return Ref<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
 			}
 		} else
 		if(type == "whileStatement") {
@@ -372,7 +380,7 @@ struct Interpreter {
 			while(true) {
 			//	removeMembers(namespace);
 
-				auto conditionValue = executeVNode(n->get("condition"));
+				auto conditionValue = executeNode(n->get("condition"));
 				bool condition = conditionValue && *conditionValue;
 
 				if(!condition) {
@@ -380,9 +388,9 @@ struct Interpreter {
 				}
 
 				if(!n->empty("value") && n->get<Node&>("value").get("type") == "functionBody") {
-					executeVNodes(n->get<Node&>("value").get("statements"));
+					executeNodes(n->get<Node&>("value").get("statements"));
 				} else {
-					setControlTransfer(executeVNode(n->get("value")), controlTransfer().type);
+					setControlTransfer(executeNode(n->get("value")), controlTransfer().type);
 				}
 
 				string CTT = controlTransfer().type.value_or("");
@@ -705,44 +713,26 @@ struct Interpreter {
 		CT.type = nullopt;
 	}
 
-	template<typename Result, typename... Args>
-	shared_ptr<Result> executeNode(NodeRef node, Args... arguments) {
+	template<typename... Args>
+	TypeRef executeNode(NodeRef node, bool concrete = true, Args... arguments) {
 		if(!node) {
 			return nullptr;
 		}
 
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		shared_ptr<Result> value;
+		TypeRef value;
 
 		position = NP;
-		value = any_refcast<Result>(rules(node->get("type"), node, arguments...));
+		value = rules(node->get("type"), node, arguments...);
+
+		if(value && value->concrete != concrete) {  // Anonymous protocols are _now_ concrete, but this may change in the future
+			value = nullptr;
+		}
+
 		position = OP;
 
 		return value;
-	}
-
-	template<typename... Args>
-	TypeRef executeVNode(NodeRef node, Args... arguments) {
-		auto v = executeNode<Type>(node, arguments...);
-
-		if(v && v->concrete) {
-			return v;
-		}
-
-		return nullptr;
-	}
-
-	template<typename... Args>
-	TypeRef executeTNode(NodeRef node, Args... arguments) {
-		auto v = executeNode<Type>(node, arguments...);
-
-	//  Anonymous protocols are concrete
-	//	if(v && !v->concrete) {
-			return v;
-	//	}
-
-	//	return nullptr;
 	}
 
 	/*
@@ -752,12 +742,12 @@ struct Interpreter {
 	 *
 	 * Control transfer result can be discarded (fully - 1, value only - 0).
 	 */
-	void executeVNodes(NodeArrayRef nodes) {
+	void executeNodes(NodeArrayRef nodes) {
 		int OP = position;  // Old position
 
 		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
 			int NP = node->get<Node&>("range").get("start");  // New position
-			TypeRef value = executeVNode(node);
+			TypeRef value = executeNode(node);
 
 			if(node == nodes->back().get<NodeRef>() && !controlTransfer().type) {  // Implicit control transfer
 				setControlTransfer(value);
@@ -865,10 +855,6 @@ struct Interpreter {
 		return false;
 	}
 
-	string getValueString(TypeRef primitive, bool explicitStrings = false) {
-		return primitive ? primitive->toString() : "nil";
-	}
-
 	/*
 	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
 	 */
@@ -878,13 +864,15 @@ struct Interpreter {
 		return value;
 	}
 
+	TypeRef getValueWrapper(const PrimitiveType& value, string identifier) {
+		return getValueWrapper(Ref(value), identifier);
+	}
+
 	CompositeTypeRef getValueComposite(TypeRef value) {
 		if(value) {
-			if(value->ID == TypeID::Composite) {
-				return static_pointer_cast<CompositeType>(value);
-			}
-			if(value->ID == TypeID::Reference) {
-				return static_pointer_cast<ReferenceType>(value)->compType;
+			switch(value->ID) {
+				case TypeID::Composite: return static_pointer_cast<CompositeType>(value);
+				case TypeID::Reference: return static_pointer_cast<ReferenceType>(value)->compType;
 			}
 		}
 
