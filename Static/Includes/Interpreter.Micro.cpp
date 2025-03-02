@@ -8,29 +8,30 @@ using Report = Parser::Report;
 
 // ----------------------------------------------------------------
 
+namespace Interpreter_ {
+
+struct ControlTransfer {
+	TypeRef value;
+	optional<string> type;
+};
+
+struct Preferences {
+	int callStackSize,
+		allowedReportLevel,
+		metaprogrammingLevel;
+	bool arbitaryPrecisionArithmetics;
+};
+
+deque<Token> tokens;
+NodeRef tree;
+int position;
+deque<CompositeTypeRef> scopes;
+deque<ControlTransfer> controlTransfers;
+Preferences preferences;
+deque<Report> reports;
+
 struct Interpreter {
 	Interpreter() {};
-
-	struct ControlTransfer {
-		TypeRef value;
-		optional<string> type;
-	};
-
-	struct Preferences {
-		int callStackSize,
-			allowedReportLevel,
-			metaprogrammingLevel;
-		bool arbitaryPrecisionArithmetics;
-	};
-
-	deque<Token> tokens;
-	NodeRef tree;
-	int position;
-//	deque<CompositeTypeRef> composites;
-	deque<CompositeTypeRef> scopes;
-	deque<ControlTransfer> controlTransfers;
-	Preferences preferences;
-	deque<Report> reports;
 
 	any any_rules(const string& type, NodeRef n) {
 		if(!n) {
@@ -942,3 +943,5 @@ struct Interpreter {
 		return result;
 	}
 };
+
+};  // namespace Interpreter_

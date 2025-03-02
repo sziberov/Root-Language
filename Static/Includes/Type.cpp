@@ -13,6 +13,8 @@
 
 // ----------------------------------------------------------------
 
+namespace Interpreter_ {
+
 struct Type;
 
 struct ParenthesizedType;
@@ -435,7 +437,7 @@ struct PrimitiveType : Type {
 		switch(subID) {
 			case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) ? "true" : "false";
 			case PrimitiveTypeID::Float:	return format("{}", any_cast<double>(value));
-			case PrimitiveTypeID::Integer:	return to_string(any_cast<int>(value));
+			case PrimitiveTypeID::Integer:	return std::to_string(any_cast<int>(value));
 			case PrimitiveTypeID::String:	return "'"+any_cast<string>(value)+"'";
 			case PrimitiveTypeID::Type:		return "type "+any_cast<TypeRef>(value)->toString();
 			default:						return string();
@@ -730,23 +732,21 @@ struct DictionaryType : Type {
 static deque<CompositeTypeRef> composites;
 
 struct CompositeType : Type {
-	enum MemberModifiers : uint16_t {
-		Infix = 1 << 0,
-		Postfix = 1 << 1,
-		Prefix = 1 << 2,
-
-		Private = 1 << 3,
-		Protected = 1 << 4,
-		Public = 1 << 5,
-
-		Final = 1 << 6,
-		Lazy = 1 << 7,
-		Static = 1 << 8,
-		Virtual = 1 << 9
-	};
-
 	struct MemberOverload {
-		int modifiers;
+		struct Modifiers {
+			bool infix,
+				 postfix,
+				 prefix,
+
+				 private_,
+				 protected_,
+				 public_,
+
+				 final,
+				 lazy,
+				 static_,
+				 virtual_;
+		} modifiers;
 		TypeRef type,
 				value;
 	};
@@ -941,26 +941,24 @@ bool CompositeType::acceptsA(const TypeRef& type) {
 
 // ----------------------------------------------------------------
 
-struct FunctionTypeModifiers {
-	optional<bool> inits,
-				   deinits,
-				   awaits,
-				   throws;
-};
-
 struct FunctionType : Type {
 	vector<TypeRef> genericParameterTypes,
 					parameterTypes;
 	TypeRef returnType;
-	FunctionTypeModifiers modifiers;
+	struct Modifiers {
+		optional<bool> inits,
+					   deinits,
+					   awaits,
+					   throws;
+	} modifiers;
 
 	FunctionType(const vector<TypeRef>& genericParameterTypes,
 				 const vector<TypeRef>& parameterTypes,
 				 const TypeRef& returnType,
-				 const FunctionTypeModifiers& modifiers) : genericParameterTypes(genericParameterTypes),
-														   parameterTypes(parameterTypes),
-														   returnType(returnType),
-														   modifiers(modifiers) {}
+				 const Modifiers& modifiers) : genericParameterTypes(genericParameterTypes),
+											   parameterTypes(parameterTypes),
+											   returnType(returnType),
+											   modifiers(modifiers) {}
 
 	static bool matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList);
 
@@ -1211,6 +1209,8 @@ const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID
 	return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
 		   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
 });
+
+};  // namespace Interpreter_
 
 // ----------------------------------------------------------------
 
