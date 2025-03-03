@@ -1,1015 +1,22 @@
 #pragma once
 
-#include "Lexer.cpp"
 #include "Parser.cpp"
 
-using Report = Parser::Report;
-
-template<typename Container, typename T>
-int index_of(Container container, const T& value) {
-	auto it = find(container.begin(), container.end(), value);
-
-	return it != container.end() ? it-container.begin() : -1;
-}
-
-template<typename Container, typename Predicate>
-int find_index(Container container, Predicate predicate) {
-	auto it = find_if(container.begin(), container.end(), predicate);
-
-	return it != container.end() ? it-container.begin() : -1;
-}
-
-string tolower(string_view string) {
-	auto result = ::string(string);
-
-	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
-
-	return result;
-}
-
-// ----------------------------------------------------------------
-
-class Interpreter {
-public:
-	struct Context {
-		Node flags;
-		unordered_set<string> tags;
-	};
-
-	struct Composite {
-		struct OperatorOverload {
-			unordered_set<string> modifiers;
-			string associativity,
-				   precedence;
-		};
-
-		struct MemberOverload {
-			unordered_set<string> modifiers;
-			NodeRef type;
-			NodeRef value;
-			Node observers/* = {
-				{"willGet", nullptr},
-				{"get", nullptr},
-				{"didGet", nullptr},
-				{"willSet", nullptr},
-				{"set", nullptr},
-				{"didSet", nullptr}
-			}*/;
-		};
-
-		using Operator = vector<OperatorOverload>;
-		using Member = vector<MemberOverload>;
-
-		string title;
-		Node IDs;
-		int life;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-		NodeArrayRef type;
-		vector<NodeRef> statements;
-		unordered_map<string, int> imports;
-		unordered_map<string, Operator> operators;
-		unordered_map<string, Member> members;
-		Node observers;
-	};
-
-	using CompositeRef = shared_ptr<Composite>;
-
-	struct Call {
-		CompositeRef function;
-		optional<Location> location;
-	};
-
-	struct ControlTransfer {
-		NodeRef value;
-		optional<string> type;
-	};
-
-	Interpreter() {};
+namespace Interpreter {
+	using Location = Lexer::Location;
+	using Token = Lexer::Token;
+	using Report = Parser::Report;
 
 	deque<Token> tokens;
 	NodeRef tree;
 	int position;
-	deque<Context> contexts;
-	deque<CompositeRef> composites;
-	deque<Call> calls;
-	deque<CompositeRef> scopes;
-	deque<ControlTransfer> controlTransfers;
-	Node preferences;
+	struct Preferences {
+		int callStackSize,
+			allowedReportLevel,
+			metaprogrammingLevel;
+		bool arbitaryPrecisionArithmetics;
+	} preferences;
 	deque<Report> reports;
-
-	template<typename... Args>
-	NodeValue rules(const string& type, Args... args) {
-		vector<any> arguments = {args...};
-
-		if(type == "module") {
-			addControlTransfer();
-			addScope(getComposite(0) ?: createNamespace("Global"));
-			addDefaultMembers(scope);
-			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr, [](optional<string> t, NodeRef v) { return t != "throw" ? 0 : -1; });
-
-			if(threw()) {
-				report(2, nullptr, getValueString(controlTransfer().value));
-			}
-
-			removeScope();
-			removeControlTransfer();
-		}
-
-		return nullptr;
-	}
-
-	NodeRef getContext(const string& tag) {
-		Node flags;
-
-		for(const Context& context : contexts) {
-			if(context.tags.empty() || context.tags.contains(tag)) {
-				for(const auto& [k, v] : context.flags) {
-					flags.get(k) = v;
-				}
-			}
-		}
-
-		return make_shared(flags);
-	}
-
-	/*
-	 * Should be used to pass local state between super-rule and ambiguous sub-rules.
-	 *
-	 * Local means everything that does not belong to global execution process
-	 * (calls, scopes, controlTransfers, etc), but rather to concrete rules.
-	 *
-	 * Rule can be considered ambiguous if it is e.g. subrule of a subrule and cannot be recognized directly.
-	 *
-	 * Specifying tags allows to filter current context(s).
-	 */
-	void addContext(const Node& flags, const unordered_set<string>& tags) {
-		contexts.push_back({
-			flags,
-			tags
-		});
-	}
-
-	void removeContext() {
-		contexts.pop_back();
-	}
-
-	CompositeRef getComposite(int ID) {
-		return ID < composites.size() ? composites[ID] : nullptr;
-	}
-
-	CompositeRef createComposite(const string& title, NodeArrayRef type, CompositeRef scope = nullptr) {
-		if(!typeIsComposite(type)) {
-			return nullptr;
-		}
-
-		CompositeRef composite = make_shared(Composite {
-			title,
-			{
-				{"own", (int)composites.size()},
-				{"super", nullptr},
-				{"Super", nullptr},
-				{"self", nullptr},
-				{"Self", nullptr},
-				{"sub", nullptr},
-				{"Sub", nullptr},
-				{"scope", nullptr},
-				{"retainers", NodeArray {}}
-			},
-			0,
-			type
-		});
-
-		composites.push_back(composite);
-
-		if(scope != nullptr) {
-			setScopeID(composite, scope);
-		}
-
-	//	print("cr: "+composite->get<string>("title")+", "+getOwnID(composite));
-
-		return composite;
-	}
-
-	void destroyComposite(CompositeRef composite);
-
-	void destroyReleasedComposite(CompositeRef composite) {
-		if(composite != nullptr && !compositeRetained(composite)) {
-			destroyComposite(composite);
-		}
-	}
-
-	void retainComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
-			return;
-		}
-
-		NodeArrayRef retainersIDs = getRetainersIDs(retainedComposite);
-		int retainingID = getOwnID(retainingComposite);
-
-		if(!contains(*retainersIDs, retainingID)) {
-			retainersIDs->push_back(retainingID);
-		}
-	}
-
-	void releaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
-			return;
-		}
-
-		NodeArrayRef retainersIDs = getRetainersIDs(retainedComposite);
-		int retainingID = getOwnID(retainingComposite);
-
-		if(contains(*retainersIDs, retainingID)) {
-//			print("rl: "+getOwnID(retainingComposite)+", "+getOwnID(retainedComposite)+", "+getRetainersIDs(retainedComposite));
-
-			erase(*retainersIDs, retainingID);
-
-			destroyReleasedComposite(retainedComposite);
-		}
-	}
-
-	/*
-	 * Automatically retains or releases composite.
-	 *
-	 * Use of this function is highly recommended when real retainment state is unknown
-	 * at the moment, otherwise basic functions can be used in favour of performance.
-	 */
-	void retainOrReleaseComposite(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		if(retainedComposite == nullptr || retainedComposite == retainingComposite) {
-			return;
-		}
-
-		if(compositeRetains(retainingComposite, retainedComposite)) {
-			retainComposite(retainingComposite, retainedComposite);
-		} else {
-			releaseComposite(retainingComposite, retainedComposite);
-		}
-	}
-
-	/*
-	 * Returns a real state of direct retainment.
-	 *
-	 * Composite considered really retained if it is used by an at least one of
-	 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
-	 */
-	bool compositeRetains(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		if(retainingComposite && retainingComposite->life < 2) return (
-			IDsRetain(retainingComposite, retainedComposite) ||
-			typeRetains(retainingComposite->type, retainedComposite) ||
-			importsRetain(retainingComposite, retainedComposite) ||
-			membersRetain(retainingComposite, retainedComposite) ||
-			observersRetain(retainingComposite->observers, retainedComposite)
-		);
-	}
-
-	/*
-	 * Returns a formal state of direct or indirect retainment.
-	 *
-	 * Composite considered formally retained if it or at least one of
-	 * its retainers list members (recursively) can be as recognized as the retainer.
-	 *
-	 * retainersIDs is used to exclude a retain cycles and redundant passes
-	 * from the lookup and meant to be set internally only.
-	 */
-	bool compositeRetainsDistant(CompositeRef retainingComposite, CompositeRef retainedComposite, NodeArrayRef retainersIDs = make_shared(NodeArray())) {
-		/*
-		if(Array.isArray(retainingComposite)) {
-			for(let retainingComposite_ of retainingComposite) {
-				if(this.compositeRetainsDistant(retainingComposite_, retainedComposite)) {
-					return true;
-				}
-			}
-
-			return false;
-		}
-		*/
-
-		if(retainedComposite == nullptr || retainingComposite == nullptr) {
-			return false;
-		}
-		if(retainedComposite == retainingComposite) {
-			return true;
-		}
-
-		for(int retainerID : *getRetainersIDs(retainedComposite)) {
-			if(contains(*retainersIDs, retainerID)) {
-				continue;
-			}
-
-			retainersIDs->push_back(retainerID);
-
-			if(compositeRetainsDistant(retainingComposite, getComposite(retainerID), retainersIDs)) {
-				return true;
-			}
-		}
-	}
-
-	/*
-	 * Returns a significant state of general retainment.
-	 *
-	 * Composite considered significantly retained if it is formally retained by
-	 * the global namespace, a current scope composite or a current control trasfer value.
-	 */
-	bool compositeRetained(CompositeRef composite) {
-		return (
-			compositeRetainsDistant(getComposite(0), composite) ||
-			compositeRetainsDistant(scope(), composite) ||
-		//	compositeRetainsDistant(scopes, composite) ||  // May be useful when "with" syntax construct will be added
-			compositeRetainsDistant(getValueComposite(controlTransfer().value), composite)
-		);
-	}
-
-	CompositeRef createClass(const string& title, CompositeRef scope) {
-		CompositeRef class_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Class" }}), scope);
-
-		setSelfID(class_, class_);
-
-		return class_;
-	}
-
-	CompositeRef createEnumeration(const string& title, CompositeRef scope) {
-		CompositeRef enumeration = createComposite(title, make_shared(NodeArray {{ "predefined", "Enumeration" }}), scope);
-
-		setSelfID(enumeration, enumeration);
-
-		return enumeration;
-	}
-
-	CompositeRef createFunction(const string& title, NodeRef statements, CompositeRef scope) {
-		CompositeRef function = createComposite(title, make_shared(NodeArray {{ "predefined", "Function" }}), scope);
-
-		setInheritedLevelIDs(function, scope);
-		setStatements(function, statements);
-
-		return function;
-	}
-
-	/*
-	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
-	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
-	 */
-	CompositeRef createNamespace(const string& title, CompositeRef scope = nullptr, optional<CompositeRef> levels = nullptr) {
-		CompositeRef namespace_ = createComposite(title, make_shared(NodeArray {{ "predefined", "Namespace" }}), scope);
-
-		if(levels != nullopt && *levels != nullptr) {
-			setInheritedLevelIDs(namespace_, *levels);
-		} else
-		if(levels == nullopt) {
-			setMissedLevelIDs(namespace_);
-		} else {
-			setSelfID(namespace_, namespace_);
-		}
-
-		return namespace_;
-	}
-
-	CompositeRef createObject(CompositeRef superObject, CompositeRef selfComposite, CompositeRef subObject) {
-		string title = "Object<"+(!selfComposite->title.empty() ? selfComposite->title : "#"+getOwnID(selfComposite))+">";
-		NodeArray type = {Node {{"predefined", "Object"}, {"inheritedTypes", true}}, Node {{"super", 0}, {"reference", getOwnID(selfComposite)}}};
-		CompositeRef object = createComposite(title, make_shared(type), selfComposite);
-
-		object->life = 0;
-
-		if(superObject != nullptr) {
-			setSuperID(object, superObject);
-		}
-
-		setSelfID(object, object);
-
-		if(subObject != nullptr) {
-			setSubID(object, subObject);
-		}
-
-		return object;
-	}
-
-	CompositeRef createProtocol(const string& title, CompositeRef scope) {
-		CompositeRef protocol = createComposite(title, make_shared(NodeArray {{ "predefined", "Protocol" }}), scope);
-
-		setSelfID(protocol, protocol);
-
-		return protocol;
-	}
-
-	CompositeRef createStructure(const string& title, CompositeRef scope) {
-		CompositeRef structure = createComposite(title, make_shared(NodeArray {{ "predefined", "Structure" }}), scope);
-
-		setSelfID(structure, structure);
-
-		return structure;
-	}
-
-	bool compositeIsFunction(CompositeRef composite) {
-		return composite && typeIsComposite(composite->type, "Function");
-	}
-
-	bool compositeIsNamespace(CompositeRef composite) {
-		return composite && typeIsComposite(composite->type, "Namespace");
-	}
-
-	bool compositeIsObject(CompositeRef composite) {
-		return composite && typeIsComposite(composite->type, "Object");
-	}
-
-	bool compositeIsInstantiable(CompositeRef composite) {
-		return composite && (
-			typeIsComposite(composite->type, "Class") ||
-			typeIsComposite(composite->type, "Structure")
-		);
-	}
-
-	bool compositeIsCallable(CompositeRef composite) {
-		return (
-			compositeIsFunction(composite) ||
-			compositeIsInstantiable(composite)
-		);
-	}
-
-	void addCall(CompositeRef function) {
-		calls.push_back({
-			function,
-			tokens.size() > position ? make_optional(tokens[position].location) : nullopt
-		});
-	}
-
-	void removeCall() {
-		calls.pop_back();
-	}
-
-	string getCallsString() {
-		string result = "";
-
-		for(int i = calls.size()-1, j = 0; i >= 0 && j < 8; i--) {
-			Call& call = calls[i];
-			CompositeRef function = call.function;
-			optional<Location> location = call.location;
-
-			if(j > 0) {
-				result += "\n";
-			}
-
-			result += j+": ";
-
-			CompositeRef composite = getComposite(function->IDs.get("Self"));
-
-			if(!function->title.empty() && composite != nullptr) {
-				result += (!composite->title.empty() ? composite->title : "#"+getOwnID(composite))+".";
-			}
-
-			result += !function->title.empty() ? function->title : "#"+getOwnID(function);
-
-			if(location != nullopt) {
-				result += ":"+(location->line+1);
-				result += ":"+(location->column+1);
-			}
-
-			j++;
-		}
-
-		return result;
-	}
-
-	CompositeRef scope() {
-		return getScope();
-	}
-
-	CompositeRef getScope(int offset = 0) {
-		return scopes.size() > scopes.size()-1+offset
-			 ? scopes[scopes.size()-1+offset]
-			 : nullptr;
-	}
-
-	/*
-	 * Should be used for a bodies before executing its contents,
-	 * as ARC utilizes a current scope at the moment.
-	 */
-	void addScope(CompositeRef composite) {
-		scopes.push_back(composite);
-	//	print("crs: "+composite.title+", "+getOwnID(composite));
-	}
-
-	/*
-	 * Removes from the stack and optionally automatically destroys a last scope.
-	 */
-	void removeScope(bool destroy = true) {
-	//	print("dss: "+scope.title+", "+getOwnID(scope));
-		CompositeRef composite = scopes.back();
-
-		scopes.pop_back();
-
-		if(destroy) {
-			destroyReleasedComposite(composite);
-		}
-	//	print("des: "+composite.title+", "+getOwnID(composite));
-	}
-
-	ControlTransfer& controlTransfer() {
-		static ControlTransfer dummy;
-
-		return !controlTransfers.empty()
-			 ? controlTransfers.back()
-			 : dummy = ControlTransfer();
-	}
-
-	bool threw() {
-		return controlTransfer().type == "throw";
-	}
-
-	void addControlTransfer() {
-		controlTransfers.push_back(ControlTransfer());
-
-	//	print("act");
-	}
-
-	void removeControlTransfer() {
-		controlTransfers.pop_back();
-
-	//	print("rct: "+JSON.stringify(controlTransfer?.value)+", "+JSON.stringify(controlTransfer?.type));
-	}
-
-	/*
-	 * Should be used for a return values before releasing its scopes,
-	 * as ARC utilizes a control trasfer value at the moment.
-	 *
-	 * Specifying a type means explicit control transfer.
-	 */
-	void setControlTransfer(const NodeValue& value, optional<string> type = nullopt) {
-		ControlTransfer& CT = controlTransfer();
-
-		CT.value = value;
-		CT.type = type;
-
-	//	print("cts: "+JSON.stringify(value)+", "+JSON.stringify(type));
-	}
-
-	void resetControlTransfer() {
-		ControlTransfer& CT = controlTransfer();
-
-		CT.value = nullptr;
-		CT.type = nullopt;
-
-	//	print("ctr");
-	}
-
-	template<typename... Args>
-	NodeValue executeNode(NodeRef node, Args... arguments) {
-		int OP = position,  // Old/new position
-			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		NodeValue value;
-
-		position = NP;
-		value = rules(node ? node->get("type") : "", node, arguments...);
-		position = OP;
-
-		return value;
-	}
-
-	/*
-	 * Last statement in a body will be treated like a local return (overwritable by subsequent
-	 * outer statements) if there was no explicit control transfer previously. ECT should
-	 * be implemented by rules.
-	 *
-	 * Control transfer result can be discarded (fully - 1, value only - 0).
-	 */
-	void executeNodes(NodeArrayRef nodes, optional<function<bool(optional<string>, NodeRef)>> CTDiscarded = nullopt) {
-		int OP = position;  // Old position
-
-		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
-			int NP = node->get<Node&>("range").get("start"),  // New position
-				start = composites.size();
-			NodeValue value = executeNode(node);
-			int end = composites.size();
-
-			if(node == nodes->at(-1) && controlTransfer().type == nullopt) {  // Implicit control transfer
-				setControlTransfer(value);
-			}
-
-			int CTD = CTDiscarded.has_value() ? (*CTDiscarded)(controlTransfer().type, controlTransfer().value) : -1;
-
-			switch(CTD) {
-				case 0: setControlTransfer(nullptr, controlTransfer().type); break;
-				case 1: resetControlTransfer();								 break;
-			}
-
-			position = NP;  // Consider deinitializers
-
-			for(start; start < end; start++) {
-				destroyReleasedComposite(getComposite(start));
-
-				if(threw()) {
-					break;
-				}
-			}
-
-			if(controlTransfer().type != nullopt) {  // Explicit control transfer is done
-				break;
-			}
-		}
-
-		position = OP;
-	}
-
-	void setCompositeType(CompositeRef composite, NodeArrayRef type) {
-		if(!typeIsComposite(type)) {
-			return;
-		}
-
-		composite->type = type;
-	}
-
-	void setID(CompositeRef composite, const string& key, const NodeValue& value) {
-		if(set<string> {"own", "retainers"}.contains(key)) {
-			return;
-		}
-
-		NodeValue OV, NV;  // Old/new value
-
-		OV = composite->IDs.get(key);
-		NV = composite->IDs.get(key) = value;
-
-		if(OV != NV) {
-			if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
-				set<CompositeRef> composites;
-				CompositeRef composite_ = composite;
-
-				while(composite_ != nullptr) {
-					if(composites.contains(composite_)) {
-						composite->IDs.get(key) = OV;
-
-						return;
-					}
-
-					composites.insert(composite_);
-
-					composite_ = getComposite(composite_->IDs.get(key));
-				}
-			}
-
-			retainOrReleaseComposite(composite, getComposite(OV));
-			retainComposite(composite, getComposite(NV));
-		}
-	}
-
-	optional<int> getOwnID(CompositeRef composite, bool nillable = false) {
-		if(!nillable || composite) return composite->IDs.get("own");
-	}
-
-	NodeValue getSelfCompositeID(CompositeRef composite) {
-		return !compositeIsObject(composite) ? getOwnID(composite) : getTypeInheritedID(*composite->type);
-	}
-
-	NodeValue getScopeID(CompositeRef composite) {
-		return composite->IDs.get("scope");
-	}
-
-	NodeArrayRef getRetainersIDs(CompositeRef composite) {
-		return composite ? composite->IDs.get<NodeArrayRef>("retainers") : nullptr;
-	}
-
-	void setSelfID(CompositeRef composite, CompositeRef selfComposite) {
-		setID(composite, "self", getOwnID(selfComposite));
-		setID(composite, "Self", getSelfCompositeID(selfComposite));
-	}
-
-	void setSubID(CompositeRef object, CompositeRef subObject) {
-		if(!compositeIsObject(object)) {
-			return;
-		}
-
-		if(compositeIsObject(subObject)) {
-			setID(object, "sub", getOwnID(subObject));
-			setID(object, "Sub", getTypeInheritedID(*subObject->type));
-		}
-	}
-
-	void setInheritedLevelIDs(CompositeRef inheritingComposite, CompositeRef inheritedComposite) {
-		if(inheritedComposite == inheritingComposite) {
-			return;
-		}
-
-		static set<string> excluded = {"own", "scope", "retainers"};
-
-		for(const auto& [key, value] : inheritingComposite->IDs) {
-			if(!excluded.contains(key)) {
-				setID(inheritingComposite, key, inheritedComposite ? inheritedComposite->IDs.get(key) : NodeValue());
-			}
-		}
-	}
-
-	void setMissedLevelIDs(CompositeRef missingComposite) {
-		static set<string> excluded = {"own", "scope", "retainers"};
-
-		for(const auto& [key, value] : missingComposite->IDs) {
-			if(!excluded.contains(key)) {
-				setID(missingComposite, key, -1);
-			}
-		}
-	}
-
-	void setScopeID(CompositeRef composite, CompositeRef scopeComposite) {
-		setID(composite, "scope", getOwnID(scopeComposite, true));
-	}
-
-	bool IDsRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		static set<string> excluded = {"own", "retainers"};
-
-		for(const auto& [key, value] : retainingComposite->IDs) {
-			if(!excluded.contains(key) && retainingComposite->IDs.get(key) == *getOwnID(retainedComposite)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	NodeRef createTypePart(NodeArrayRef type, NodeRef superpart, const Node& flags = Node()) {
-		Node part = flags;
-
-		if(type != nullptr) {
-			if(superpart != nullptr) {
-				part.get("super") = index_of(*type, superpart);
-			}
-
-			type->push_back(part);
-		}
-
-		return make_shared(part);
-	}
-
-	NodeRef createOrSetCollectionTypePart(NodeArrayRef type, NodeRef part, const Node& collectionFlag) {
-		static Node collectionFlags = {
-			{"array", true},
-			{"dictionary", true},
-			{"genericArguments", true},
-			{"genericParameters", true},
-			{"intersection", true},
-			{"parameters", true},
-			{"predefined", "Function"},
-			{"union", true}
-		};
-
-		for(const auto& [flag, v] : *part) {
-			if(
-				collectionFlags.contains(flag) &&
-				part->get(flag) == collectionFlags.get(flag)
-			) {
-				return createTypePart(type, part, collectionFlag);
-			}
-		}
-
-		for(const auto& [k, v] : collectionFlag) {
-			part->get(k) = v;
-		}
-
-		return part;
-	}
-
-	optional<int> getTypeInheritedID(const NodeArray& type) {
-		int index = find_index(type, [](const NodeRef& v) { return v->get("inheritedTypes"); });
-
-		if(index > -1) {
-			NodeRef part = find(type, [&](const NodeRef& v) { return v->get("super") == index; });
-
-			if(part) {
-				return part->get("reference");
-			}
-		}
-	}
-
-	Node createValue(const string& primitiveType, const NodeValue& primitiveValue) {
-		return {
-			{"primitiveType", primitiveType},	// 'boolean', 'dictionary', 'float', 'integer', 'pointer', 'reference', 'string', 'type'
-			{"primitiveValue", primitiveValue}	// boolean, float, integer, map (object), string, type
-		};
-	}
-
-	string getValueString(NodeRef value) {
-		if(value == nullptr) {
-			return "nil";
-		}
-
-		if(set<string> {"boolean", "float", "integer", "string"}.contains(value->get("primitiveType"))) {
-			return value->get("primitiveValue");
-		}
-
-		CompositeRef composite = getValueComposite(value);
-
-		if(composite != nullptr) {
-		//	return JSON.stringify(composite);
-		}
-
-		/*
-		return JSON.stringify(value, (k, v) => {
-			if(v instanceof Map) {
-				return {
-					__TYPE__: 'Map',
-					__VALUE__: Array.from(v.entries())
-				}
-			} else
-			if(v == null) {
-				return null;
-			} else {
-				return v;
-			}
-		});
-		*/
-	}
-
-	optional<Composite::Member> getMember(CompositeRef composite, const string& identifier) {
-		return composite->members.count(identifier) > 0
-			 ? make_optional(composite->members[identifier])
-			 : nullopt;
-	}
-
-	Composite::Member addMember(CompositeRef composite, const string& identifier) {
-		return getMember(composite, identifier)
-			 ? *getMember(composite, identifier)
-			 : composite->members[identifier];
-	}
-
-	void removeMember(CompositeRef composite, const string& identifier) {
-		optional<Composite::Member> member = getMember(composite, identifier);
-
-		if(member == nullopt) {
-			return;
-		}
-
-		composite->members.erase(identifier);
-
-		for(const Composite::MemberOverload& overload : *member) {
-			retainOrReleaseValueComposites(composite, overload.value);
-		}
-	}
-
-	void removeMembers(CompositeRef composite) {
-		for(const auto& [identifier, v] : composite->members) {
-			removeMember(composite, identifier);
-		}
-	}
-
-	optional<Composite::MemberOverload> findInitializingMemberOverload(CompositeRef composite, const string& identifier, const Node& args) {
-		if(compositeIsObject(composite) && set<string> {"super", "self", "sub"}.contains(identifier)) {
-			composite = getComposite(composite->IDs.get("Self"));
-		}
-		if(compositeIsObject(composite)) {
-			return getMemberOverload(composite, "init", [&](optional<Composite::MemberOverload> v) {
-				v = findValueFunction(v->value, {});
-
-				if(v != nullopt && getTypeFunctionProperties(v->type)->get("inits") == 1) {
-					return v;
-				}
-			});
-		}
-	}
-
-	optional<Composite::MemberOverload> findDeinitializingMemberOverload(CompositeRef object) {
-		if(compositeIsObject(object)) {
-			return getMemberOverload(object, "deinit", [&](optional<Composite::MemberOverload> v) {
-				v = findValueFunction(v->value, {});
-
-				if(v != nullopt && getTypeFunctionProperties(v->type)->get("deinits") == 1) {
-					return v;
-				}
-			});
-		}
-	}
-
-	optional<Composite::MemberOverload> findSubscriptedMemberOverload(CompositeRef composite, const string& identifier, bool internal, const NodeArray& args) {}
-
-	/*
-	 * Looking for member overload in Scope chain (scope).
-	 *
-	 * If search is internal, only first composite in chain will be checked.
-	 */
-	optional<Composite::MemberOverload> findMemberOverload(CompositeRef composite, const string& identifier, function<> matching, bool internal) {
-		while(composite != nullptr) {
-			Composite::MemberOverload overload =
-				findMemberOverloadInComposite(composite, identifier, matching) ?:
-				findMemberOverloadInObjectChain(composite, identifier, matching) ?:
-				findMemberOverloadInInheritanceChain(composite, identifier, matching);
-
-			if(overload != nullopt) {
-				return overload;
-			}
-
-			if(internal) {
-				break;
-			}
-
-			composite = getComposite(getScopeID(composite));
-		}
-
-		return nullopt;
-	}
-
-	/*
-	 * Looking for member overload in Object chain (super, self, sub).
-	 *
-	 * When a "virtual" overload is found, search oncely displaces to a lowest sub-object.
-	 */
-	optional<MemberOverloadProxy> findMemberOverloadInObjectChain(CompositeRef object, const string& identifier, function<> matching) {
-		if(!compositeIsObject(object)) {
-			CompositeRef object_ = getComposite(object->IDs.get("self"));
-
-			if(object_ == object || !compositeIsObject(object_)) {
-				return nullopt;
-			}
-
-			object = object_;
-		}
-
-		bool virtual_;
-
-		while(object != nullptr) {  // Higher
-			auto overload = getMemberOverload(object, identifier, matching);
-
-			if(overload != nullopt) {
-				if(!virtual_ && overload.modifiers.contains("virtual")) {
-					virtual_ = true;
-
-					CompositeRef object_;
-
-					while((object_ = getComposite(object->IDs.get("sub"))) != nullptr) {  // Lowest
-						object = object_;
-					}
-
-					continue;
-				}
-
-				return getMemberOverloadProxy(overload, {{"owner", object}});
-			}
-
-			object = getComposite(object->IDs.get("super"));
-		}
-	}
-
-	/*
-	 * Looking for member overload in Inheritance chain (Super, Self).
-	 */
-	optional<MemberOverloadProxy> findMemberOverloadInInheritanceChain(CompositeRef composite, const string& identifier, function<> matching) {
-		if(compositeIsObject(composite)) {
-			composite = getComposite(composite->IDs.get("Self"));
-		}
-
-		while(composite != nullptr) {
-			optional<Composite::MemberOverload> overload = getMemberOverload(composite, identifier, matching);
-
-			if(overload != nullopt) {
-				return getMemberOverloadProxy(*overload, {{"owner", composite}});
-			}
-
-			composite = getComposite(composite->IDs.get("Super"));
-		}
-
-		return nullopt;
-	}
-
-	bool membersRetain(CompositeRef retainingComposite, CompositeRef retainedComposite) {
-		for(const auto& [k, member] : retainingComposite->members) {
-			for(const auto& overload : member) {
-				if(
-					typeRetains(overload.type, retainedComposite) ||
-					valueRetains(overload.value, retainedComposite) ||
-					observersRetain(overload.observers, retainedComposite)
-				) {
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	void getObserver() {}
-
-	void findObserver() {}
-
-	void setObserver(CompositeRef composite, const string& identifier, CompositeRef function) {
-		if(!composite->type->empty() && !set<string> {"Class", "Function", "Namespace", "Structure"}.contains(composite->type->at(0).get<NodeRef>()->get("predefined"))) {
-			return;
-		}
-
-		composite->observers.get(identifier) = *getOwnID(function);
-	}
-
-	void deleteObserver(CompositeRef composite, const string& identifier) {
-		int ID = composite->observers.get(identifier);
-
-		composite->observers.remove(identifier);
-
-		retainOrReleaseComposite(composite, getComposite(ID));
-	}
-
-	bool observersRetain(const Node& retainingObservers, CompositeRef retainedComposite) {
-		int ID = *getOwnID(retainedComposite);
-
-		for(const auto& [k, ID_] : retainingObservers) {
-			if(ID_ == ID) {
-				return true;
-			}
-		}
-
-		return false;
-	}
 
 	void report(int level, NodeRef node, const string& string) {
 		Location location = position < tokens.size()
@@ -1033,56 +40,2127 @@ public:
 		});
 	}
 
-	void reset(deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
+	// ----------------------------------------------------------------
+
+	struct Type;
+
+	struct ParenthesizedType;
+	struct NillableType;
+	struct DefaultType;
+	struct UnionType;
+	struct IntersectionType;
+
+	struct PredefinedType;
+	struct PrimitiveType;
+	struct DictionaryType;
+	struct CompositeType;
+	struct ReferenceType;
+
+	struct FunctionType;
+	struct InoutType;
+	struct VariadicType;
+
+	// ----------------------------------------------------------------
+
+	using TypeRef = shared_ptr<Type>;
+
+	using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
+	using NillableTypeRef = shared_ptr<NillableType>;
+	using DefaultTypeRef = shared_ptr<DefaultType>;
+	using UnionTypeRef = shared_ptr<UnionType>;
+	using IntersectionTypeRef = shared_ptr<IntersectionType>;
+
+	using PredefinedTypeRef = shared_ptr<PredefinedType>;
+	using PrimitiveTypeRef = shared_ptr<PrimitiveType>;
+	using DictionaryTypeRef = shared_ptr<DictionaryType>;
+	using CompositeTypeRef = shared_ptr<CompositeType>;
+	using ReferenceTypeRef = shared_ptr<ReferenceType>;
+
+	using FunctionTypeRef = shared_ptr<FunctionType>;
+	using InoutTypeRef = shared_ptr<InoutType>;
+	using VariadicTypeRef = shared_ptr<VariadicType>;
+
+	// ----------------------------------------------------------------
+
+	enum class TypeID : uint8_t {
+		Undefined,
+
+		Parenthesized,
+		Nillable,
+		Default,
+		Union,
+		Intersection,
+
+		Predefined,
+		Primitive,
+		Array,
+		Dictionary,
+		Composite,
+		Reference,
+
+		Function,
+		Inout,
+		Variadic
+	};
+
+	enum class PredefinedTypeID : uint8_t {
+		// Extremes
+		EVoid,
+		EAny,
+
+		// Primitives
+		PAny,
+		PBoolean,
+		PDictionary,
+		PFloat,
+		PInteger,
+		PString,
+		PType,
+
+		// Composites
+		CAny,
+		CClass,
+		CEnumeration,
+		CFunction,
+		CNamespace,
+		CObject,
+		CProtocol,
+		CStructure
+	};
+
+	enum class PrimitiveTypeID : uint8_t {
+		Boolean,
+		Float,
+		Integer,
+		String,
+		Type
+	};
+
+	enum class CompositeTypeID : uint8_t {
+		Class,
+		Enumeration,
+		Function,
+		Namespace,
+		Object,
+		Protocol,
+		Structure
+	};
+
+	// ----------------------------------------------------------------
+
+	extern const TypeRef PredefinedEVoidTypeRef;
+	extern const TypeRef PredefinedEAnyTypeRef;
+
+	extern const TypeRef PredefinedPAnyTypeRef;
+	extern const TypeRef PredefinedPBooleanTypeRef;
+	extern const TypeRef PredefinedPFloatTypeRef;
+	extern const TypeRef PredefinedPIntegerTypeRef;
+	extern const TypeRef PredefinedPStringTypeRef;
+	extern const TypeRef PredefinedPTypeTypeRef;
+
+	extern const TypeRef PredefinedCAnyTypeRef;
+	extern const TypeRef PredefinedCClassTypeRef;
+	extern const TypeRef PredefinedCEnumerationTypeRef;
+	extern const TypeRef PredefinedCFunctionTypeRef;
+	extern const TypeRef PredefinedCNamespaceTypeRef;
+	extern const TypeRef PredefinedCObjectTypeRef;
+	extern const TypeRef PredefinedCProtocolTypeRef;
+	extern const TypeRef PredefinedCStructureTypeRef;
+
+	// ----------------------------------------------------------------
+
+	deque<CompositeTypeRef> composites;  // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
+	deque<CompositeTypeRef> scopes;
+
+	CompositeTypeRef getComposite(NodeValue ID) {
+		return ID.type() == 2 && (int)ID < composites.size() ? composites[(int)ID] : nullptr;
+	}
+
+	CompositeTypeRef scope();
+	CompositeTypeRef getValueComposite(TypeRef value);
+
+	// ----------------------------------------------------------------
+
+	struct ControlTransfer {
+		TypeRef value;
+		optional<string> type;
+	};
+
+	deque<ControlTransfer> controlTransfers;
+
+	ControlTransfer& controlTransfer() {
+		static ControlTransfer dummy;
+
+		return !controlTransfers.empty()
+			 ? controlTransfers.back()
+			 : dummy = ControlTransfer();
+	}
+
+	bool threw() {
+		return controlTransfer().type == "throw";
+	}
+
+	void addControlTransfer() {
+		controlTransfers.push_back(ControlTransfer());
+	}
+
+	void removeControlTransfer() {
+		controlTransfers.pop_back();
+	}
+
+	/*
+	 * Should be used for a return values before releasing its scopes,
+	 * as ARC utilizes a control trasfer value at the moment.
+	 *
+	 * Specifying a type means explicit control transfer.
+	 */
+	void setControlTransfer(TypeRef value = nullptr, optional<string> type = nullopt) {
+		ControlTransfer& CT = controlTransfer();
+
+		CT.value = value;
+		CT.type = type;
+	}
+
+	void resetControlTransfer() {
+		ControlTransfer& CT = controlTransfer();
+
+		CT.value = nullptr;
+		CT.type = nullopt;
+	}
+
+	// ----------------------------------------------------------------
+
+	struct Type : enable_shared_from_this<Type> {
+		const TypeID ID;
+		const bool concrete;
+
+		Type(TypeID ID = TypeID::Undefined, bool concrete = false) : ID(ID), concrete(concrete) { /*cout << "Type created\n";*/ }
+		virtual ~Type() { /*cout << "Type destroyed\n";*/ }
+
+		virtual bool acceptsA(const TypeRef& type) { return false; }
+		virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(shared_from_this()); }
+		virtual TypeRef normalized() { return shared_from_this(); }
+		virtual string toString() const { return string(); }  // User-friendly representation
+
+		virtual operator bool() const { return bool(); }
+		virtual operator double() const { return double(); }
+		virtual operator int() const { return operator double(); }
+		virtual operator string() const { return string(); }  // Machine-friendly representation
+		virtual TypeRef operator=(TypeRef type) { return shared_from_this(); }
+		virtual TypeRef operator+() const { return Ref<Type>(); }
+		virtual TypeRef operator-() const { return Ref<Type>(); }
+		virtual TypeRef operator+(TypeRef type) const { return Ref<Type>(); }
+		virtual TypeRef operator-(TypeRef type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
+		virtual TypeRef operator*(TypeRef type) const { return Ref<Type>(); }
+		virtual TypeRef operator/(TypeRef type) const { return Ref<Type>(); }
+		virtual bool operator!() const { return !operator bool(); }
+		virtual bool operator==(const TypeRef& type) { return acceptsA(type) && conformsTo(type); }
+		virtual bool operator!=(const TypeRef& type) { return !operator==(type); }
+
+		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
+		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
+		static bool acceptsANormalized(const TypeRef& left, const TypeRef& right) {
+			return left && left->acceptsA(right ? right->normalized() : PredefinedEVoidTypeRef);
+		}
+
+		static bool acceptsAConcrete(const TypeRef& left, const TypeRef& right) {
+			return left && right && right->concrete && left->acceptsA(right);
+		}
+	};
+
+	static string to_string(const TypeRef& type, bool raw = false) {
+		return type ? (raw ? type->operator string() : type->toString()) : "nil";
+	}
+
+	// ----------------------------------------------------------------
+
+	struct ParenthesizedType : Type {
+		TypeRef innerType;
+
+		ParenthesizedType(TypeRef type) : Type(TypeID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
+		~ParenthesizedType() { cout << "(" << innerType->toString() << ") type destroyed\n"; }
+
+		bool acceptsA(const TypeRef& type) override {
+			return innerType->acceptsA(type);
+		}
+
+		TypeRef normalized() override {
+			return innerType->normalized();
+		}
+
+		string toString() const override {
+			return "("+innerType->toString()+")";
+		}
+	};
+
+	struct NillableType : Type {
+		TypeRef innerType;
+
+		NillableType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+		~NillableType() { cout << innerType->toString() << "? type destroyed\n"; }
+
+		bool acceptsA(const TypeRef& type) override {
+			return PredefinedEVoidTypeRef->acceptsA(type) ||
+				   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
+				   innerType->acceptsA(type);
+		}
+
+		TypeRef normalized() override {
+			auto normInnerType = innerType->normalized();
+
+			if(normInnerType->ID == TypeID::Nillable) {
+				return normInnerType;
+			}
+
+			return Ref<NillableType>(normInnerType);
+		}
+
+		string toString() const override {
+			return innerType->toString()+"?";
+		}
+	};
+
+	struct DefaultType : Type {
+		TypeRef innerType;
+
+		DefaultType(TypeRef type) : Type(TypeID::Default), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+		~DefaultType() { cout << innerType->toString() << "! type destroyed\n"; }
+
+		bool acceptsA(const TypeRef& type) override {
+			return PredefinedEVoidTypeRef->acceptsA(type) ||
+				   type->ID == TypeID::Default && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
+				   innerType->acceptsA(type);
+		}
+
+		TypeRef normalized() override {
+			auto normInnerType = innerType->normalized();
+
+			if(normInnerType->ID == TypeID::Default) {
+				return normInnerType;
+			}
+
+			return Ref<DefaultType>(normInnerType);
+		}
+
+		string toString() const override {
+			return innerType->toString()+"!";
+		}
+	};
+
+	struct UnionType : Type {
+		vector<TypeRef> alternatives;
+
+		UnionType(const vector<TypeRef>& alternatives) : Type(TypeID::Union), alternatives(alternatives) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			for(const TypeRef& alt : alternatives) {
+				if(alt->acceptsA(type)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		TypeRef normalized() override {
+			vector<TypeRef> normAlts;
+
+			for(const TypeRef& alt : alternatives) {
+				TypeRef normAlt = alt->normalized();
+
+				if(normAlt->ID == TypeID::Union) {
+					auto normUnionAlt = static_pointer_cast<UnionType>(normAlt);
+
+					normAlts.insert(normAlts.end(), normUnionAlt->alternatives.begin(), normUnionAlt->alternatives.end());
+				} else {
+					normAlts.push_back(normAlt);
+				}
+			}
+
+			if(normAlts.size() == 1) {
+				return normAlts[0];
+			}
+
+			return Ref<UnionType>(normAlts);
+		}
+
+		string toString() const override {
+			string result;
+
+			for(int i = 0; i < alternatives.size(); i++) {
+				if(i > 0) {
+					result += " | ";
+				}
+
+				result += alternatives[i]->toString();
+			}
+
+			return result;
+		}
+	};
+
+	struct IntersectionType : Type {
+		vector<TypeRef> alternatives;
+
+		IntersectionType(const vector<TypeRef>& alternatives) : Type(TypeID::Intersection), alternatives(alternatives) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			for(const TypeRef& alt : alternatives) {
+				if(!alt->acceptsA(type)) {
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		TypeRef normalized() override {
+			vector<TypeRef> normAlts;
+
+			for(const TypeRef& alt : alternatives) {
+				TypeRef normAlt = alt->normalized();
+
+				if(normAlt->ID == TypeID::Intersection) {
+					auto normUnionAlt = static_pointer_cast<IntersectionType>(normAlt);
+
+					normAlts.insert(normAlts.end(), normUnionAlt->alternatives.begin(), normUnionAlt->alternatives.end());
+				} else {
+					normAlts.push_back(normAlt);
+				}
+			}
+
+			if(normAlts.size() == 1) {
+				return normAlts[0];
+			}
+
+			return Ref<IntersectionType>(normAlts);
+		}
+
+		string toString() const override {
+			string result;
+
+			for(int i = 0; i < alternatives.size(); i++) {
+				if(i > 0) {
+					result += " & ";
+				}
+
+				result += alternatives[i]->toString();
+			}
+
+			return result;
+		}
+	};
+
+	// ----------------------------------------------------------------
+
+	struct PredefinedType : Type {
+		const PredefinedTypeID subID;
+		function<bool(const TypeRef&)> acceptsFn;
+
+		PredefinedType(PredefinedTypeID subID, function<bool(const TypeRef&)> acceptsFn) : Type(TypeID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			return acceptsFn(type);
+		}
+
+		string toString() const override {
+			switch(subID) {
+				case PredefinedTypeID::EVoid:			return "void";
+				case PredefinedTypeID::EAny:			return "_";
+
+				case PredefinedTypeID::PAny:			return "any";
+				case PredefinedTypeID::PBoolean:		return "bool";
+				case PredefinedTypeID::PDictionary:		return "dict";
+				case PredefinedTypeID::PFloat:			return "float";
+				case PredefinedTypeID::PInteger:		return "int";
+				case PredefinedTypeID::PString:			return "string";
+				case PredefinedTypeID::PType:			return "type";
+
+				case PredefinedTypeID::CAny:			return "Any";
+				case PredefinedTypeID::CClass:			return "Class";
+				case PredefinedTypeID::CEnumeration:	return "Enumeration";
+				case PredefinedTypeID::CFunction:		return "Function";
+				case PredefinedTypeID::CNamespace:		return "Namespace";
+				case PredefinedTypeID::CObject:			return "Object";
+				case PredefinedTypeID::CProtocol:		return "Protocol";
+				case PredefinedTypeID::CStructure:		return "Structure";
+			}
+
+			return string();
+		}
+	};
+
+	struct PrimitiveType : Type {
+		const PrimitiveTypeID subID;
+		mutable any value;
+
+		PrimitiveType(const bool& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Boolean), value(v) { cout << toString() << " type created\n"; }
+		PrimitiveType(const double& v) : Type(TypeID::Primitive, true), subID(v != static_cast<int>(v) ? PrimitiveTypeID::Float : PrimitiveTypeID::Integer),
+																		value(v != static_cast<int>(v) ? any(v) : any(static_cast<int>(v))) { cout << toString() << " type created\n"; }
+		PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) { cout << toString() << " type created\n"; }
+		PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) { cout << toString() << " type created\n"; }
+		PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) { cout << toString() << " type created\n"; }
+		PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
+																										   (!v->concrete ? v : throw invalid_argument("Primitive type isn't mean to store concrete types")) :
+																															   throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
+		~PrimitiveType() { cout << toString() << " type destroyed\n"; }
+
+		bool acceptsA(const TypeRef& type) override {
+			if(type->ID == TypeID::Primitive) {
+				auto primType = static_pointer_cast<PrimitiveType>(type);
+
+				if(subID == primType->subID) {
+					if(subID == PrimitiveTypeID::Type) {
+						return any_cast<TypeRef>(value)->acceptsA(any_cast<TypeRef>(primType->value));
+					}
+
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		string toString() const override {
+			switch(subID) {
+				case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) ? "true" : "false";
+				case PrimitiveTypeID::Float:	return format("{}", any_cast<double>(value));
+				case PrimitiveTypeID::Integer:	return std::to_string(any_cast<int>(value));
+				case PrimitiveTypeID::String:	return "'"+any_cast<string>(value)+"'";
+				case PrimitiveTypeID::Type:		return "type "+any_cast<TypeRef>(value)->toString();
+				default:						return string();
+			}
+		}
+
+		operator bool() const override {
+			return operator double() > 0;
+		}
+
+		operator double() const override {
+			switch(subID) {
+				case PrimitiveTypeID::Boolean:	return any_cast<bool>(value);
+				case PrimitiveTypeID::Float:	return any_cast<double>(value);
+				case PrimitiveTypeID::Integer:	return any_cast<int>(value);
+				case PrimitiveTypeID::String:	return stod(any_cast<string>(value));
+				case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator double();
+				default:						return double();
+			}
+		}
+
+		operator int() const override {
+			return operator double();
+		}
+
+		operator string() const override {
+			switch(subID) {
+				case PrimitiveTypeID::String:	return any_cast<string>(value);
+				case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator string();
+				default:						return toString();
+			}
+		}
+
+		TypeRef operator=(TypeRef type) override {
+			if(type->ID == TypeID::Primitive) {
+				auto primType = static_pointer_cast<PrimitiveType>(type);
+
+				if(primType->subID == subID) {
+					value = primType->value;
+				}
+			}
+
+			return shared_from_this();
+		}
+
+		TypeRef operator+() const override {
+			return subID == PrimitiveTypeID::Type
+				 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
+				 : Ref<PrimitiveType>(operator double());
+		}
+
+		TypeRef operator-() const override {
+			return subID == PrimitiveTypeID::Type
+				 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
+				 : Ref<PrimitiveType>(-operator double());
+		}
+
+		TypeRef operator+(TypeRef type) const override {
+			if(type->ID != TypeID::Primitive) {
+				return Type::operator+();
+			}
+
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			if(subID == PrimitiveTypeID::String || primType->subID == PrimitiveTypeID::String) {
+				return Ref<PrimitiveType>(operator string()+primType->operator string());
+			}
+
+			return Ref<PrimitiveType>(operator double()+primType->operator double());
+		}
+
+		TypeRef operator-(TypeRef type) const override {
+			if(type->ID != TypeID::Primitive) {
+				return Type::operator-();
+			}
+
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			return Ref<PrimitiveType>(operator double()-primType->operator double());
+		}
+
+		TypeRef operator*(TypeRef type) const override {
+			if(type->ID != TypeID::Primitive) {
+				return Type::operator*(type);
+			}
+
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			return Ref<PrimitiveType>(operator double()*primType->operator double());
+		}
+
+		TypeRef operator/(TypeRef type) const override {
+			if(type->ID != TypeID::Primitive) {
+				return Type::operator/(type);
+			}
+
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			return Ref<PrimitiveType>(operator double()/primType->operator double());
+		}
+
+		bool operator==(const TypeRef& type) override {
+			if(type->ID != TypeID::Primitive) {
+				return Type::operator==(type);
+			}
+
+			auto primType = static_pointer_cast<PrimitiveType>(type);
+
+			switch(subID) {
+				case PrimitiveTypeID::Boolean:	return any_cast<bool>(value) == primType->operator bool();
+				case PrimitiveTypeID::Float:	return any_cast<double>(value) == primType->operator double();
+				case PrimitiveTypeID::Integer:	return any_cast<int>(value) == primType->operator int();
+				case PrimitiveTypeID::String:	return any_cast<string>(value) == primType->operator string();
+				case PrimitiveTypeID::Type:		return acceptsA(primType) && conformsTo(primType);
+				default:						return Type::operator==(type);
+			}
+		}
+	};
+
+	struct DictionaryType : Type {
+		struct Hasher {
+			size_t operator()(const TypeRef& t) const {
+				return 0;  // TODO
+			}
+		};
+
+		struct Comparator {
+			bool operator()(const TypeRef& lhs, const TypeRef& rhs) const {
+				return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->operator==(rhs);
+			}
+		};
+
+		using Entry = pair<TypeRef, TypeRef>;
+
+		TypeRef keyType,
+				valueType;
+		unordered_map<TypeRef, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
+		vector<Entry> iEntries;													// index -> entry
+
+		DictionaryType(const TypeRef& keyType = PredefinedEAnyTypeRef, const TypeRef& valueType = PredefinedEAnyTypeRef, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			if(type->ID == TypeID::Dictionary) {
+				auto dictType = static_pointer_cast<DictionaryType>(type);
+
+				return keyType->acceptsA(dictType->keyType) && valueType->acceptsA(dictType->valueType);
+			}
+
+			return false;
+		}
+
+		TypeRef normalized() override {
+			return Ref<DictionaryType>(keyType->normalized(), valueType->normalized());
+		}
+
+		string toString() const override {
+			if(!concrete) {
+				return "["+keyType->toString()+": "+valueType->toString()+"]";
+			}
+
+			string result = "[";
+			auto it = begin();
+
+			while(it != end()) {
+				auto& [k, v] = *it;
+
+				result += to_string(k)+": "+to_string(v);
+
+				if(next(it) != end()) {
+					result += ", ";
+				}
+
+				it++;
+			}
+
+			result += "]";
+
+			return result;
+		}
+
+		bool operator==(const TypeRef& type) override {
+			return false;  // TODO
+		}
+
+		void emplace(const TypeRef& key, const TypeRef& value, bool replace = false) {
+			if(!concrete) {
+				throw invalid_argument("Abstract dictionary type cannot contain values");
+			}
+			if(
+				key && !key->conformsTo(keyType) ||
+				!key && !PredefinedEVoidTypeRef->conformsTo(keyType)
+			) {
+				throw invalid_argument("'"+to_string(key)+"' does not conform to expected key type '"+keyType->toString()+"'");
+			}
+			if(
+				value && !value->conformsTo(valueType) ||
+				!value && !PredefinedEVoidTypeRef->conformsTo(valueType)
+			) {
+				throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+valueType->toString()+"'");
+			}
+
+			if(!replace) {
+				kIndexes[key].push_back(size());
+				iEntries.push_back(make_pair(key, value));
+			} else
+			if(auto it = kIndexes.find(key); it != kIndexes.end() && !it->second.empty()) {
+				size_t keepIndex = it->second[0];
+				iEntries[keepIndex].second = value;
+
+				for(int j = static_cast<int>(it->second.size())-1; j >= 1; j--) {
+					removeAtIndex(it->second[j]);
+				}
+
+				it->second.resize(1);
+			}
+		}
+
+		void replace(const TypeRef& key, const TypeRef& value) {
+			emplace(key, value, true);
+		}
+
+		void removeAtIndex(size_t idxToRemove) {
+			iEntries.erase(begin()+idxToRemove);
+
+			for(auto& [key, indexes] : kIndexes) {
+				for(size_t& index : indexes) {
+					if(index > idxToRemove) {
+						index--;
+					}
+				}
+			}
+		}
+
+		void removeFirst(const TypeRef& key) {
+			auto it = kIndexes.find(key);
+
+			if(it == kIndexes.end() || it->second.empty()) {
+				return;
+			}
+
+			size_t idxToRemove = it->second.front();
+			it->second.erase(it->second.begin());
+			removeAtIndex(idxToRemove);
+
+			if(it->second.empty()) {
+				kIndexes.erase(it);
+			}
+		}
+
+		void removeLast(const TypeRef& key) {
+			auto it = kIndexes.find(key);
+
+			if(it == kIndexes.end() || it->second.empty()) {
+				return;
+			}
+
+			size_t idxToRemove = it->second.back();
+			it->second.pop_back();
+			removeAtIndex(idxToRemove);
+
+			if(it->second.empty()) {
+				kIndexes.erase(it);
+			}
+		}
+
+		TypeRef get(const TypeRef& key) const {
+			if(concrete) {
+				auto it = kIndexes.find(key);
+
+				if(it != kIndexes.end() && !it->second.empty()) {
+					return iEntries[it->second.back()].second;
+				}
+			}
+
+			return nullptr;
+		}
+
+		vector<Entry>::const_iterator begin() const {
+			return iEntries.begin();
+		}
+
+		vector<Entry>::const_iterator end() const {
+			return iEntries.end();
+		}
+
+		size_t size() const {
+			return iEntries.size();
+		}
+	};
+
+	struct CompositeType : Type {
+		struct MemberOverload {
+			struct Modifiers {
+				bool infix,
+					 postfix,
+					 prefix,
+
+					 private_,
+					 protected_,
+					 public_,
+
+					 final,
+					 lazy,
+					 static_,
+					 virtual_;
+			} modifiers;
+			TypeRef type,
+					value;
+		};
+
+		using Member = vector<MemberOverload>;
+
+		const CompositeTypeID subID;
+		string title;
+		Node IDs = Node {
+			{"own", composites.size() > 0 ? composites.back()->IDs.get<int>("own")+1 : 0},
+			{"scope", nullptr},
+			{"retainers", NodeArray {}}
+		};
+		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
+		vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
+		vector<TypeRef> genericParameterTypes;
+		unordered_map<string, Member> members;
+
+		CompositeType(CompositeTypeID subID,
+					  const string& title,
+					  const vector<int>& inheritedTypes = {},
+					  const vector<TypeRef>& genericParameterTypes = {}) : Type(TypeID::Composite, true),
+																		   subID(subID),
+																		   title(title),
+																		   inheritedTypes(inheritedTypes),
+																		   genericParameterTypes(genericParameterTypes)
+		{
+		//	if(composites.size() > 0 && IDs.get("own") == composites.back()->IDs.get("own")) {}
+		//	composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
+		}
+
+		set<int> getFullInheritanceChain() const {
+			auto chain = set<int>(inheritedTypes.begin(), inheritedTypes.end());
+
+			for(int parentIndex : inheritedTypes) {
+				set<int> parentChain = composites[parentIndex]->getFullInheritanceChain();
+
+				chain.insert(parentChain.begin(), parentChain.end());
+			}
+
+			return chain;
+		}
+
+		static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
+			if(candidate->IDs.get("own") != base->IDs.get("own") && !candidate->getFullInheritanceChain().contains(base->IDs.get("own"))) {
+				return false;
+			}
+
+			if(candidateGenericArgumentTypes) {
+				if(candidate->genericParameterTypes.size() != candidateGenericArgumentTypes->size()) {
+					return false;
+				}
+				for(int i = 0; i < candidate->genericParameterTypes.size(); i++) {
+					if(!candidate->genericParameterTypes[i]->acceptsA(candidateGenericArgumentTypes->at(i))) {
+						return false;
+					}
+				}
+			}
+
+			return true;
+		}
+
+		bool acceptsA(const TypeRef& type) override;
+
+		string toString() const override {
+			string result;
+
+			switch(subID) {
+				case CompositeTypeID::Class:		result += "class";
+				case CompositeTypeID::Enumeration:	result += "enum";
+				case CompositeTypeID::Function:		result += "func";
+				case CompositeTypeID::Namespace:	result += "namespace";
+				case CompositeTypeID::Object:		result += "object";
+				case CompositeTypeID::Protocol:		result += "protocol";
+				case CompositeTypeID::Structure:	result += "structure";
+			}
+
+			result += " "+title+"#"+to_string(IDs.get("own"));
+
+			if(!genericParameterTypes.empty()) {
+				result += "<";
+
+				for(int i = 0; i < genericParameterTypes.size(); i++) {
+					if(i > 0) {
+						result += ", ";
+					}
+
+					result += genericParameterTypes[i]->toString();
+				}
+
+				result += ">";
+			}
+
+			if(!inheritedTypes.empty()) {
+				set<int> chain = getFullInheritanceChain();
+				bool first = true;
+
+				result += " : [";
+
+				for(int index : chain) {
+					if(!first) {
+						result += ", ";
+					}
+
+					first = false;
+					result += index;
+				}
+
+				result += "]";
+			}
+
+			return result;
+		}
+
+		operator double() const override {
+			return IDs.get("own");
+		}
+
+		void destroy() {
+			cout << "destroyComposite("+getTitle()+")" << endl;
+			if(life == 2) {
+				return;
+			}
+
+			life = 2;
+
+			int ID = getOwnID();
+			NodeArrayRef retainersIDs = getRetainersIDs();
+
+			for(const CompositeTypeRef& composite_ : composites) {
+			//	if(retainersIDs && contains(*retainersIDs, ID)) {
+					release(composite_);
+
+					/*  Let the objects destroy no matter of errors
+					if(threw()) {
+						return;
+					}
+					*/
+			//	}
+			}
+
+			composites[ID] = nullptr;
+
+			int aliveRetainers = 0;
+
+			for(int retainerID : *retainersIDs) {
+				CompositeTypeRef composite_ = getComposite(retainerID);
+
+				if(composite_ && composite_->life < 2) {
+					aliveRetainers++;
+
+					// TODO: Notify retainers about destroy
+				}
+			}
+
+			if(aliveRetainers > 0) {
+				report(1, nullptr, "Composite #"+(string)getOwnID()+" was destroyed with a non-empty retainer list.");
+			}
+		}
+
+		void destroyReleased() {
+			if(!retained()) {
+				destroy();
+			}
+		}
+
+		void retain(CompositeTypeRef retainedComposite) {
+			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
+				return;
+			}
+
+			NodeArrayRef retainersIDs = retainedComposite->getRetainersIDs();
+			int retainingID = getOwnID();
+
+			if(!contains(*retainersIDs, retainingID)) {
+				retainersIDs->push_back(retainingID);
+			}
+		}
+
+		void release(CompositeTypeRef retainedComposite) {
+			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
+				return;
+			}
+
+			NodeArrayRef retainersIDs = retainedComposite->getRetainersIDs();
+			int retainingID = getOwnID();
+
+			if(contains(*retainersIDs, retainingID)) {
+				erase(*retainersIDs, retainingID);
+				retainedComposite->destroyReleased();
+			}
+		}
+
+		/*
+		 * Automatically retains or releases composite.
+		 *
+		 * Use of this function is highly recommended when real retainment state is unknown
+		 * at the moment, otherwise basic functions can be used in favour of performance.
+		 */
+		void retainOrRelease(CompositeTypeRef retainedComposite) {
+			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
+				return;
+			}
+
+			if(retains(retainedComposite)) {
+				retain(retainedComposite);
+			} else {
+				release(retainedComposite);
+			}
+		}
+
+		/*
+		 * Returns a real state of direct retainment.
+		 *
+		 * Composite considered really retained if it is used by an at least one of
+		 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
+		 */
+		bool retains(CompositeTypeRef retainedComposite) {
+			return life < 2 && (
+				IDsRetain(retainedComposite) /*||
+				typeRetains(retainedComposite) ||
+				importsRetain(retainedComposite) ||
+				membersRetain(retainedComposite) ||
+				observersRetain(retainedComposite)*/
+			);
+		}
+
+		/*
+		 * Returns a formal state of direct or indirect retainment.
+		 *
+		 * Composite considered formally retained if it or at least one of
+		 * its retainers list members (recursively) can be as recognized as the retainer.
+		 *
+		 * retainersIDs is used to exclude a retain cycles and redundant passes
+		 * from the lookup and meant to be set internally only.
+		 */
+		bool retainsDistant(CompositeTypeRef retainedComposite, shared_ptr<vector<int>> retainersIDs = Ref<vector<int>>()) {
+			if(retainedComposite == nullptr) {
+				return false;
+			}
+			if(retainedComposite == shared_from_this()) {
+				return true;
+			}
+
+			for(int retainerID : *retainedComposite->getRetainersIDs()) {
+				if(contains(*retainersIDs, retainerID)) {
+					continue;
+				}
+
+				retainersIDs->push_back(retainerID);
+
+				if(retainsDistant(getComposite(retainerID), retainersIDs)) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/*
+		 * Returns a significant state of general retainment.
+		 *
+		 * Composite considered significantly retained if it is formally retained by
+		 * the global namespace, a current scope composite or a current control trasfer value.
+		 */
+		bool retained() {
+			CompositeTypeRef retainingComposite,
+							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
+
+			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
+		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
+			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
+
+			return false;
+		}
+
+		void setID(const string& key, const NodeValue& value) {
+			if(set<string> {"own", "retainers"}.contains(key)) {
+				return;
+			}
+
+			NodeValue OV, NV;  // Old/new value
+
+			OV = IDs.get(key);
+			NV = IDs.get(key) = value;
+
+			if(OV != NV) {
+				if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+					set<CompositeTypeRef> composites;
+					CompositeTypeRef composite_ = static_pointer_cast<CompositeType>(shared_from_this());
+
+					while(composite_) {
+						if(composites.contains(composite_)) {
+							IDs.get(key) = OV;
+
+							return;
+						}
+
+						composites.insert(composite_);
+
+						composite_ = getComposite(composite_->IDs.get(key));
+					}
+				}
+
+				retainOrRelease(getComposite(OV));
+				retain(getComposite(NV));
+			}
+		}
+
+		bool isFunction() {
+			return subID == CompositeTypeID::Function;
+		}
+
+		bool isNamespace() {
+			return subID == CompositeTypeID::Namespace;
+		}
+
+		bool isObject() {
+			return subID == CompositeTypeID::Object;
+		}
+
+		bool isInstantiable() {
+			return subID == CompositeTypeID::Class ||
+				   subID == CompositeTypeID::Structure;
+		}
+
+		bool isCallable() {
+			return isFunction() ||
+				   isInstantiable();
+		}
+
+		string getTitle() {
+			return title.length() ? title : "#"+(string)getOwnID();
+		}
+
+		NodeValue getOwnID() {
+			return IDs.get("own");
+		}
+
+		NodeValue getSelfCompositeID() {
+			return !isObject() ? getOwnID() : getTypeInheritedID();
+		}
+
+		NodeArrayRef getRetainersIDs() {
+			return IDs.get("retainers");
+		}
+
+		void setSelfID(CompositeTypeRef selfComposite) {
+			setID("self", selfComposite->getOwnID());
+			setID("Self", selfComposite->getSelfCompositeID());
+		}
+
+		void setInheritedLevelIDs(CompositeTypeRef inheritedComposite) {
+			if(inheritedComposite == shared_from_this()) {
+				return;
+			}
+
+			static set<string> excluded = {"own", "scope", "retainers"};
+
+			for(const auto& [key, value] : IDs) {
+				if(!excluded.contains(key)) {
+					setID(key, inheritedComposite ? inheritedComposite->IDs.get(key) : NodeValue());
+				}
+			}
+		}
+
+		void setMissedLevelIDs() {
+			static set<string> excluded = {"own", "scope", "retainers"};
+
+			for(const auto& [key, value] : IDs) {
+				if(!excluded.contains(key)) {
+					setID(key, -1);
+				}
+			}
+		}
+
+		void setScopeID(CompositeTypeRef scopeComposite) {
+			setID("scope", scopeComposite ? scopeComposite->getOwnID() : NodeValue());
+		}
+
+		bool IDsRetain(CompositeTypeRef retainedComposite) {
+			static set<string> excluded = {"own", "retainers"};
+
+			for(const auto& [key, value] : IDs) {
+				if(!excluded.contains(key) && IDs.get(key) == retainedComposite->getOwnID()) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		NodeValue getTypeInheritedID() {
+			return inheritedTypes.size() ? NodeValue(inheritedTypes.front()) : NodeValue();
+		}
+	};
+
+	struct ReferenceType : Type {
+		CompositeTypeRef compType;
+		optional<vector<TypeRef>> typeArgs;
+
+		ReferenceType(const CompositeTypeRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			if(type->ID == TypeID::Composite) {
+				auto compType = static_pointer_cast<CompositeType>(type);
+
+				return CompositeType::checkConformance(compType, compType, typeArgs);
+			}
+			if(type->ID == TypeID::Reference) {
+				auto refType = static_pointer_cast<ReferenceType>(type);
+
+				return CompositeType::checkConformance(compType, refType->compType, refType->typeArgs);
+			}
+
+			return false;
+		}
+
+		TypeRef normalized() override {
+			if(!typeArgs) {
+				return shared_from_this();
+			}
+
+			vector<TypeRef> normArgs;
+
+			for(const TypeRef& arg : *typeArgs) {
+				normArgs.push_back(arg->normalized());
+			}
+
+			return Ref<ReferenceType>(compType, normArgs);
+		}
+
+		string toString() const override {
+			string argsStr = "";
+
+			if(typeArgs) {
+				argsStr += "<";
+
+				for(int i = 0; i < typeArgs->size(); i++) {
+					if(i > 0) {
+						argsStr += ", ";
+					}
+
+					argsStr += (*typeArgs)[i]->toString();
+				}
+
+				argsStr += ">";
+			}
+
+			return "Reference("+compType->title+"#"+to_string(compType->IDs.get("own"))+argsStr+")";
+		}
+	};
+
+	bool CompositeType::acceptsA(const TypeRef& type) {
+		if(type->ID == TypeID::Composite) {
+			auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
+			auto compType = static_pointer_cast<CompositeType>(type);
+
+			return checkConformance(compThis, compType);
+		}
+		if(type->ID == TypeID::Reference) {
+			auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
+			auto refType = static_pointer_cast<ReferenceType>(type);
+
+			return checkConformance(compThis, refType->compType, refType->typeArgs);
+		}
+
+		return false;
+	}
+
+	// ----------------------------------------------------------------
+
+	struct FunctionType : Type {
+		vector<TypeRef> genericParameterTypes,
+						parameterTypes;
+		TypeRef returnType;
+		struct Modifiers {
+			optional<bool> inits,
+						   deinits,
+						   awaits,
+						   throws;
+		} modifiers;
+
+		FunctionType(const vector<TypeRef>& genericParameterTypes,
+					 const vector<TypeRef>& parameterTypes,
+					 const TypeRef& returnType,
+					 const Modifiers& modifiers) : genericParameterTypes(genericParameterTypes),
+												   parameterTypes(parameterTypes),
+												   returnType(returnType),
+												   modifiers(modifiers) {}
+
+		static bool matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList);
+
+		bool acceptsA(const TypeRef& type) override {
+			if(type->ID == TypeID::Function) {
+				auto funcType = static_pointer_cast<FunctionType>(type);
+
+				return FunctionType::matchTypeLists(genericParameterTypes, funcType->genericParameterTypes) &&
+					   FunctionType::matchTypeLists(parameterTypes, funcType->parameterTypes) &&
+					   (!modifiers.inits || funcType->modifiers.inits == modifiers.inits) &&
+					   (!modifiers.deinits || funcType->modifiers.deinits == modifiers.deinits) &&
+					   (!modifiers.awaits || funcType->modifiers.awaits == modifiers.awaits) &&
+					   (!modifiers.throws || funcType->modifiers.throws == modifiers.throws) &&
+					   returnType->acceptsA(funcType->returnType);
+			}
+
+			return false;
+		}
+
+		TypeRef normalized() override {
+			return Ref<FunctionType>(
+				transform(genericParameterTypes, [](const TypeRef& v) { return v->normalized(); }),
+				transform(parameterTypes, [](const TypeRef& v) { return v->normalized(); }),
+				returnType->normalized(),
+				modifiers
+			);
+		}
+
+		string toString() const override {
+			string result;
+
+			if(!genericParameterTypes.empty()) {
+				result += "<";
+
+				for(int i = 0; i < genericParameterTypes.size(); i++) {
+					if(i > 0) {
+						result += ", ";
+					}
+
+					result += genericParameterTypes[i]->toString();
+				}
+
+				result += ">";
+			}
+
+			result += "(";
+
+			for(int i = 0; i < parameterTypes.size(); i++) {
+				if(i > 0) {
+					result += ", ";
+				}
+
+				result += parameterTypes[i]->toString();
+			}
+
+			result += ")";
+
+			result += !modifiers.inits ? " inits?" : *modifiers.inits ? " inits" : "";
+			result += !modifiers.deinits ? " deinits?" : *modifiers.deinits ? " deinits" : "";
+			result += !modifiers.awaits ? " awaits?" : *modifiers.awaits ? " awaits" : "";
+			result += !modifiers.throws ? " throws?" : *modifiers.throws ? " throws" : "";
+
+			result += " -> "+returnType->toString();
+
+			return result;
+		}
+	};
+
+	struct InoutType : Type {
+		TypeRef innerType;
+
+		InoutType(const TypeRef& innerType) : Type(TypeID::Inout), innerType(innerType) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
+		}
+
+		TypeRef normalized() override {
+			auto normInner = innerType->normalized();
+
+			if(normInner->ID == TypeID::Inout) {
+				return normInner;
+			}
+
+			return Ref<InoutType>(normInner);
+		}
+
+		string toString() const override {
+			return "inout "+innerType->toString();
+		}
+	};
+
+	struct VariadicType : Type {
+		TypeRef innerType;
+
+		VariadicType(const TypeRef& innerType = nullptr) : Type(TypeID::Variadic), innerType(innerType) {}
+
+		bool acceptsA(const TypeRef& type) override {
+			if(!innerType) {
+				return true;
+			}
+			if(type->ID != TypeID::Variadic) {
+				return innerType->acceptsA(type);
+			}
+
+			auto varType = static_pointer_cast<VariadicType>(type);
+
+			if(!varType->innerType) {
+				return innerType->acceptsA(PredefinedEVoidTypeRef);
+			}
+
+			return innerType->acceptsA(varType->innerType);
+		}
+
+		TypeRef normalized() override {
+			if(!innerType) {
+				return shared_from_this();
+			}
+
+			return Ref<VariadicType>(innerType->normalized());
+		}
+
+		string toString() const override {
+			return (innerType ? innerType->toString() : "")+"...";
+		}
+	};
+
+	bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList) {
+		int expectedSize = expectedList.size(),
+			providedSize = providedList.size();
+
+		function<bool(int, int)> matchFrom = [&](int expectedIndex, int providedIndex) {
+			if(expectedIndex == expectedSize) {
+				return providedIndex == providedSize;
+			}
+
+			const TypeRef& expectedType = expectedList[expectedIndex];
+
+			if(expectedType->ID == TypeID::Variadic) {
+				auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
+
+				if(expectedIndex == expectedSize-1) {
+					return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeRef& t) {
+						return varExpectedType->acceptsA(t);
+					});
+				}
+
+				if(matchFrom(expectedIndex+1, providedIndex)) {
+					return true;
+				}
+
+				for(int currentIndex = providedIndex; currentIndex < providedSize; currentIndex++) {
+					if(!varExpectedType->acceptsA(providedList[currentIndex])) {
+						break;
+					}
+					if(matchFrom(expectedIndex+1, currentIndex+1)) {
+						return true;
+					}
+				}
+
+				return false;
+			}
+
+			if(providedIndex < providedSize && expectedType->acceptsA(providedList[providedIndex])) {
+				return matchFrom(expectedIndex+1, providedIndex+1);
+			}
+
+			return false;
+		};
+
+		return matchFrom(0, 0);
+	}
+
+	// ----------------------------------------------------------------
+
+	const TypeRef PredefinedEVoidTypeRef = Ref<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeRef& type) {
+		return type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
+	});
+
+	const TypeRef PredefinedEAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::EAny, [](const TypeRef& type) {
+		return true;
+	});
+
+	const TypeRef PredefinedPAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::PAny, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive;
+	});
+
+	const TypeRef PredefinedPBooleanTypeRef = Ref<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Boolean;
+	});
+
+	const TypeRef PredefinedPDictionaryTypeRef = Ref<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeRef& type) {
+		return type->ID == TypeID::Dictionary;
+	});
+
+	const TypeRef PredefinedPFloatTypeRef = Ref<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Float;
+	});
+
+	const TypeRef PredefinedPIntegerTypeRef = Ref<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Integer;
+	});
+
+	const TypeRef PredefinedPStringTypeRef = Ref<PredefinedType>(PredefinedTypeID::PString, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::String;
+	});
+
+	const TypeRef PredefinedPTypeTypeRef = Ref<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
+		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Type;
+	});
+
+	const TypeRef PredefinedCAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite ||
+			   type->ID == TypeID::Reference;
+	});
+
+	const TypeRef PredefinedCClassTypeRef = Ref<PredefinedType>(PredefinedTypeID::CClass, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Class ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Class;
+	});
+
+	const TypeRef PredefinedCEnumerationTypeRef = Ref<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Enumeration ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Enumeration;
+	});
+
+	const TypeRef PredefinedCFunctionTypeRef = Ref<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
+	});
+
+	const TypeRef PredefinedCNamespaceTypeRef = Ref<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Namespace ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Namespace;
+	});
+
+	const TypeRef PredefinedCObjectTypeRef = Ref<PredefinedType>(PredefinedTypeID::CObject, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Object ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Object;
+	});
+
+	const TypeRef PredefinedCProtocolTypeRef = Ref<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Protocol ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Protocol;
+	});
+
+	const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeRef& type) {
+		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
+			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
+	});
+
+	// ----------------------------------------------------------------
+
+	CompositeTypeRef createComposite(const string& title, CompositeTypeID type, CompositeTypeRef scope = nullptr) {
+		cout << "createComposite("+title+")" << endl;
+		auto composite = Ref<CompositeType>(type, title);
+
+		composites.push_back(composite);
+
+		if(scope) {
+			composite->setScopeID(scope);
+		}
+
+		return composite;
+	}
+
+	/*
+	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
+	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
+	 */
+	CompositeTypeRef createNamespace(const string& title, CompositeTypeRef scope = nullptr, optional<CompositeTypeRef> levels = nullptr) {
+		CompositeTypeRef namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
+
+		if(levels && *levels) {
+			namespace_->setInheritedLevelIDs(*levels);
+		} else
+		if(!levels) {
+			namespace_->setMissedLevelIDs();
+		} else {
+			namespace_->setSelfID(namespace_);
+		}
+
+		return namespace_;
+	}
+
+	string getTitle(CompositeTypeRef composite) {
+		return composite ? composite->getTitle() : "";
+	}
+
+	bool compositeIsFunction(const CompositeTypeRef& composite) {
+		return composite && composite->isFunction();
+	}
+
+	bool compositeIsNamespace(const CompositeTypeRef& composite) {
+		return composite && composite->isNamespace();
+	}
+
+	bool compositeIsObject(const CompositeTypeRef& composite) {
+		return composite && composite->isObject();
+	}
+
+	bool compositeIsInstantiable(const CompositeTypeRef& composite) {
+		return composite && composite->isInstantiable();
+	}
+
+	bool compositeIsCallable(const CompositeTypeRef& composite) {
+		return composite && composite->isCallable();
+	}
+
+	CompositeTypeRef getScope(int offset = 0) {
+		return scopes.size() > scopes.size()-1+offset
+			 ? scopes[scopes.size()-1+offset]
+			 : nullptr;
+	}
+
+	CompositeTypeRef scope() {
+		return getScope();
+	}
+
+	/*
+	 * Should be used for a bodies before executing its contents,
+	 * as ARC utilizes a current scope at the moment.
+	 */
+	void addScope(CompositeTypeRef composite) {
+		scopes.push_back(composite);
+	}
+
+	/*
+	 * Removes from the stack and optionally automatically destroys a last scope.
+	 */
+	void removeScope(bool destroy = true) {
+		CompositeTypeRef composite = scopes.back();
+
+		scopes.pop_back();
+
+		if(destroy && composite) {
+			composite->destroyReleased();
+		}
+	}
+
+	/*
+	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
+	 */
+	TypeRef getValueWrapper(const TypeRef& value, string identifier) {
+		// TODO
+
+		return value;
+	}
+
+	TypeRef getValueWrapper(const PrimitiveType& value, string identifier) {
+		return getValueWrapper(Ref(value), identifier);
+	}
+
+	CompositeTypeRef getValueComposite(TypeRef value) {
+		if(value) {
+			switch(value->ID) {
+				case TypeID::Composite: return static_pointer_cast<CompositeType>(value);
+				case TypeID::Reference: return static_pointer_cast<ReferenceType>(value)->compType;
+			}
+		}
+
+		return nullptr;
+	}
+
+	// ----------------------------------------------------------------
+
+	template<typename... Args>
+	TypeRef rules(const string& type, NodeRef n = nullptr, Args... args);
+
+	template<typename... Args>
+	TypeRef executeNode(NodeRef node, bool concrete = true, Args... arguments) {
+		if(!node) {
+			return nullptr;
+		}
+
+		int OP = position,  // Old/new position
+			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
+		TypeRef value;
+
+		position = NP;
+		value = rules(node->get("type"), node, arguments...);
+
+		if(value && value->concrete != concrete) {  // Anonymous protocols are _now_ concrete, but this may change in the future
+			value = nullptr;
+		}
+
+		position = OP;
+
+		return value;
+	}
+
+	/*
+	 * Last statement in a body will be treated like a local return (overwritable by subsequent
+	 * outer statements) if there was no explicit control transfer previously. ECT should
+	 * be implemented by rules.
+	 *
+	 * Control transfer result can be discarded (fully - 1, value only - 0).
+	 */
+	void executeNodes(NodeArrayRef nodes) {
+		int OP = position;  // Old position
+
+		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
+			int NP = node->get<Node&>("range").get("start");  // New position
+			TypeRef value = executeNode(node);
+
+			if(node == nodes->back().get<NodeRef>() && !controlTransfer().type) {  // Implicit control transfer
+				setControlTransfer(value);
+			}
+
+			position = NP;  // Consider deinitializers
+
+			if(controlTransfer().type) {  // Explicit control transfer is done
+				break;
+			}
+		}
+
+		position = OP;
+	}
+
+	any any_rules(const string& type, NodeRef n) {
+		if(!n) {
+			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
+		}
+
+		if(type == "argument") {
+			auto key = !n->empty("label") ? n->get<Node&>("label").get<string>("value") : "";
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			return make_pair(
+				key,
+				value
+			);
+		} else
+		if(type == "entry") {
+			auto key = executeNode(n->get("key"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			return make_pair(
+				key,
+				value
+			);
+		}
+
+		return nullptr;
+	}
+
+	template<typename... Args>
+	TypeRef rules(const string& type, NodeRef n, Args... args) {
+		vector<any> arguments = {args...};
+
+		if(
+			type != "module" &&
+			type != "nilLiteral" &&
+			!n
+		) {
+			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
+		}
+
+		if(type == "arrayLiteral") {
+			auto value = Ref<DictionaryType>(
+				PredefinedPIntegerTypeRef,
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				true
+			);
+
+			for(int i = 0; i < n->get<NodeArray&>("values").size(); i++) {
+				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
+
+				if(value_) {
+					value->emplace(Ref<PrimitiveType>(i), value_);  // TODO: Copy or link value in accordance to type
+				}
+			}
+
+			return getValueWrapper(value, "Array");
+		} else
+		if(type == "arrayType") {
+			TypeRef valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
+
+			if(composite) {
+				return Ref<ReferenceType>(composite, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
+			} else {
+				return Ref<DictionaryType>(PredefinedPIntegerTypeRef, valueType);
+			}
+
+			return nullptr;
+		} else
+		if(type == "booleanLiteral") {
+			return getValueWrapper(n->get("value") == "true", "Boolean");
+		} else
+		if(type == "breakStatement") {
+			TypeRef value;
+
+			if(!n->empty("label")) {
+				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
+			}
+
+			setControlTransfer(value, "break");
+
+			return value;
+		} else
+		if(type == "continueStatement") {
+			TypeRef value;
+
+			if(!n->empty("label")) {
+				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
+			}
+
+			setControlTransfer(value, "continue");
+
+			return value;
+		} else
+		if(type == "dictionaryLiteral") {
+			auto value = Ref<DictionaryType>(
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				Ref<NillableType>(PredefinedEAnyTypeRef),
+				true
+			);
+
+			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
+				auto entry_ = any_optcast<DictionaryType::Entry>(any_rules("entry", entry));
+
+				if(entry_) {
+					value->emplace(entry_->first, entry_->second);  // TODO: Copy or link value in accordance to type
+				}
+			}
+
+			return getValueWrapper(value, "Dictionary");
+		} else
+		if(type == "dictionaryType") {
+			TypeRef keyType = executeNode(n->get("key"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
+					valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
+
+			if(composite) {
+				return Ref<ReferenceType>(composite, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
+			} else {
+				return Ref<DictionaryType>(keyType, valueType);
+			}
+
+			return nullptr;
+		} else
+		if(type == "floatLiteral") {
+			return getValueWrapper(n->get<double>("value"), "Float");
+		} else
+		if(type == "ifStatement") {
+			if(n->empty("condition")) {
+				return nullptr;
+			}
+
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
+			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
+
+			addScope(namespace_);
+
+			auto conditionValue = executeNode(n->get("condition"));
+			bool condition = conditionValue && *conditionValue,
+				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
+
+			if(condition || !elseif) {
+				NodeRef branch = n->get(condition ? "then" : "else");
+
+				if(branch && branch->get("type") == "functionBody") {
+					executeNodes(branch->get("statements"));
+				} else {
+					setControlTransfer(executeNode(branch), controlTransfer().type);
+				}
+			}
+
+			removeScope();
+
+			if(!condition && elseif) {
+				rules("ifStatement", n->get("else"));
+			}
+
+			return controlTransfer().value;
+		} else
+		if(type == "integerLiteral") {
+			return getValueWrapper(n->get<int>("value"), "Integer");
+		} else
+		if(type == "module") {
+			addControlTransfer();
+			addScope(getComposite(0) ?: createNamespace("Global"));
+		//	addDefaultMembers(scope());
+			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr/*, (t) => t !== 'throw' ? 0 : -1*/);
+
+			if(threw()) {
+				report(2, nullptr, to_string(controlTransfer().value));
+			}
+
+			removeScope();
+			removeControlTransfer();
+		} else
+		if(type == "nilLiteral") {
+		} else
+		if(type == "parenthesizedExpression") {
+			return executeNode(n->get("value"));
+		} else
+		if(type == "postfixExpression") {
+			auto value = executeNode(n->get("value"));
+
+			if(!value) {
+				return nullptr;
+			}
+
+			if(value->ID == TypeID::Primitive && !n->empty("operator")) {
+				if(n->get<Node&>("operator").get("value") == "++") {
+					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+
+					return value->operator-(Ref<PrimitiveType>(1));
+				}
+				if(n->get<Node&>("operator").get("value") == "--") {
+					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+
+					return value->operator+(Ref<PrimitiveType>(1));
+				}
+			}
+
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
+
+			return value;
+		} else
+		if(type == "predefinedType") {
+			string predefinedTypeTitle = n->get("value");
+
+			if(predefinedTypeTitle == "void")			return PredefinedEVoidTypeRef;
+			if(predefinedTypeTitle == "_")				return PredefinedEAnyTypeRef;
+
+			if(predefinedTypeTitle == "any")			return PredefinedPAnyTypeRef;
+			if(predefinedTypeTitle == "bool")			return PredefinedPBooleanTypeRef;
+			if(predefinedTypeTitle == "dict")			return PredefinedPDictionaryTypeRef;
+			if(predefinedTypeTitle == "float")			return PredefinedPFloatTypeRef;
+			if(predefinedTypeTitle == "int")			return PredefinedPIntegerTypeRef;
+			if(predefinedTypeTitle == "string")			return PredefinedPStringTypeRef;
+			if(predefinedTypeTitle == "type")			return PredefinedPTypeTypeRef;
+
+			if(predefinedTypeTitle == "Any")			return PredefinedCAnyTypeRef;
+			if(predefinedTypeTitle == "Class")			return PredefinedCClassTypeRef;
+			if(predefinedTypeTitle == "Enumeration")	return PredefinedCEnumerationTypeRef;
+			if(predefinedTypeTitle == "Function")		return PredefinedCFunctionTypeRef;
+			if(predefinedTypeTitle == "Namespace")		return PredefinedCNamespaceTypeRef;
+			if(predefinedTypeTitle == "Object")			return PredefinedCObjectTypeRef;
+			if(predefinedTypeTitle == "Protocol")		return PredefinedCProtocolTypeRef;
+			if(predefinedTypeTitle == "Structure")		return PredefinedCStructureTypeRef;
+
+			return PredefinedEAnyTypeRef;
+		} else
+		if(type == "prefixExpression") {
+			auto value = executeNode(n->get("value"));
+
+			if(!value) {
+				return nullptr;
+			}
+
+			if(value->ID == TypeID::Primitive && !n->empty("operator") ) {
+				if(n->get<Node&>("operator").get("value") == "!") {
+					return Ref<PrimitiveType>(value->operator!());
+				}
+				if(n->get<Node&>("operator").get("value") == "-") {
+					return value->operator-();
+				}
+				if(n->get<Node&>("operator").get("value") == "++") {
+					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+
+					return value;
+				}
+				if(n->get<Node&>("operator").get("value") == "--") {
+					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+
+					return value;
+				}
+			}
+
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
+
+			return value;
+		} else
+		if(type == "returnStatement") {
+			auto value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			setControlTransfer(value, "return");
+			report(0, n, to_string(value));
+
+			return value;
+		} else
+		if(type == "stringLiteral") {
+			::string string = "";
+
+			for(const NodeRef& segment : n->get<NodeArray&>("segments")) {
+				if(segment->get("type") == "stringSegment") {
+					string += segment->get<::string>("value");
+				} else {  // stringExpression
+					auto value = executeNode(segment->get("value"));
+
+					if(threw()) {
+						return nullptr;
+					}
+
+					string += to_string(value, true);
+				}
+			}
+
+			return getValueWrapper(string, "String");
+		} else
+		if(type == "throwStatement") {
+			auto value = executeNode(n->get("value"));
+
+			setControlTransfer(value, "throw");
+
+			return value;
+		} else
+		if(type == "typeExpression") {
+			auto type = executeNode(n->get("type_"), false);
+
+			if(!type) {
+				return nullptr;
+			}
+
+			return Ref<PrimitiveType>(type);
+		} else
+		if(type == "typeIdentifier") {
+			CompositeTypeRef composite = getValueComposite(executeNode(n->get("identifier")));
+
+			if(!composite || compositeIsObject(composite)) {
+				report(1, n, "Composite is an object or wasn\'t found.");
+
+				return PredefinedCAnyTypeRef;
+			} else {
+				vector<TypeRef> genericArguments;
+
+				for(const NodeRef& type : n->get<NodeArray&>("genericArguments")) {
+					auto type_ = executeNode(type, false);
+
+					if(type_) {
+						genericArguments.push_back(type_);
+					}
+				}
+
+				return Ref<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
+			}
+		} else
+		if(type == "whileStatement") {
+			if(n->empty("condition")) {
+				return nullptr;
+			}
+
+			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
+			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
+
+			addScope(namespace_);
+
+			while(true) {
+			//	removeMembers(namespace);
+
+				auto conditionValue = executeNode(n->get("condition"));
+				bool condition = conditionValue && *conditionValue;
+
+				if(!condition) {
+					break;
+				}
+
+				if(!n->empty("value") && n->get<Node&>("value").get("type") == "functionBody") {
+					executeNodes(n->get<Node&>("value").get("statements"));
+				} else {
+					setControlTransfer(executeNode(n->get("value")), controlTransfer().type);
+				}
+
+				string CTT = controlTransfer().type.value_or("");
+
+				if(set<string> {"break", "continue"}.contains(CTT)) {
+					resetControlTransfer();
+				}
+				if(set<string> {"break", "return"}.contains(CTT)) {
+					break;
+				}
+			}
+
+			removeScope();
+
+			return controlTransfer().value;
+		}
+
+		return nullptr;
+	}
+
+	// ----------------------------------------------------------------
+
+	void reset(optional<Preferences> preferences_ = nullopt) {
 		tokens = {};
 		tree = nullptr;
 		position = 0;
-		contexts = {};
-		composites = composites_;
-		calls = {};
-		scopes = {};
 		controlTransfers = {};
-		preferences = {
-			{"callStackSize", 128},
-			{"allowedReportLevel", 2},
-			{"metaprogrammingLevel", 3},
-			{"arbitaryPrecisionArithmetics", true}
-		};
-		for(const auto& [k, v] : preferences_) {
-			preferences.get(k) = v;
-		}
+		preferences = preferences_.value_or(Preferences {
+			128,
+			2,
+			3,
+			true
+		});
 		reports = {};
 	}
 
 	struct Result {
-		deque<CompositeRef> composites;
 		deque<Report> reports;
 	};
 
-	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
-		reset(composites_, preferences_);
+	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, optional<Preferences> preferences_ = nullopt) {
+		Result result;
+
+		reset(preferences_);
 
 		tokens = lexerResult.tokens;
 		tree = parserResult.tree;
-	//	tree = structuredClone(parserResult.tree);
 
 		rules("module");
 
-		Result result = {
-			composites,
-			reports
-		};
+		result.reports = move(reports);
 
 		reset();
 
 		return result;
-	}
-
-	Result interpretRaw(string_view code, deque<CompositeRef> composites_ = {}, const Node& preferences_ = {}) {
-		Lexer::Result lexerResult = Lexer().tokenize(code);
-		Parser::Result parserResult = Parser().parse(lexerResult);
-		Result interpreterResult = interpret(lexerResult, parserResult, composites_, preferences_);
-
-		return interpreterResult;
 	}
 };

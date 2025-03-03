@@ -3,12 +3,12 @@
 #include "Lexer.cpp"
 #include "Node.cpp"
 
-using Location = Lexer::Location;
-using Token = Lexer::Token;
-
 // ----------------------------------------------------------------
 
 struct Parser {
+	using Location = Lexer::Location;
+	using Token = Lexer::Token;
+
 	Parser() {};
 
 	struct Report {
