@@ -251,11 +251,16 @@ namespace Interpreter {
 		virtual TypeRef operator-() const { return Ref<Type>(); }
 		virtual TypeRef operator+(TypeRef type) const { return Ref<Type>(); }
 		virtual TypeRef operator-(TypeRef type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
+		virtual TypeRef operator++() { return shared_from_this(); }  // Prefix
+		virtual TypeRef operator--() { return shared_from_this(); }  // Prefix
+		virtual TypeRef operator++(int) { return Ref<Type>(); }  // Postfix
+		virtual TypeRef operator--(int) { return Ref<Type>(); }  // Postfix
 		virtual TypeRef operator*(TypeRef type) const { return Ref<Type>(); }
 		virtual TypeRef operator/(TypeRef type) const { return Ref<Type>(); }
 		virtual bool operator!() const { return !operator bool(); }
 		virtual bool operator==(const TypeRef& type) { return acceptsA(type) && conformsTo(type); }
 		virtual bool operator!=(const TypeRef& type) { return !operator==(type); }
+
 
 		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
@@ -605,6 +610,38 @@ namespace Interpreter {
 			auto primType = static_pointer_cast<PrimitiveType>(type);
 
 			return Ref<PrimitiveType>(operator double()-primType->operator double());
+		}
+
+		// TODO:
+		// Examine the idea of concrete types access through members (as a kind of proxy).
+		// In theory, this will make whole observing mechanism straight-forward:
+		// - Members can track if contained value is changed and call observers when needed.
+		// - Also they can track if value's type is changed and give an error if doesn't conform to expected type.
+		// Calling concrete type operators may be somewhat transparent, where using "outer" operator will internally recall "inner" and observe for any changes simultaneously.
+		// Direct calls are also possible in case of literals mutation, but should be prohibited when accessing members.
+		// Although (!) this still does not provide solution for automatic member notification about composites deinitialization.
+		// Now, deinitializing composite must look up for each member (or another type of retaining declaration) of each retainer to set them nil and notify (or remove completely).
+		//
+		// Somewhere in between there is idea of direct value access with every concrete type storing references to all its definitions (containing members).
+		// It sounds more promising in regards to backward control, e.g. deinitializing composite can directly nillify members and call their observers without iterating each member of each retainer.
+		// Although (!) it may be too memory-consuming without real excuse, as this is the only case.
+		//
+		// And to contrast that two, there is idea where no special mechanism exist. This is no go, as changes can't be observed at all.
+
+		TypeRef operator++() override {  // Prefix
+			return shared_from_this();
+		}
+
+		TypeRef operator--() override {  // Prefix
+			return shared_from_this();
+		}
+
+		TypeRef operator++(int) override {  // Postfix
+			return Ref<Type>();
+		}
+
+		TypeRef operator--(int) override {  // Postfix
+			return Ref<Type>();
 		}
 
 		TypeRef operator*(TypeRef type) const override {
@@ -1677,10 +1714,13 @@ namespace Interpreter {
 	}
 
 	CompositeTypeRef getValueComposite(TypeRef value) {
-		if(value) {
-			switch(value->ID) {
-				case TypeID::Composite: return static_pointer_cast<CompositeType>(value);
-				case TypeID::Reference: return static_pointer_cast<ReferenceType>(value)->compType;
+		if(value && value->ID == TypeID::Composite) {
+			auto compValue = static_pointer_cast<CompositeType>(value);
+
+			if(compValue->life < 2) {
+				return compValue;
+			} else {
+				throw out_of_range("Cannot (and shouldn't) access composite in deinitialization state");
 			}
 		}
 
@@ -1820,8 +1860,6 @@ namespace Interpreter {
 			} else {
 				return Ref<DictionaryType>(PredefinedPIntegerTypeRef, valueType);
 			}
-
-			return nullptr;
 		} else
 		if(type == "booleanLiteral") {
 			return getValueWrapper(n->get("value") == "true", "Boolean");
@@ -1875,8 +1913,6 @@ namespace Interpreter {
 			} else {
 				return Ref<DictionaryType>(keyType, valueType);
 			}
-
-			return nullptr;
 		} else
 		if(type == "floatLiteral") {
 			return getValueWrapper(n->get<double>("value"), "Float");
@@ -2064,7 +2100,7 @@ namespace Interpreter {
 		if(type == "typeIdentifier") {
 			CompositeTypeRef composite = getValueComposite(executeNode(n->get("identifier")));
 
-			if(!composite || compositeIsObject(composite)) {
+			if(!composite || composite->isObject()) {
 				report(1, n, "Composite is an object or wasn\'t found.");
 
 				return PredefinedCAnyTypeRef;
@@ -2088,7 +2124,7 @@ namespace Interpreter {
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
-			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
+			// Edit: What did I mean by "single statements", inline declarations like "while var a = b() {}"? That isn't even implemented in the parser right now
 			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
 
 			addScope(namespace_);
