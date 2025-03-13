@@ -178,6 +178,7 @@ namespace Interpreter {
 
 	CompositeTypeRef scope();
 	CompositeTypeRef getValueComposite(TypeRef value);
+	void retainOrReleaseValueComposites(CompositeTypeRef retainingComposite, TypeRef retainingValue);
 
 	// ----------------------------------------------------------------
 
@@ -1138,6 +1139,7 @@ namespace Interpreter {
 			CompositeTypeRef retainingComposite,
 							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
+			// TODO: Check if reverse order is more performant
 			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
 			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
 		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
@@ -1213,6 +1215,10 @@ namespace Interpreter {
 			return !isObject() ? getOwnID() : getTypeInheritedID();
 		}
 
+		NodeValue getScopeID() {
+			return IDs.get("scope");
+		}
+
 		NodeArrayRef getRetainersIDs() {
 			return IDs.get("retainers");
 		}
@@ -1264,6 +1270,213 @@ namespace Interpreter {
 
 		NodeValue getTypeInheritedID() {
 			return inheritedTypes.size() ? NodeValue(inheritedTypes.front()) : NodeValue();
+		}
+
+		optional<reference_wrapper<Member>> getMember(const string& identifier) {
+			auto it = members.find(identifier);
+
+			if(it != members.end()) {
+				return it->second;
+			}
+
+			return nullopt;
+		}
+
+		Member& addMember(const string& identifier) {
+			if(auto member = getMember(identifier)) {
+				return *member;
+			} else {
+				return members[identifier] = Member();
+			}
+		}
+
+		void removeMember(const string& identifier) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+
+			if(auto member = getMember(identifier)) {
+				members.erase(identifier);
+				// TODO: Fix invalidated reference
+				for(auto& overload : member->get()) {
+					retainOrReleaseValueComposites(composite, overload.value);
+				}
+			}
+		}
+
+		void removeMembers() {
+			for(auto& [identifier, member] : members) {
+				removeMember(identifier);
+			}
+		}
+
+		optional<reference_wrapper<MemberOverload>> getMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+			if(auto member = getMember(identifier)) {
+				for(auto& overload : member->get()) {
+					if(auto match = getMemberOverloadMatch(overload, matching)) {
+						return match;
+					}
+				}
+			}
+
+			return nullopt;
+		}
+
+		optional<reference_wrapper<MemberOverload>> getMemberOverloadMatch(MemberOverload& overload, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+			if(!matching || (*matching)(overload)) {
+				return overload;
+			}
+
+			return nullopt;
+		}
+
+		/*
+		 * Looking for member overload in a composite itself.
+		 *
+		 * Used to find member overloads (primarily of functions and namespaces),
+		 * pseudovariables (such as "Global" or "self"), and imports within namespaces.
+		 *
+		 * Functions and namespaces are slightly different from other types. They can inherit or miss levels and
+		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
+		 * and can participate in plain scope chains.
+		 */
+		optional<reference_wrapper<MemberOverload>> findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			auto overload = composite->getMemberOverload(identifier, matching);
+
+			if(overload) {
+				if(owner) {
+					owner->get() = composite;
+				}
+
+				return overload;
+			}
+
+			return nullopt;
+		}
+
+		/*
+		 * Looking for member overload in Object chain (super, self, sub).
+		 *
+		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
+		 */
+		optional<reference_wrapper<MemberOverload>> findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+			auto object = isObject()
+						? static_pointer_cast<CompositeType>(shared_from_this())
+						: getComposite(IDs.get("self"));
+
+			if(!object || object == shared_from_this() || !object->isObject()) {
+				return nullopt;
+			}
+
+			bool descended;
+
+			while(object) {  // Higher
+				auto overload = object->getMemberOverload(identifier, matching);
+
+				if(overload) {
+					if(!descended && overload->get().modifiers.virtual_) {
+						descended = true;
+
+						while(CompositeTypeRef object_ = getComposite(object->IDs.get("sub"))) {  // Lowest
+							object = object_;
+						}
+
+						continue;
+					}
+
+					if(owner) {
+						owner->get() = object;
+					}
+
+					return overload;
+				}
+
+				object = getComposite(object->IDs.get("super"));
+			}
+		}
+
+		/*
+		 * Looking for member overload in Inheritance chain (Super, Self).
+		 */
+		optional<reference_wrapper<MemberOverload>> findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+			auto composite = !isObject()
+						   ? static_pointer_cast<CompositeType>(shared_from_this())
+						   : getComposite(IDs.get("Self"));
+
+			while(composite) {
+				auto overload = composite->getMemberOverload(identifier, matching);
+
+				if(overload) {
+					if(owner) {
+						owner->get() = composite;
+					}
+
+					return overload;
+				}
+
+				composite = getComposite(composite->IDs.get("Super"));
+			}
+
+			return nullopt;
+		}
+
+		/*
+		 * Looking for member overload in Scope chain (scope).
+		 *
+		 * If search is internal, only first composite in chain will be checked.
+		 */
+		optional<reference_wrapper<MemberOverload>> findMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, bool internal = false, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+
+			while(composite) {
+				auto overload = composite->findMemberOverloadInComposite(identifier, matching, owner) ?:
+								composite->findMemberOverloadInObjectChain(identifier, matching, owner) ?:
+								composite->findMemberOverloadInInheritanceChain(identifier, matching, owner);
+
+				if(overload) {
+					return overload;
+				}
+
+				if(internal) {
+					break;
+				}
+
+				composite = getComposite(composite->getScopeID());
+			}
+
+			return nullopt;
+		}
+
+		/*
+		 * Not specifying "internal" means use of direct declaration without search.
+		 */
+		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<bool> internal = nullopt) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			auto overload = !internal
+						  ? getMemberOverload(identifier, matching)
+						  : findMemberOverload(identifier, matching, *internal, composite);
+
+			if(!overload) {
+				Member& member = addMember(identifier);
+
+				member.push_back(MemberOverload());
+
+				overload = member.back();
+			}
+
+			MemberOverload& overload_ = *overload;
+			TypeRef OT = overload_.type ?: Ref<Type>(),  // Old/new type
+				    NT = type ?: Ref<Type>(),
+				    OV = overload_.value,  // Old/new value
+				    NV = value;
+
+			overload_.modifiers = modifiers;
+			overload_.type = NT;
+			overload_.value = value;
+
+			if(OV != NV) {
+				retainOrReleaseValueComposites(composite, OV);
+				retainOrReleaseValueComposites(composite, NV);
+			}
 		}
 	};
 
@@ -1649,6 +1862,7 @@ namespace Interpreter {
 		return composite ? composite->getTitle() : "";
 	}
 
+	/*
 	bool compositeIsFunction(const CompositeTypeRef& composite) {
 		return composite && composite->isFunction();
 	}
@@ -1668,6 +1882,7 @@ namespace Interpreter {
 	bool compositeIsCallable(const CompositeTypeRef& composite) {
 		return composite && composite->isCallable();
 	}
+	*/
 
 	CompositeTypeRef getScope(int offset = 0) {
 		return scopes.size() > scopes.size()-1+offset
@@ -1725,6 +1940,17 @@ namespace Interpreter {
 		}
 
 		return nullptr;
+	}
+
+	void retainOrReleaseValueComposites(CompositeTypeRef retainingComposite, TypeRef retainingValue) {
+		if(retainingValue && retainingValue->ID == TypeID::Dictionary) {
+			for(auto& [retainingKey, retainingValue_] : *static_pointer_cast<DictionaryType>(retainingValue)) {
+				retainOrReleaseValueComposites(retainingComposite, retainingKey);
+				retainOrReleaseValueComposites(retainingComposite, retainingValue_);
+			}
+		} else {
+			retainingComposite->retainOrRelease(getValueComposite(retainingValue));
+		}
 	}
 
 	// ----------------------------------------------------------------
