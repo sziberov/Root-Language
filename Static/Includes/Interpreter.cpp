@@ -1328,6 +1328,12 @@ namespace Interpreter {
 			return nullopt;
 		}
 
+		struct OverloadSearch {
+			CompositeTypeRef owner;									// An exact composite where an overload was found, defined if found real (and nil if not found or found virtual)
+			optional<reference_wrapper<MemberOverload>> overload;	// Reference to a found overload, defined if found (and nil if not found)
+			optional<MemberOverload> backingStore;					// Backing store for a virtual overload, defined if found virtual (and nil if not found or found real)
+		};
+
 		/*
 		 * Looking for member overload in a composite itself.
 		 *
@@ -1338,19 +1344,83 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		optional<reference_wrapper<MemberOverload>> findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			auto overload = composite->getMemberOverload(identifier, matching);
+		OverloadSearch findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+			auto overload = getMemberOverload(identifier, matching);
+			optional<MemberOverload> backingStore;
 
-			if(overload) {
-				if(owner) {
-					owner->get() = composite;
+			if(!overload) {
+				unordered_map<string, NodeValue> IDs = {
+				//	{"global", -1},						   Global-object is no thing
+					{"Global", 0},						// Global-type
+					{"super", this->IDs.get("super")},  // Super-object or a type
+					{"Super", this->IDs.get("Super")},  // Super-type
+					{"self", this->IDs.get("self")},	// Self-object or a type
+					{"Self", this->IDs.get("Self")},	// Self-type
+					{"sub", this->IDs.get("sub")},		// Sub-object
+					{"Sub", this->IDs.get("Sub")}		// Sub-type
+				//	{"metaSelf", -1},					   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+				//	{"arguments", -1}					   Function arguments array (should be in callFunction() if needed)
+				};
+
+				if(IDs.count(identifier)) {
+					auto ID = IDs[identifier];
+
+					if(ID != -1) {  // Intentionally missed IDs should be treated like non-existent
+						backingStore = MemberOverload(
+							MemberOverload::Modifiers { .final = true },
+							Ref<NillableType>(PredefinedCAnyTypeRef),
+							getComposite(ID)
+						);
+
+						if(!getMemberOverloadMatch(*backingStore, matching)) {
+							backingStore = nullopt;
+						}
+					}
 				}
-
-				return overload;
 			}
 
-			return nullopt;
+			if(!overload && !backingStore && isNamespace()) {
+				unordered_map<string, int> IDs = {};  // imports;
+
+				if(IDs.count(identifier)) {
+					backingStore = MemberOverload(
+						MemberOverload::Modifiers { .final = true },
+						PredefinedCAnyTypeRef,
+						getComposite(IDs[identifier])
+					);
+
+					if(!getMemberOverloadMatch(*backingStore, matching)) {
+						backingStore = nullopt;
+					}
+				} else
+				for(auto& [identifier, ID] : IDs) {
+					auto composite = getComposite(IDs[identifier]);
+
+					if(!composite) {
+						continue;
+					}
+
+					overload = composite->getMemberOverload(identifier, matching);  // TODO: Investigate if this should be replaced with a search function
+
+					if(overload) {
+						break;
+					}
+				}
+			}
+
+			if(backingStore) {
+				auto search = OverloadSearch();
+
+				search.backingStore = backingStore;
+				search.overload = *search.backingStore;
+
+				return search;
+			} else
+			if(overload) {
+				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), overload);
+			}
+
+			return OverloadSearch();
 		}
 
 		/*
@@ -1358,13 +1428,13 @@ namespace Interpreter {
 		 *
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
 		 */
-		optional<reference_wrapper<MemberOverload>> findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
 			auto object = isObject()
 						? static_pointer_cast<CompositeType>(shared_from_this())
 						: getComposite(IDs.get("self"));
 
 			if(!object || object == shared_from_this() || !object->isObject()) {
-				return nullopt;
+				return OverloadSearch();
 			}
 
 			bool descended;
@@ -1383,21 +1453,19 @@ namespace Interpreter {
 						continue;
 					}
 
-					if(owner) {
-						owner->get() = object;
-					}
-
-					return overload;
+					return OverloadSearch(object, overload);
 				}
 
 				object = getComposite(object->IDs.get("super"));
 			}
+
+			return OverloadSearch();
 		}
 
 		/*
 		 * Looking for member overload in Inheritance chain (Super, Self).
 		 */
-		optional<reference_wrapper<MemberOverload>> findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
 			auto composite = !isObject()
 						   ? static_pointer_cast<CompositeType>(shared_from_this())
 						   : getComposite(IDs.get("Self"));
@@ -1406,17 +1474,13 @@ namespace Interpreter {
 				auto overload = composite->getMemberOverload(identifier, matching);
 
 				if(overload) {
-					if(owner) {
-						owner->get() = composite;
-					}
-
-					return overload;
+					return OverloadSearch(composite, overload);
 				}
 
 				composite = getComposite(composite->IDs.get("Super"));
 			}
 
-			return nullopt;
+			return OverloadSearch();
 		}
 
 		/*
@@ -1424,17 +1488,15 @@ namespace Interpreter {
 		 *
 		 * If search is internal, only first composite in chain will be checked.
 		 */
-		optional<reference_wrapper<MemberOverload>> findMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, bool internal = false, optional<reference_wrapper<CompositeTypeRef>> owner = nullopt) {
+		OverloadSearch findMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, bool internal = false) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
-				auto overload = composite->findMemberOverloadInComposite(identifier, matching, owner) ?:
-								composite->findMemberOverloadInObjectChain(identifier, matching, owner) ?:
-								composite->findMemberOverloadInInheritanceChain(identifier, matching, owner);
+				OverloadSearch search;
 
-				if(overload) {
-					return overload;
-				}
+				if(search = composite->findMemberOverloadInComposite(identifier, matching);			search.overload) return search;
+				if(search = composite->findMemberOverloadInObjectChain(identifier, matching);		search.overload) return search;
+				if(search = composite->findMemberOverloadInInheritanceChain(identifier, matching);	search.overload) return search;
 
 				if(internal) {
 					break;
@@ -1443,7 +1505,7 @@ namespace Interpreter {
 				composite = getComposite(composite->getScopeID());
 			}
 
-			return nullopt;
+			return OverloadSearch();
 		}
 
 		/*
@@ -1451,15 +1513,19 @@ namespace Interpreter {
 		 */
 		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<bool> internal = nullopt) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			auto overload = !internal
-						  ? getMemberOverload(identifier, matching)
-						  : findMemberOverload(identifier, matching, *internal, composite);
+			optional<reference_wrapper<MemberOverload>> overload;
+
+			if(!internal) {
+				overload = getMemberOverload(identifier, matching);
+			} else
+			if(auto search = findMemberOverload(identifier, matching, *internal); search.owner) {
+				composite = search.owner;
+				overload = search.overload;
+			}
 
 			if(!overload) {
 				Member& member = addMember(identifier);
-
 				member.push_back(MemberOverload());
-
 				overload = member.back();
 			}
 
