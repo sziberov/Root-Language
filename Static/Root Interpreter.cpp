@@ -1,6 +1,6 @@
 #include "Lexer.cpp"
 #include "Parser.cpp"
-#include "Interpreter.Micro.cpp"
+#include "Interpreter.cpp"
 
 #include "crow_all.h"
 #include "glaze/glaze.hpp"
@@ -8,7 +8,6 @@
 int main() {
 	Lexer lexer;
 	Parser parser;
-	Interpreter interpreter;
 
 	optional<Lexer::Result> lexerResult;
 	optional<Parser::Result> parserResult;
@@ -78,7 +77,7 @@ int main() {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		if(lexerResult == nullopt || parserResult == nullopt) return string();
 		auto start = chrono::high_resolution_clock::now();
-		interpreterResult = interpreter.interpret(*lexerResult, *parserResult);
+		interpreterResult = Interpreter::interpret(*lexerResult, *parserResult);
 		auto stop_0 = chrono::high_resolution_clock::now();
 		string interpreterResultString = glz::write_json(interpreterResult).value_or("error");
 		auto stop_1 = chrono::high_resolution_clock::now();

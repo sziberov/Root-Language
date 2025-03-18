@@ -879,7 +879,7 @@ namespace Interpreter {
 		const CompositeTypeID subID;
 		string title;
 		Node IDs = Node {
-			{"own", composites.size() > 0 ? composites.back()->IDs.get<int>("own")+1 : 0},
+			{"own", (int)composites.size()},  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
 			{"scope", nullptr},
 			{"retainers", NodeArray {}}
 		};
@@ -1291,12 +1291,11 @@ namespace Interpreter {
 		}
 
 		void removeMember(const string& identifier) {
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			if(auto memberNode = members.extract(identifier)) {
+				Member member = move(memberNode.mapped());
+				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
-			if(auto member = getMember(identifier)) {
-				members.erase(identifier);
-				// TODO: Fix invalidated reference
-				for(auto& overload : member->get()) {
+				for(auto& overload : member) {
 					retainOrReleaseValueComposites(composite, overload.value);
 				}
 			}
@@ -2209,6 +2208,19 @@ namespace Interpreter {
 		if(type == "floatLiteral") {
 			return getValueWrapper(n->get<double>("value"), "Float");
 		} else
+		if(type == "identifier") {
+			CompositeTypeRef composite = scope();
+			string identifier = n->get("value");
+			auto overload = composite ? composite->findMemberOverload(identifier).overload : nullopt;
+
+			if(!overload) {
+				report(1, n, "Member overload wasn't found (accessing '"+identifier+"').");
+
+				return nullptr;
+			}
+
+			return overload->get().value;
+		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
 				return nullptr;
@@ -2410,6 +2422,25 @@ namespace Interpreter {
 				return Ref<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
 			}
 		} else
+		if(type == "variableDeclaration") {
+			NodeArrayRef modifiers = n->get("modifiers");
+
+			for(Node& declarator : n->get<NodeArray&>("declarators")) {
+				string identifier = declarator.get<Node&>("identifier").get("value");
+				TypeRef type = executeNode(declarator.get("type_"), false),
+						value;
+
+			//	addContext({ type: type }, ['implicitChainExpression']);
+
+				value = executeNode(declarator.get("value"));
+
+			//	removeContext();
+
+				// TODO: Type-related checks
+
+				scope()->setMemberOverload(identifier, CompositeType::MemberOverload::Modifiers(), type, value);
+			}
+		} else
 		if(type == "whileStatement") {
 			if(n->empty("condition")) {
 				return nullptr;
@@ -2461,6 +2492,8 @@ namespace Interpreter {
 		tokens = {};
 		tree = nullptr;
 		position = 0;
+		composites = {};
+		scopes = {};
 		controlTransfers = {};
 		preferences = preferences_.value_or(Preferences {
 			128,
