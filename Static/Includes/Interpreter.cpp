@@ -1511,6 +1511,15 @@ namespace Interpreter {
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
 		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<bool> internal = nullopt) {
+			type = type ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+
+		    if(
+		    	value && !value->conformsTo(type) ||
+		    	!value && !PredefinedEVoidTypeRef->conformsTo(type)
+		    ) {
+		    	throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+type->toString()+"'");
+		    }
+
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 			optional<reference_wrapper<MemberOverload>> overload;
 
@@ -2034,7 +2043,15 @@ namespace Interpreter {
 		TypeRef value;
 
 		position = NP;
-		value = rules(node->get("type"), node, arguments...);
+
+		try {
+			value = rules(node->get("type"), node, arguments...);
+		} catch(exception& e) {
+			value = Ref<PrimitiveType>(e.what());
+
+			setControlTransfer(value, "throw");
+		//	report(2, node, to_string(value));
+		}
 
 		if(value && value->concrete != concrete) {  // Anonymous protocols are _now_ concrete, but this may change in the future
 			value = nullptr;
@@ -2435,8 +2452,6 @@ namespace Interpreter {
 				value = executeNode(declarator.get("value"));
 
 			//	removeContext();
-
-				// TODO: Type-related checks
 
 				scope()->setMemberOverload(identifier, CompositeType::MemberOverload::Modifiers(), type, value);
 			}
