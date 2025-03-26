@@ -878,11 +878,11 @@ namespace Interpreter {
 
 		const CompositeTypeID subID;
 		string title;
-		Node IDs = Node {
+		Node IDs = {
 			{"own", (int)composites.size()},  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
 			{"scope", nullptr}
 		};
-		unordered_map<int, pair<bool, int>> retainsCounts;  // Another ID : (This by another [bit] / Another by this [count])
+		unordered_map<int, pair<bool, int>> retainsCounts;  // Another ID : (This retained by another [bit] / Another retained by this [count])
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 		vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
 		vector<TypeRef> genericParameterTypes;
@@ -1046,11 +1046,20 @@ namespace Interpreter {
 				return;
 			}
 
-			vector<int> retainersIDs = retainedComposite->getRetainersIDs();
-			int retainingID = getOwnID();
+			int retainingID = getOwnID(),
+				retainedID = retainedComposite->getOwnID();
+			auto& retainingRC = retainsCounts,
+				  retainedRC = retainedComposite->retainsCounts;
 
-			if(!contains(retainersIDs, retainingID)) {
-				retainersIDs->push_back(retainingID);
+			if(retainingRC.count(retainedID)) {
+				retainingRC[retainedID].second++;
+			} else {
+				retainingRC[retainedID] = make_pair(false, 1);
+			}
+			if(retainedRC.count(retainingID)) {
+				retainedRC[retainingID].first = true;
+			} else {
+				retainedRC[retainingID] = make_pair(true, 0);
 			}
 		}
 
@@ -1059,51 +1068,41 @@ namespace Interpreter {
 				return;
 			}
 
-			vector<int> retainersIDs = retainedComposite->getRetainersIDs();
-			int retainingID = getOwnID();
+			int retainingID = getOwnID(),
+				retainedID = retainedComposite->getOwnID();
+			auto& retainingRC = retainsCounts,
+				  retainedRC = retainedComposite->retainsCounts;
 
-			if(contains(retainersIDs, retainingID)) {
-				erase(retainersIDs, retainingID);
+			if(retainingRC.count(retainedID) && retainingRC[retainedID].second > 0) {
+				retainingRC[retainedID].second = retainingRC[retainedID].second-1;
+
+				if(!retainingRC[retainedID].first && !retainingRC[retainedID].second) {
+					retainingRC.erase(retainedID);
+				}
+			}
+			if(retainedRC.count(retainingID) && !retains(retainedComposite)) {
+				retainedRC[retainingID].first = false;
+
+				if(!retainedRC[retainingID].second) {
+					retainedRC.erase(retainingID);
+				}
+
 				retainedComposite->destroyReleased();
 			}
 		}
 
 		/*
-		 * TODO: Remove this. As real retains will be statically counted, plain retain()/release() can be called.
-		 *
-		 * Automatically retains or releases composite.
-		 *
-		 * Use of this function is highly recommended when real retainment state is unknown
-		 * at the moment, otherwise basic functions can be used in favour of performance.
-		 */
-		void retainOrRelease(CompositeTypeRef retainedComposite) {
-			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
-				return;
-			}
-
-			if(retains(retainedComposite)) {
-				retain(retainedComposite);
-			} else {
-				release(retainedComposite);
-			}
-		}
-
-		/*
-		 * TODO: Replace this with plain .retainsCounts lookup. As real retains now will be statically counted, checking every type of member dynamically every time is redundant.
-		 *
 		 * Returns a real state of direct retainment.
 		 *
 		 * Composite considered really retained if it is used by an at least one of
 		 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
+		 *
+		 * Retain/release functions must be utilized in corresponding places for this to work.
 		 */
 		bool retains(CompositeTypeRef retainedComposite) {
-			return life < 2 && (
-				IDsRetain(retainedComposite) /*||
-				typeRetains(retainedComposite) ||
-				importsRetain(retainedComposite) ||
-				membersRetain(retainedComposite) ||
-				observersRetain(retainedComposite)*/
-			);
+			int retainedID = retainedComposite->getOwnID();
+
+			return life < 2 && retainsCounts.count(retainedID) && retainsCounts[retainedID].second > 0;
 		}
 
 		/*
@@ -1157,7 +1156,7 @@ namespace Interpreter {
 		}
 
 		void setID(const string& key, const NodeValue& value) {
-			if(set<string> {"own", "retainers"}.contains(key)) {
+			if(key == "own") {
 				return;
 			}
 
@@ -1184,8 +1183,8 @@ namespace Interpreter {
 					}
 				}
 
-				retainOrRelease(getComposite(OV));
 				retain(getComposite(NV));
+				release(getComposite(OV));
 			}
 		}
 
@@ -1227,24 +1226,24 @@ namespace Interpreter {
 			return IDs.get("scope");
 		}
 
-		vector<int> getRetainIDs(RetainDirection direction) const {
+		vector<int> getRetainIDs(bool direction) const {
 			vector<int> result;
-	        
-	        for(const auto& [key, value] : retainDirections) {
-	            if(value == direction) {
-	                result.push_back(key);
-	            }
-	        }
-	        
-	        return result;
+			
+			for(const auto& [key, value] : retainsCounts) {
+				if(direction ? value.second : value.first) {
+					result.push_back(key);
+				}
+			}
+			
+			return result;
 		}
 
 		vector<int> getRetainersIDs() {
-			return getRetainIDs(RetainDirection::Left);
+			return getRetainIDs(false);
 		}
 
 		vector<int> getRetainedIDs() {
-			return getRetainIDs(RetainDirection::Right);
+			return getRetainIDs(true);
 		}
 
 		void setSelfID(CompositeTypeRef selfComposite) {
@@ -1537,12 +1536,12 @@ namespace Interpreter {
 		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<bool> internal = nullopt) {
 			type = type ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 
-		    if(
-		    	value && !value->conformsTo(type) ||
-		    	!value && !PredefinedEVoidTypeRef->conformsTo(type)
-		    ) {
-		    	throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+type->toString()+"'");
-		    }
+			if(
+				value && !value->conformsTo(type) ||
+				!value && !PredefinedEVoidTypeRef->conformsTo(type)
+			) {
+				throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+type->toString()+"'");
+			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 			optional<reference_wrapper<MemberOverload>> overload;
@@ -1563,9 +1562,9 @@ namespace Interpreter {
 
 			MemberOverload& overload_ = *overload;
 			TypeRef OT = overload_.type ?: Ref<Type>(),  // Old/new type
-				    NT = type ?: Ref<Type>(),
-				    OV = overload_.value,  // Old/new value
-				    NV = value;
+					NT = type ?: Ref<Type>(),
+					OV = overload_.value,  // Old/new value
+					NV = value;
 
 			overload_.modifiers = modifiers;
 			overload_.type = NT;
