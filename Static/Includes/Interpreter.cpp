@@ -880,12 +880,14 @@ namespace Interpreter {
 		string title;
 		Node IDs = Node {
 			{"own", (int)composites.size()},  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
-			{"scope", nullptr},
-			{"retainers", NodeArray {}}
+			{"scope", nullptr}
 		};
+		unordered_map<int, pair<bool, int>> retainsCounts;  // Another ID : (This by another [bit] / Another by this [count])
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 		vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
 		vector<TypeRef> genericParameterTypes;
+		NodeArrayRef statements;
+		unordered_map<string, int> imports;
 		unordered_map<string, Member> members;
 
 		CompositeType(CompositeTypeID subID,
@@ -897,8 +899,7 @@ namespace Interpreter {
 																		   inheritedTypes(inheritedTypes),
 																		   genericParameterTypes(genericParameterTypes)
 		{
-		//	if(composites.size() > 0 && IDs.get("own") == composites.back()->IDs.get("own")) {}
-		//	composites.push_back(static_pointer_cast<CompositeType>(shared_from_this()));
+			// TODO: Statically retain inherited types
 		}
 
 		set<int> getFullInheritanceChain() const {
@@ -996,29 +997,30 @@ namespace Interpreter {
 
 			life = 2;
 
-			int ID = getOwnID();
-			NodeArrayRef retainersIDs = getRetainersIDs();
+			vector<int> retainedIDs = getRetainedIDs();
 
-			for(const CompositeTypeRef& composite_ : composites) {
-			//	if(retainersIDs && contains(*retainersIDs, ID)) {
-					release(composite_);
+			for(int retainedID : retainedIDs) {
+				if(CompositeTypeRef retainedComposite = getComposite(retainedID)) {
+					release(retainedComposite);
 
 					/*  Let the objects destroy no matter of errors
 					if(threw()) {
 						return;
 					}
 					*/
-			//	}
+				}
 			}
 
-			composites[ID] = nullptr;
+			int ID = getOwnID();
+			TypeRef self = shared_from_this();
 
+			composites[ID].reset();
+
+			vector<int> retainersIDs = getRetainersIDs();
 			int aliveRetainers = 0;
 
-			for(int retainerID : *retainersIDs) {
-				CompositeTypeRef composite_ = getComposite(retainerID);
-
-				if(composite_ && composite_->life < 2) {
+			for(int retainerID : retainersIDs) {
+				if(CompositeTypeRef retainingComposite = getComposite(retainerID); retainingComposite->life < 2) {
 					aliveRetainers++;
 
 					// TODO: Notify retainers about destroy
@@ -1026,7 +1028,10 @@ namespace Interpreter {
 			}
 
 			if(aliveRetainers > 0) {
-				report(1, nullptr, "Composite #"+(string)getOwnID()+" was destroyed with a non-empty retainer list.");
+				report(1, nullptr, "Composite #"+std::to_string(ID)+" was destroyed with a non-empty["+std::to_string(aliveRetainers)+"] retainer list.");
+			}
+			if(self.use_count() > 1) {
+				report(2, nullptr, "Composite #"+std::to_string(ID)+" was destroyed with a non-single["+std::to_string(self.use_count())+"] low-level reference count.");
 			}
 		}
 
@@ -1041,10 +1046,10 @@ namespace Interpreter {
 				return;
 			}
 
-			NodeArrayRef retainersIDs = retainedComposite->getRetainersIDs();
+			vector<int> retainersIDs = retainedComposite->getRetainersIDs();
 			int retainingID = getOwnID();
 
-			if(!contains(*retainersIDs, retainingID)) {
+			if(!contains(retainersIDs, retainingID)) {
 				retainersIDs->push_back(retainingID);
 			}
 		}
@@ -1054,16 +1059,18 @@ namespace Interpreter {
 				return;
 			}
 
-			NodeArrayRef retainersIDs = retainedComposite->getRetainersIDs();
+			vector<int> retainersIDs = retainedComposite->getRetainersIDs();
 			int retainingID = getOwnID();
 
-			if(contains(*retainersIDs, retainingID)) {
-				erase(*retainersIDs, retainingID);
+			if(contains(retainersIDs, retainingID)) {
+				erase(retainersIDs, retainingID);
 				retainedComposite->destroyReleased();
 			}
 		}
 
 		/*
+		 * TODO: Remove this. As real retains will be statically counted, plain retain()/release() can be called.
+		 *
 		 * Automatically retains or releases composite.
 		 *
 		 * Use of this function is highly recommended when real retainment state is unknown
@@ -1082,6 +1089,8 @@ namespace Interpreter {
 		}
 
 		/*
+		 * TODO: Replace this with plain .retainsCounts lookup. As real retains now will be statically counted, checking every type of member dynamically every time is redundant.
+		 *
 		 * Returns a real state of direct retainment.
 		 *
 		 * Composite considered really retained if it is used by an at least one of
@@ -1114,7 +1123,7 @@ namespace Interpreter {
 				return true;
 			}
 
-			for(int retainerID : *retainedComposite->getRetainersIDs()) {
+			for(int retainerID : retainedComposite->getRetainersIDs()) {
 				if(contains(*retainersIDs, retainerID)) {
 					continue;
 				}
@@ -1139,11 +1148,10 @@ namespace Interpreter {
 			CompositeTypeRef retainingComposite,
 							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
-			// TODO: Check if reverse order is more performant
-			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
 			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
 		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
-			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
 
 			return false;
 		}
@@ -1219,8 +1227,24 @@ namespace Interpreter {
 			return IDs.get("scope");
 		}
 
-		NodeArrayRef getRetainersIDs() {
-			return IDs.get("retainers");
+		vector<int> getRetainIDs(RetainDirection direction) const {
+			vector<int> result;
+	        
+	        for(const auto& [key, value] : retainDirections) {
+	            if(value == direction) {
+	                result.push_back(key);
+	            }
+	        }
+	        
+	        return result;
+		}
+
+		vector<int> getRetainersIDs() {
+			return getRetainIDs(RetainDirection::Left);
+		}
+
+		vector<int> getRetainedIDs() {
+			return getRetainIDs(RetainDirection::Right);
 		}
 
 		void setSelfID(CompositeTypeRef selfComposite) {
@@ -2278,10 +2302,12 @@ namespace Interpreter {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
 		//	addDefaultMembers(scope());
-			executeNodes(tree ? tree->get<NodeArrayRef>("statements") : nullptr/*, (t) => t !== 'throw' ? 0 : -1*/);
+			executeNodes(n->get<NodeArrayRef>("statements")/*, (t) => t !== 'throw' ? 0 : -1*/);
 
-			if(threw()) {
-				report(2, nullptr, to_string(controlTransfer().value));
+			ControlTransfer& CT = controlTransfer();
+
+			if(CT.type || CT.value) {
+				report(threw() ? 2 : 0, n, to_string(controlTransfer().value));
 			}
 
 			removeScope();
@@ -2379,7 +2405,6 @@ namespace Interpreter {
 			}
 
 			setControlTransfer(value, "return");
-			report(0, n, to_string(value));
 
 			return value;
 		} else
@@ -2503,6 +2528,11 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
+	struct Place {
+		NodeRef node,
+				location;
+	};
+
 	void reset(optional<Preferences> preferences_ = nullopt) {
 		tokens = {};
 		tree = nullptr;
@@ -2531,7 +2561,7 @@ namespace Interpreter {
 		tokens = lexerResult.tokens;
 		tree = parserResult.tree;
 
-		rules("module");
+		executeNode(tree);
 
 		result.reports = move(reports);
 

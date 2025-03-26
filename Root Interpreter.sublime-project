@@ -23,10 +23,10 @@
 			"name": "Build",
 			"shell": true,
 			"windows": {
-				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -lws2_32 -lwsock32 -Wa,-mbig-obj -O2 -o \"Root Interpreter\""
+				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -lws2_32 -lwsock32 -g -o \"Root Interpreter\""
 			},
 			"linux": {
-				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -ltbb -g -o \"Root Interpreter\""
+				"shell_cmd": "g++ -std=c++26 -I \"Includes\" \"Root Interpreter.cpp\" -g -o \"Root Interpreter\""
 			},
 			"file_regex": "^(..[^:]*):([0-9]+):?([0-9]+)?:? (.*)$",
 			"working_dir": "${project_path}/Static",
