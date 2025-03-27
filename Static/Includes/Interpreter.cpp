@@ -275,7 +275,7 @@ namespace Interpreter {
 	};
 
 	static string to_string(const TypeRef& type, bool raw = false) {
-		return type ? (raw ? type->operator string() : type->toString()) : "nil";
+		return type ? (raw ? type->operator string() : type->toString()) : "nil";  // std::to_string(type.use_count());
 	}
 
 	// ----------------------------------------------------------------
@@ -874,7 +874,8 @@ namespace Interpreter {
 					value;
 		};
 
-		using Member = vector<MemberOverload>;
+		using MemberOverloadRef = shared_ptr<MemberOverload>;
+		using Member = vector<MemberOverloadRef>;
 
 		const CompositeTypeID subID;
 		string title;
@@ -939,13 +940,13 @@ namespace Interpreter {
 			string result;
 
 			switch(subID) {
-				case CompositeTypeID::Class:		result += "class";
-				case CompositeTypeID::Enumeration:	result += "enum";
-				case CompositeTypeID::Function:		result += "func";
-				case CompositeTypeID::Namespace:	result += "namespace";
-				case CompositeTypeID::Object:		result += "object";
-				case CompositeTypeID::Protocol:		result += "protocol";
-				case CompositeTypeID::Structure:	result += "structure";
+				case CompositeTypeID::Class:		result += "class";		break;
+				case CompositeTypeID::Enumeration:	result += "enum";		break;
+				case CompositeTypeID::Function:		result += "func";		break;
+				case CompositeTypeID::Namespace:	result += "namespace";	break;
+				case CompositeTypeID::Object:		result += "object";		break;
+				case CompositeTypeID::Protocol:		result += "protocol";	break;
+				case CompositeTypeID::Structure:	result += "structure";	break;
 			}
 
 			result += " "+title+"#"+to_string(IDs.get("own"));
@@ -1100,6 +1101,18 @@ namespace Interpreter {
 			for(auto newRetainedComposite : NRC) if(!ORC.contains(newRetainedComposite)) retain(newRetainedComposite);
 		}
 
+		void retain(TypeRef retainedValue) {
+			for(auto retainedComposite : getValueComposites(retainedValue)) {
+				retain(retainedComposite);
+			}
+		}
+
+		void release(TypeRef retainedValue) {
+			for(auto retainedComposite : getValueComposites(retainedValue)) {
+				release(retainedComposite);
+			}
+		}
+
 		/*
 		 * Returns a real state of direct retainment.
 		 *
@@ -1130,7 +1143,7 @@ namespace Interpreter {
 			if(retainedComposite == shared_from_this()) {
 				return true;
 			}
-			
+
 			unordered_set<int> retainedIDs = getRetainedIDs();
 
 			if(retainedIDs.contains(retainedComposite->getOwnID())) {
@@ -1147,13 +1160,13 @@ namespace Interpreter {
 			for(int retainedID : retainedIDs) {
 				if(!visitedIDs->contains(retainedID)) {
 					visitedIDs->insert(retainedID);
-					
+
 					if(auto retainingComposite = getComposite(retainedID); retainingComposite->retainsDistant(retainedComposite, visitedIDs)) {
 						return true;
 					}
 				}
 			}
-			
+
 			return false;
 		}
 
@@ -1248,13 +1261,13 @@ namespace Interpreter {
 
 		unordered_set<int> getRetainIDs(bool direction) const {
 			unordered_set<int> result;
-			
+
 			for(const auto& [key, value] : retainsCounts) {
 				if(direction ? value.second : value.first) {
 					result.insert(key);
 				}
 			}
-			
+
 			return result;
 		}
 
@@ -1338,7 +1351,7 @@ namespace Interpreter {
 				Member member = move(memberNode.mapped());
 
 				for(auto& overload : member) {
-					retainOrRelease(overload.value, nullptr);
+					release(overload->value);
 				}
 			}
 		}
@@ -1349,7 +1362,7 @@ namespace Interpreter {
 			}
 		}
 
-		optional<reference_wrapper<MemberOverload>> getMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+		MemberOverloadRef getMemberOverload(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
 			if(auto member = getMember(identifier)) {
 				for(auto& overload : member->get()) {
 					if(auto match = getMemberOverloadMatch(overload, matching)) {
@@ -1358,21 +1371,20 @@ namespace Interpreter {
 				}
 			}
 
-			return nullopt;
+			return nullptr;
 		}
 
-		optional<reference_wrapper<MemberOverload>> getMemberOverloadMatch(MemberOverload& overload, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+		MemberOverloadRef getMemberOverloadMatch(const MemberOverloadRef& overload, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
 			if(!matching || (*matching)(overload)) {
 				return overload;
 			}
 
-			return nullopt;
+			return nullptr;
 		}
 
 		struct OverloadSearch {
-			CompositeTypeRef owner;									// An exact composite where an overload was found, defined if found real (and nil if not found or found virtual)
-			optional<reference_wrapper<MemberOverload>> overload;	// Reference to a found overload, defined if found (and nil if not found)
-			optional<MemberOverload> backingStore;					// Backing store for a virtual overload, defined if found virtual (and nil if not found or found real)
+			CompositeTypeRef owner;		// An exact composite where an overload was found, defined if found real (and nil if not found or found virtual)
+			MemberOverloadRef overload;	// Reference to a found overload, defined if found (and nil if not found)
 		};
 
 		/*
@@ -1385,9 +1397,9 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		OverloadSearch findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
 			auto overload = getMemberOverload(identifier, matching);
-			optional<MemberOverload> backingStore;
+			MemberOverloadRef backingStore;
 
 			if(!overload) {
 				unordered_map<string, NodeValue> IDs = {
@@ -1407,14 +1419,14 @@ namespace Interpreter {
 					auto ID = IDs[identifier];
 
 					if(ID != -1) {  // Intentionally missed IDs should be treated like non-existent
-						backingStore = MemberOverload(
+						backingStore = Ref<MemberOverload>(
 							MemberOverload::Modifiers { .final = true },
 							Ref<NillableType>(PredefinedCAnyTypeRef),
 							getComposite(ID)
 						);
 
-						if(!getMemberOverloadMatch(*backingStore, matching)) {
-							backingStore = nullopt;
+						if(!getMemberOverloadMatch(backingStore, matching)) {
+							backingStore = nullptr;
 						}
 					}
 				}
@@ -1424,14 +1436,14 @@ namespace Interpreter {
 				unordered_map<string, int> IDs = {};  // imports;
 
 				if(IDs.count(identifier)) {
-					backingStore = MemberOverload(
+					backingStore = Ref<MemberOverload>(
 						MemberOverload::Modifiers { .final = true },
 						PredefinedCAnyTypeRef,
 						getComposite(IDs[identifier])
 					);
 
-					if(!getMemberOverloadMatch(*backingStore, matching)) {
-						backingStore = nullopt;
+					if(!getMemberOverloadMatch(backingStore, matching)) {
+						backingStore = nullptr;
 					}
 				} else
 				for(auto& [identifier, ID] : IDs) {
@@ -1450,12 +1462,7 @@ namespace Interpreter {
 			}
 
 			if(backingStore) {
-				auto search = OverloadSearch();
-
-				search.backingStore = backingStore;
-				search.overload = *search.backingStore;
-
-				return search;
+				return OverloadSearch(nullptr, backingStore);
 			} else
 			if(overload) {
 				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), overload);
@@ -1469,7 +1476,7 @@ namespace Interpreter {
 		 *
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
 		 */
-		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
 			auto object = isObject()
 						? static_pointer_cast<CompositeType>(shared_from_this())
 						: getComposite(IDs.get("self"));
@@ -1484,7 +1491,7 @@ namespace Interpreter {
 				auto overload = object->getMemberOverload(identifier, matching);
 
 				if(overload) {
-					if(!descended && overload->get().modifiers.virtual_) {
+					if(!descended && overload->modifiers.virtual_) {
 						descended = true;
 
 						while(CompositeTypeRef object_ = getComposite(object->IDs.get("sub"))) {  // Lowest
@@ -1506,7 +1513,7 @@ namespace Interpreter {
 		/*
 		 * Looking for member overload in Inheritance chain (Super, Self).
 		 */
-		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
 			auto composite = !isObject()
 						   ? static_pointer_cast<CompositeType>(shared_from_this())
 						   : getComposite(IDs.get("Self"));
@@ -1529,7 +1536,7 @@ namespace Interpreter {
 		 *
 		 * If search is internal, only first composite in chain will be checked.
 		 */
-		OverloadSearch findMemberOverload(const string& identifier, optional<function<bool(MemberOverload&)>> matching = nullopt, bool internal = false) {
+		OverloadSearch findMemberOverload(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt, bool internal = false) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
@@ -1552,7 +1559,7 @@ namespace Interpreter {
 		/*
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
-		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverload&)>> matching = nullopt, optional<bool> internal = nullopt) {
+		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverloadRef)>> matching = nullopt, optional<bool> internal = nullopt) {
 			type = type ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 
 			if(
@@ -1563,7 +1570,7 @@ namespace Interpreter {
 			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			optional<reference_wrapper<MemberOverload>> overload;
+			MemberOverloadRef overload;
 
 			if(!internal) {
 				overload = getMemberOverload(identifier, matching);
@@ -1575,19 +1582,18 @@ namespace Interpreter {
 
 			if(!overload) {
 				Member& member = addMember(identifier);
-				member.push_back(MemberOverload());
+				member.push_back(Ref<MemberOverload>());
 				overload = member.back();
 			}
 
-			MemberOverload& overload_ = *overload;
-			TypeRef OT = overload_.type ?: Ref<Type>(),  // Old/new type
+			TypeRef OT = overload->type ?: Ref<Type>(),  // Old/new type
 					NT = type ?: Ref<Type>(),
-					OV = overload_.value,  // Old/new value
+					OV = overload->value,  // Old/new value
 					NV = value;
 
-			overload_.modifiers = modifiers;
-			overload_.type = NT;
-			overload_.value = value;
+			overload->modifiers = modifiers;
+			overload->type = NT;
+			overload->value = value;
 
 			if(OV != NV) {
 				composite->retainOrRelease(OV, NV);
@@ -2275,9 +2281,8 @@ namespace Interpreter {
 			return getValueWrapper(n->get<double>("value"), "Float");
 		} else
 		if(type == "identifier") {
-			CompositeTypeRef composite = scope();
 			string identifier = n->get("value");
-			auto overload = composite ? composite->findMemberOverload(identifier).overload : nullopt;
+			auto overload = scope()->findMemberOverload(identifier).overload;
 
 			if(!overload) {
 				report(1, n, "Member overload wasn't found (accessing '"+identifier+"').");
@@ -2285,7 +2290,7 @@ namespace Interpreter {
 				return nullptr;
 			}
 
-			return overload->get().value;
+			return overload->value;
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {

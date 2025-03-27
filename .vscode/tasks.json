@@ -1,0 +1,36 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "g++",
+            "args": [
+                "-std=c++26",
+                "-I", "Includes",
+                "Root Interpreter.cpp",
+                "-g",
+                "-o", "Root Interpreter"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/Static/"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Компиляция C++ проекта"
+        },
+        {
+            "label": "Run",
+            "type": "shell",
+            "command": "${workspaceFolder}/Static/Root Interpreter",
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "dependsOn": ["Build"]
+        }
+    ]
+}
