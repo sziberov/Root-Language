@@ -178,7 +178,7 @@ namespace Interpreter {
 
 	CompositeTypeRef scope();
 	CompositeTypeRef getValueComposite(TypeRef value);
-	void retainOrReleaseValueComposites(CompositeTypeRef retainingComposite, TypeRef retainingValue);
+	unordered_set<CompositeTypeRef> getValueComposites(TypeRef value);
 
 	// ----------------------------------------------------------------
 
@@ -915,7 +915,7 @@ namespace Interpreter {
 		}
 
 		static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
-			if(candidate->IDs.get("own") != base->IDs.get("own") && !candidate->getFullInheritanceChain().contains(base->IDs.get("own"))) {
+			if(candidate->getOwnID() != base->getOwnID() && !candidate->getFullInheritanceChain().contains(base->getOwnID())) {
 				return false;
 			}
 
@@ -997,7 +997,7 @@ namespace Interpreter {
 
 			life = 2;
 
-			vector<int> retainedIDs = getRetainedIDs();
+			unordered_set<int> retainedIDs = getRetainedIDs();
 
 			for(int retainedID : retainedIDs) {
 				if(CompositeTypeRef retainedComposite = getComposite(retainedID)) {
@@ -1016,7 +1016,7 @@ namespace Interpreter {
 
 			composites[ID].reset();
 
-			vector<int> retainersIDs = getRetainersIDs();
+			unordered_set<int> retainersIDs = getRetainersIDs();
 			int aliveRetainers = 0;
 
 			for(int retainerID : retainersIDs) {
@@ -1028,10 +1028,10 @@ namespace Interpreter {
 			}
 
 			if(aliveRetainers > 0) {
-				report(1, nullptr, "Composite #"+std::to_string(ID)+" was destroyed with a non-empty["+std::to_string(aliveRetainers)+"] retainer list.");
+				report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-empty["+std::to_string(aliveRetainers)+"] retainer list.");
 			}
 			if(self.use_count() > 1) {
-				report(2, nullptr, "Composite #"+std::to_string(ID)+" was destroyed with a non-single["+std::to_string(self.use_count())+"] low-level reference count.");
+				report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-single["+std::to_string(self.use_count())+"] low-level reference count.");
 			}
 		}
 
@@ -1063,6 +1063,7 @@ namespace Interpreter {
 			}
 		}
 
+		// release -> !retains -> destroyReleased -> !retained -> destroy
 		void release(CompositeTypeRef retainedComposite) {
 			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
 				return;
@@ -1091,11 +1092,19 @@ namespace Interpreter {
 			}
 		}
 
+		void retainOrRelease(TypeRef oldRetainedValue, TypeRef newRetainedValue) {
+			auto ORC = getValueComposites(oldRetainedValue),  // Old/new retained composites
+				 NRC = getValueComposites(newRetainedValue);
+
+			for(auto oldRetainedComposite : ORC) if(!NRC.contains(oldRetainedComposite)) release(oldRetainedComposite);
+			for(auto newRetainedComposite : NRC) if(!ORC.contains(newRetainedComposite)) retain(newRetainedComposite);
+		}
+
 		/*
 		 * Returns a real state of direct retainment.
 		 *
-		 * Composite considered really retained if it is used by an at least one of
-		 * the retainer's IDs (excluding own and retainers list), type, import, member or observer.
+		 * Composite A is considered really retained if it is used by an at least one of
+		 * the composite B IDs (excluding own and retainers list), type, import, member or observer.
 		 *
 		 * Retain/release functions must be utilized in corresponding places for this to work.
 		 */
@@ -1108,39 +1117,50 @@ namespace Interpreter {
 		/*
 		 * Returns a formal state of direct or indirect retainment.
 		 *
-		 * Composite considered formally retained if it or at least one of
-		 * its retainers list members (recursively) can be as recognized as the retainer.
+		 * Composite A is considered formally retained by composite B if they
+		 * are same composite or if composite B really retains it (recursively).
 		 *
-		 * retainersIDs is used to exclude a retain cycles and redundant passes
-		 * from the lookup and meant to be set internally only.
+		 * visitedIDs is used to exclude a retain cycles and redundant passes
+		 * from the lookup and is meant to be set internally only.
 		 */
-		bool retainsDistant(CompositeTypeRef retainedComposite, shared_ptr<vector<int>> retainersIDs = Ref<vector<int>>()) {
+		bool retainsDistant(CompositeTypeRef retainedComposite, shared_ptr<unordered_set<int>> visitedIDs = Ref<unordered_set<int>>()) {
 			if(retainedComposite == nullptr) {
 				return false;
 			}
 			if(retainedComposite == shared_from_this()) {
 				return true;
 			}
+			
+			unordered_set<int> retainedIDs = getRetainedIDs();
 
-			for(int retainerID : retainedComposite->getRetainersIDs()) {
-				if(contains(*retainersIDs, retainerID)) {
-					continue;
+			if(retainedIDs.contains(retainedComposite->getOwnID())) {
+				/*
+				if(!retainedComposite->getRetainersIDs().contains(getOwnID())) {
+					visitedIDs->insert((int)getOwnID());
+
+					return false;
 				}
+				*/
 
-				retainersIDs->push_back(retainerID);
-
-				if(retainsDistant(getComposite(retainerID), retainersIDs)) {
-					return true;
+				return true;
+			}
+			for(int retainedID : retainedIDs) {
+				if(!visitedIDs->contains(retainedID)) {
+					visitedIDs->insert(retainedID);
+					
+					if(auto retainingComposite = getComposite(retainedID); retainingComposite->retainsDistant(retainedComposite, visitedIDs)) {
+						return true;
+					}
 				}
 			}
-
+			
 			return false;
 		}
 
 		/*
 		 * Returns a significant state of general retainment.
 		 *
-		 * Composite considered significantly retained if it is formally retained by
+		 * Composite is considered significantly retained if it is formally retained by
 		 * the global namespace, a current scope composite or a current control trasfer value.
 		 */
 		bool retained() {
@@ -1226,23 +1246,23 @@ namespace Interpreter {
 			return IDs.get("scope");
 		}
 
-		vector<int> getRetainIDs(bool direction) const {
-			vector<int> result;
+		unordered_set<int> getRetainIDs(bool direction) const {
+			unordered_set<int> result;
 			
 			for(const auto& [key, value] : retainsCounts) {
 				if(direction ? value.second : value.first) {
-					result.push_back(key);
+					result.insert(key);
 				}
 			}
 			
 			return result;
 		}
 
-		vector<int> getRetainersIDs() {
+		unordered_set<int> getRetainersIDs() {
 			return getRetainIDs(false);
 		}
 
-		vector<int> getRetainedIDs() {
+		unordered_set<int> getRetainedIDs() {
 			return getRetainIDs(true);
 		}
 
@@ -1256,7 +1276,7 @@ namespace Interpreter {
 				return;
 			}
 
-			static set<string> excluded = {"own", "scope", "retainers"};
+			static set<string> excluded = {"own", "scope"};
 
 			for(const auto& [key, value] : IDs) {
 				if(!excluded.contains(key)) {
@@ -1266,7 +1286,7 @@ namespace Interpreter {
 		}
 
 		void setMissedLevelIDs() {
-			static set<string> excluded = {"own", "scope", "retainers"};
+			static set<string> excluded = {"own", "scope"};
 
 			for(const auto& [key, value] : IDs) {
 				if(!excluded.contains(key)) {
@@ -1280,7 +1300,7 @@ namespace Interpreter {
 		}
 
 		bool IDsRetain(CompositeTypeRef retainedComposite) {
-			static set<string> excluded = {"own", "retainers"};
+			static set<string> excluded = {"own"};
 
 			for(const auto& [key, value] : IDs) {
 				if(!excluded.contains(key) && IDs.get(key) == retainedComposite->getOwnID()) {
@@ -1316,10 +1336,9 @@ namespace Interpreter {
 		void removeMember(const string& identifier) {
 			if(auto memberNode = members.extract(identifier)) {
 				Member member = move(memberNode.mapped());
-				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 				for(auto& overload : member) {
-					retainOrReleaseValueComposites(composite, overload.value);
+					retainOrRelease(overload.value, nullptr);
 				}
 			}
 		}
@@ -1571,8 +1590,7 @@ namespace Interpreter {
 			overload_.value = value;
 
 			if(OV != NV) {
-				retainOrReleaseValueComposites(composite, OV);
-				retainOrReleaseValueComposites(composite, NV);
+				composite->retainOrRelease(OV, NV);
 			}
 		}
 	};
@@ -1629,7 +1647,7 @@ namespace Interpreter {
 				argsStr += ">";
 			}
 
-			return "Reference("+compType->title+"#"+to_string(compType->IDs.get("own"))+argsStr+")";
+			return "Reference("+compType->getTitle()+argsStr+")";
 		}
 	};
 
@@ -2032,22 +2050,30 @@ namespace Interpreter {
 			if(compValue->life < 2) {
 				return compValue;
 			} else {
-				throw out_of_range("Cannot (and shouldn't) access composite in deinitialization state");
+				report(1, nullptr, "Cannot (and shouldn't) access composite in deinitialization state");
 			}
 		}
 
 		return nullptr;
 	}
 
-	void retainOrReleaseValueComposites(CompositeTypeRef retainingComposite, TypeRef retainingValue) {
-		if(retainingValue && retainingValue->ID == TypeID::Dictionary) {
-			for(auto& [retainingKey, retainingValue_] : *static_pointer_cast<DictionaryType>(retainingValue)) {
-				retainOrReleaseValueComposites(retainingComposite, retainingKey);
-				retainOrReleaseValueComposites(retainingComposite, retainingValue_);
+	unordered_set<CompositeTypeRef> getValueComposites(TypeRef value) {
+		unordered_set<CompositeTypeRef> result;
+
+		if(value && value->ID == TypeID::Dictionary) {
+			for(auto& [key, value_] : *static_pointer_cast<DictionaryType>(value)) {
+				auto keyComposites = getValueComposites(key),
+					 valueComposites = getValueComposites(value_);
+
+				result.insert(keyComposites.begin(), keyComposites.end());
+				result.insert(valueComposites.begin(), valueComposites.end());
 			}
-		} else {
-			retainingComposite->retainOrRelease(getValueComposite(retainingValue));
+		} else
+		if(CompositeTypeRef composite = getValueComposite(value)) {
+			result.insert(composite);
 		}
+
+		return result;
 	}
 
 	// ----------------------------------------------------------------
