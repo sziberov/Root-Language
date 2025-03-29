@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "random": "cpp",
+        "string_view": "cpp",
+        "bitset": "cpp",
+        "ranges": "cpp",
+        "chrono": "cpp",
+        "span": "cpp"
+    }
+}

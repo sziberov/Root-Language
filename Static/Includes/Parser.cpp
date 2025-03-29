@@ -2898,7 +2898,7 @@ struct Parser {
 		return nullptr;
 	}
 
-	/*
+	/**
 	 * Trying to set the node's value and body basing on its value.
 	 *
 	 * Value that have unsignatured trailing closure will be divided to:
@@ -2968,7 +2968,7 @@ struct Parser {
 		}
 	}
 
-	/*
+	/**
 	 * Returns a list of nodes of the types in sequential order like [1, 2, 3, 1...].
 	 *
 	 * Additionally a separator between the nodes can be set.
@@ -3008,7 +3008,7 @@ struct Parser {
 		return nodes;
 	}
 
-	/*
+	/**
 	 * Returns a node of the type or the "unsupported" node if not closed immediately.
 	 *
 	 * Stops if node found, at 0 (relatively to 1 at start) scope level or at the .tokensEnd.
@@ -3058,7 +3058,7 @@ struct Parser {
 		return node;
 	}
 
-	/*
+	/**
 	 * Returns a list of nodes of the types, including the "unsupported" nodes if any occur.
 	 *
 	 * Additionally a (optional) separator between the nodes can be set.

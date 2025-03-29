@@ -209,7 +209,7 @@ namespace Interpreter {
 		controlTransfers.pop_back();
 	}
 
-	/*
+	/**
 	 * Should be used for a return values before releasing its scopes,
 	 * as ARC utilizes a control trasfer value at the moment.
 	 *
@@ -1036,14 +1036,25 @@ namespace Interpreter {
 			}
 		}
 
+		/**
+		 * Destroys contextually released composite.
+		 */
 		void destroyReleased() {
 			if(!retained()) {
 				destroy();
 			}
 		}
 
+		/**
+		 * Directly retains composite.
+		 *
+		 * - Retaining composite's retained list gets the retained composite's retention counter increased.
+		 * - Retained composite's retainers list gets the retaining composite's retention state set to true.
+		 *
+		 * Each entry will be added if not exists.
+		 */
 		void retain(CompositeTypeRef retainedComposite) {
-			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
+			if(!retainedComposite || retainedComposite == shared_from_this()) {
 				return;
 			}
 
@@ -1052,21 +1063,22 @@ namespace Interpreter {
 			auto& retainingRC = retainsCounts,
 				  retainedRC = retainedComposite->retainsCounts;
 
-			if(retainingRC.count(retainedID)) {
-				retainingRC[retainedID].second++;
-			} else {
-				retainingRC[retainedID] = make_pair(false, 1);
-			}
-			if(retainedRC.count(retainingID)) {
-				retainedRC[retainingID].first = true;
-			} else {
-				retainedRC[retainingID] = make_pair(true, 0);
-			}
+			retainingRC[retainedID].second++;
+			retainedRC[retainingID].first = true;
 		}
 
-		// release -> !retains -> destroyReleased -> !retained -> destroy
+		/**
+		 * Directly releases composite.
+		 *
+		 * - Retaining composite's retained list gets the retained composite's retention counter decreased.
+		 * - Directly released composite's retainers list gets the retaining composite's retention state set to false.
+		 *   Contextually released composite will be destroyed.
+		 *   (release -> !retains -> destroyReleased -> !retained -> destroy)
+		 *
+		 * Each entry will be removed if redundant.
+		 */
 		void release(CompositeTypeRef retainedComposite) {
-			if(retainedComposite == nullptr || retainedComposite == shared_from_this()) {
+			if(!retainedComposite || retainedComposite == shared_from_this()) {
 				return;
 			}
 
@@ -1074,25 +1086,34 @@ namespace Interpreter {
 				retainedID = retainedComposite->getOwnID();
 			auto& retainingRC = retainsCounts,
 				  retainedRC = retainedComposite->retainsCounts;
+			auto retainingIt = retainingRC.find(retainedID),
+				 retainedIt = retainedRC.find(retainingID);
 
-			if(retainingRC.count(retainedID) && retainingRC[retainedID].second > 0) {
-				retainingRC[retainedID].second = retainingRC[retainedID].second-1;
+			if(retainingIt != retainingRC.end() && retainingIt->second.second) {
+				retainingIt->second.second--;
 
-				if(!retainingRC[retainedID].first && !retainingRC[retainedID].second) {
-					retainingRC.erase(retainedID);
+				if(!retainingIt->second.first && !retainingIt->second.second) {
+					retainingRC.erase(retainingIt);
 				}
 			}
-			if(retainedRC.count(retainingID) && !retains(retainedComposite)) {
-				retainedRC[retainingID].first = false;
+			if(retainedIt != retainedRC.end() && !retains(retainedComposite)) {
+				retainedIt->second.first = false;
 
-				if(!retainedRC[retainingID].second) {
-					retainedRC.erase(retainingID);
+				if(!retainedIt->second.second) {
+					retainedRC.erase(retainedIt);
 				}
 
 				retainedComposite->destroyReleased();
 			}
 		}
 
+		/**
+		 * Directly retains or releases composites found in values, basing on:
+		 * - Current retention state - does not change if present in both values.
+		 * - Order - first released, second retained.
+		 *
+		 * Check `getValueComposites()` for details of search.
+		 */
 		void retainOrRelease(TypeRef oldRetainedValue, TypeRef newRetainedValue) {
 			auto ORC = getValueComposites(oldRetainedValue),  // Old/new retained composites
 				 NRC = getValueComposites(newRetainedValue);
@@ -1101,63 +1122,64 @@ namespace Interpreter {
 			for(auto newRetainedComposite : NRC) if(!ORC.contains(newRetainedComposite)) retain(newRetainedComposite);
 		}
 
+		/**
+		 * Directly retains composites found in value.
+		 *
+		 * Check `getValueComposites()` for details of search.
+		 */
 		void retain(TypeRef retainedValue) {
 			for(auto retainedComposite : getValueComposites(retainedValue)) {
 				retain(retainedComposite);
 			}
 		}
 
+		/**
+		 * Directly releases composites found in value.
+		 *
+		 * Check `getValueComposites()` for details of search.
+		 */
 		void release(TypeRef retainedValue) {
 			for(auto retainedComposite : getValueComposites(retainedValue)) {
 				release(retainedComposite);
 			}
 		}
 
-		/*
-		 * Returns a real state of direct retainment.
+		/**
+		 * Returns a state of direct retention.
 		 *
-		 * Composite A is considered really retained if it is used by an at least one of
-		 * the composite B IDs (excluding own and retainers list), type, import, member or observer.
+		 * Composite A is considered directly retained if it presents in composite B's retained IDs list.
 		 *
-		 * Retain/release functions must be utilized in corresponding places for this to work.
+		 * Formally this is the case when composite B uses composite A in its IDs (excluding own and retainers list),
+		 * types, imports, members or observers, but technically retain and release functions must be utilized
+		 * in corresponding places for this to work.
 		 */
 		bool retains(CompositeTypeRef retainedComposite) {
+			if(life == 2 || !retainedComposite) {
+				return false;
+			}
+
 			int retainedID = retainedComposite->getOwnID();
 
-			return life < 2 && retainsCounts.count(retainedID) && retainsCounts[retainedID].second > 0;
+			return retainsCounts.count(retainedID) && retainsCounts[retainedID].second > 0;
 		}
 
-		/*
-		 * Returns a formal state of direct or indirect retainment.
+		/**
+		 * Returns a state of transitive retention.
 		 *
-		 * Composite A is considered formally retained by composite B if they
-		 * are same composite or if composite B really retains it (recursively).
+		 * Composite A is considered transitively retained by composite B if they
+		 * are same composite or if composite B directly retains it (recursively).
 		 *
 		 * visitedIDs is used to exclude a retain cycles and redundant passes
 		 * from the lookup and is meant to be set internally only.
 		 */
 		bool retainsDistant(CompositeTypeRef retainedComposite, shared_ptr<unordered_set<int>> visitedIDs = Ref<unordered_set<int>>()) {
-			if(retainedComposite == nullptr) {
+			if(life == 2 || !retainedComposite) {
 				return false;
 			}
-			if(retainedComposite == shared_from_this()) {
+			if(retainedComposite == shared_from_this() || retains(retainedComposite)) {
 				return true;
 			}
-
-			unordered_set<int> retainedIDs = getRetainedIDs();
-
-			if(retainedIDs.contains(retainedComposite->getOwnID())) {
-				/*
-				if(!retainedComposite->getRetainersIDs().contains(getOwnID())) {
-					visitedIDs->insert((int)getOwnID());
-
-					return false;
-				}
-				*/
-
-				return true;
-			}
-			for(int retainedID : retainedIDs) {
+			for(int retainedID : getRetainedIDs()) {
 				if(!visitedIDs->contains(retainedID)) {
 					visitedIDs->insert(retainedID);
 
@@ -1170,10 +1192,10 @@ namespace Interpreter {
 			return false;
 		}
 
-		/*
-		 * Returns a significant state of general retainment.
+		/**
+		 * Returns a state of contextual retention.
 		 *
-		 * Composite is considered significantly retained if it is formally retained by
+		 * Composite is considered contextually retained if it is transitively retained by
 		 * the global namespace, a current scope composite or a current control trasfer value.
 		 */
 		bool retained() {
@@ -1387,7 +1409,7 @@ namespace Interpreter {
 			MemberOverloadRef overload;	// Reference to a found overload, defined if found (and nil if not found)
 		};
 
-		/*
+		/**
 		 * Looking for member overload in a composite itself.
 		 *
 		 * Used to find member overloads (primarily of functions and namespaces),
@@ -1471,7 +1493,7 @@ namespace Interpreter {
 			return OverloadSearch();
 		}
 
-		/*
+		/**
 		 * Looking for member overload in Object chain (super, self, sub).
 		 *
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
@@ -1510,7 +1532,7 @@ namespace Interpreter {
 			return OverloadSearch();
 		}
 
-		/*
+		/**
 		 * Looking for member overload in Inheritance chain (Super, Self).
 		 */
 		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
@@ -1531,7 +1553,7 @@ namespace Interpreter {
 			return OverloadSearch();
 		}
 
-		/*
+		/**
 		 * Looking for member overload in Scope chain (scope).
 		 *
 		 * If search is internal, only first composite in chain will be checked.
@@ -1556,7 +1578,7 @@ namespace Interpreter {
 			return OverloadSearch();
 		}
 
-		/*
+		/**
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
 		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverloadRef)>> matching = nullopt, optional<bool> internal = nullopt) {
@@ -1960,7 +1982,7 @@ namespace Interpreter {
 		return composite;
 	}
 
-	/*
+	/**
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
 	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
@@ -2015,7 +2037,7 @@ namespace Interpreter {
 		return getScope();
 	}
 
-	/*
+	/**
 	 * Should be used for a bodies before executing its contents,
 	 * as ARC utilizes a current scope at the moment.
 	 */
@@ -2023,7 +2045,7 @@ namespace Interpreter {
 		scopes.push_back(composite);
 	}
 
-	/*
+	/**
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	void removeScope(bool destroy = true) {
@@ -2036,7 +2058,7 @@ namespace Interpreter {
 		}
 	}
 
-	/*
+	/**
 	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
 	 */
 	TypeRef getValueWrapper(const TypeRef& value, string identifier) {
@@ -2049,6 +2071,9 @@ namespace Interpreter {
 		return getValueWrapper(Ref(value), identifier);
 	}
 
+	/**
+	 * Returns a live composite found in value. Works with `CompositeType`.
+	 */
 	CompositeTypeRef getValueComposite(TypeRef value) {
 		if(value && value->ID == TypeID::Composite) {
 			auto compValue = static_pointer_cast<CompositeType>(value);
@@ -2063,6 +2088,9 @@ namespace Interpreter {
 		return nullptr;
 	}
 
+	/**
+	 * Returns a set of live composites found in value (recursively). Works with `CompositeType` and `DictionaryType`.
+	 */
 	unordered_set<CompositeTypeRef> getValueComposites(TypeRef value) {
 		unordered_set<CompositeTypeRef> result;
 
@@ -2117,7 +2145,7 @@ namespace Interpreter {
 		return value;
 	}
 
-	/*
+	/**
 	 * Last statement in a body will be treated like a local return (overwritable by subsequent
 	 * outer statements) if there was no explicit control transfer previously. ECT should
 	 * be implemented by rules.
