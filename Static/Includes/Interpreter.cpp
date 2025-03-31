@@ -855,6 +855,20 @@ namespace Interpreter {
 	};
 
 	struct CompositeType : Type {
+		struct Retention {
+			bool retained;  // This retained by another
+			int retaining;  // Another retained by this
+		};
+
+		struct Observers {
+			CompositeTypeRef willGet,
+							 get,
+							 didGet,
+							 willSet,
+							 set,
+							 didSet;
+		};
+
 		struct MemberOverload {
 			struct Modifiers {
 				bool infix,
@@ -872,10 +886,11 @@ namespace Interpreter {
 			} modifiers;
 			TypeRef type,
 					value;
+			Observers observers;
 		};
 
 		using MemberOverloadRef = shared_ptr<MemberOverload>;
-		using Member = vector<MemberOverloadRef>;
+		using Member = set<MemberOverloadRef>;
 
 		const CompositeTypeID subID;
 		string title;
@@ -883,17 +898,18 @@ namespace Interpreter {
 			{"own", (int)composites.size()},  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
 			{"scope", nullptr}
 		};
-		unordered_map<int, pair<bool, int>> retainsCounts;  // Another ID : (This retained by another [bit] / Another retained by this [count])
+		unordered_map<int, Retention> retentions;  // Another ID : Retention
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-		vector<int> inheritedTypes;  // May be reference, another composite (protocol), or function
+		set<TypeRef> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
 		vector<TypeRef> genericParameterTypes;
 		NodeArrayRef statements;
 		unordered_map<string, int> imports;
 		unordered_map<string, Member> members;
+		Observers observers;
 
 		CompositeType(CompositeTypeID subID,
 					  const string& title,
-					  const vector<int>& inheritedTypes = {},
+					  const set<TypeRef>& inheritedTypes = {},
 					  const vector<TypeRef>& genericParameterTypes = {}) : Type(TypeID::Composite, true),
 																		   subID(subID),
 																		   title(title),
@@ -903,20 +919,10 @@ namespace Interpreter {
 			// TODO: Statically retain inherited types
 		}
 
-		set<int> getFullInheritanceChain() const {
-			auto chain = set<int>(inheritedTypes.begin(), inheritedTypes.end());
-
-			for(int parentIndex : inheritedTypes) {
-				set<int> parentChain = composites[parentIndex]->getFullInheritanceChain();
-
-				chain.insert(parentChain.begin(), parentChain.end());
-			}
-
-			return chain;
-		}
+		set<TypeRef> getFullInheritanceChain() const;
 
 		static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentTypes = {}) {
-			if(candidate->getOwnID() != base->getOwnID() && !candidate->getFullInheritanceChain().contains(base->getOwnID())) {
+			if(candidate != base && !candidate->getFullInheritanceChain().contains(base)) {
 				return false;
 			}
 
@@ -966,18 +972,18 @@ namespace Interpreter {
 			}
 
 			if(!inheritedTypes.empty()) {
-				set<int> chain = getFullInheritanceChain();
+				set<TypeRef> chain = getFullInheritanceChain();
 				bool first = true;
 
 				result += " : [";
 
-				for(int index : chain) {
+				for(auto& type : chain) {
 					if(!first) {
 						result += ", ";
 					}
 
 					first = false;
-					result += index;
+					result += type->toString();
 				}
 
 				result += "]";
@@ -1060,11 +1066,11 @@ namespace Interpreter {
 
 			int retainingID = getOwnID(),
 				retainedID = retainedComposite->getOwnID();
-			auto& retainingRC = retainsCounts,
-				  retainedRC = retainedComposite->retainsCounts;
+			auto& retainingRetentions = retentions,
+				  retainedRetentions = retainedComposite->retentions;
 
-			retainingRC[retainedID].second++;
-			retainedRC[retainingID].first = true;
+			retainingRetentions[retainedID].retaining++;
+			retainedRetentions[retainingID].retained = true;
 		}
 
 		/**
@@ -1084,23 +1090,23 @@ namespace Interpreter {
 
 			int retainingID = getOwnID(),
 				retainedID = retainedComposite->getOwnID();
-			auto& retainingRC = retainsCounts,
-				  retainedRC = retainedComposite->retainsCounts;
-			auto retainingIt = retainingRC.find(retainedID),
-				 retainedIt = retainedRC.find(retainingID);
+			auto& retainingRetentions = retentions,
+				  retainedRetentions = retainedComposite->retentions;
+			auto retainingIt = retainingRetentions.find(retainedID),
+				 retainedIt = retainedRetentions.find(retainingID);
 
-			if(retainingIt != retainingRC.end() && retainingIt->second.second) {
-				retainingIt->second.second--;
+			if(retainingIt != retainingRetentions.end() && retainingIt->second.retaining) {
+				retainingIt->second.retaining--;
 
-				if(!retainingIt->second.first && !retainingIt->second.second) {
-					retainingRC.erase(retainingIt);
+				if(!retainingIt->second.retained && !retainingIt->second.retaining) {
+					retainingRetentions.erase(retainingIt);
 				}
 			}
-			if(retainedIt != retainedRC.end() && !retains(retainedComposite)) {
-				retainedIt->second.first = false;
+			if(retainedIt != retainedRetentions.end() && !retains(retainedComposite)) {
+				retainedIt->second.retained = false;
 
-				if(!retainedIt->second.second) {
-					retainedRC.erase(retainedIt);
+				if(!retainedIt->second.retaining) {
+					retainedRetentions.erase(retainedIt);
 				}
 
 				retainedComposite->destroyReleased();
@@ -1160,7 +1166,7 @@ namespace Interpreter {
 
 			int retainedID = retainedComposite->getOwnID();
 
-			return retainsCounts.count(retainedID) && retainsCounts[retainedID].second > 0;
+			return retentions.count(retainedID) && retentions[retainedID].retaining > 0;
 		}
 
 		/**
@@ -1281,11 +1287,11 @@ namespace Interpreter {
 			return IDs.get("scope");
 		}
 
-		unordered_set<int> getRetainIDs(bool direction) const {
+		unordered_set<int> getRetentionsIDs(bool direction) const {
 			unordered_set<int> result;
 
-			for(const auto& [key, value] : retainsCounts) {
-				if(direction ? value.second : value.first) {
+			for(const auto& [key, value] : retentions) {
+				if(direction ? value.retaining : value.retained) {
 					result.insert(key);
 				}
 			}
@@ -1294,11 +1300,11 @@ namespace Interpreter {
 		}
 
 		unordered_set<int> getRetainersIDs() {
-			return getRetainIDs(false);
+			return getRetentionsIDs(false);
 		}
 
 		unordered_set<int> getRetainedIDs() {
-			return getRetainIDs(true);
+			return getRetentionsIDs(true);
 		}
 
 		void setSelfID(CompositeTypeRef selfComposite) {
@@ -1347,7 +1353,11 @@ namespace Interpreter {
 		}
 
 		NodeValue getTypeInheritedID() {
-			return inheritedTypes.size() ? NodeValue(inheritedTypes.front()) : NodeValue();
+			if(inheritedTypes.size(); auto composite = getValueComposite(*inheritedTypes.begin())) {
+				return composite->getOwnID();
+			}
+
+			return NodeValue();
 		}
 
 		optional<reference_wrapper<Member>> getMember(const string& identifier) {
@@ -1361,11 +1371,7 @@ namespace Interpreter {
 		}
 
 		Member& addMember(const string& identifier) {
-			if(auto member = getMember(identifier)) {
-				return *member;
-			} else {
-				return members[identifier] = Member();
-			}
+			return members[identifier];
 		}
 
 		void removeMember(const string& identifier) {
@@ -1397,11 +1403,7 @@ namespace Interpreter {
 		}
 
 		MemberOverloadRef getMemberOverloadMatch(const MemberOverloadRef& overload, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
-			if(!matching || (*matching)(overload)) {
-				return overload;
-			}
-
-			return nullptr;
+			return !matching || (*matching)(overload) ? overload : nullptr;
 		}
 
 		struct OverloadSearch {
@@ -1420,10 +1422,10 @@ namespace Interpreter {
 		 * and can participate in plain scope chains.
 		 */
 		OverloadSearch findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
-			auto overload = getMemberOverload(identifier, matching);
-			MemberOverloadRef backingStore;
+			MemberOverloadRef common = getMemberOverload(identifier, matching),
+							  pseudo;
 
-			if(!overload) {
+			if(!common) {
 				unordered_map<string, NodeValue> IDs = {
 				//	{"global", -1},						   Global-object is no thing
 					{"Global", 0},						// Global-type
@@ -1441,32 +1443,34 @@ namespace Interpreter {
 					auto ID = IDs[identifier];
 
 					if(ID != -1) {  // Intentionally missed IDs should be treated like non-existent
-						backingStore = Ref<MemberOverload>(
+						pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
 							MemberOverload::Modifiers { .final = true },
 							Ref<NillableType>(PredefinedCAnyTypeRef),
 							getComposite(ID)
-						);
-
-						if(!getMemberOverloadMatch(backingStore, matching)) {
-							backingStore = nullptr;
-						}
+						), matching);
 					}
 				}
 			}
 
-			if(!overload && !backingStore && isNamespace()) {
+			if(!common && !pseudo) {
+				if(observers.get) {  // observers.set
+					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
+						MemberOverload::Modifiers { .final = true },
+						Ref<NillableType>(PredefinedEAnyTypeRef),
+						observers.get->call()
+					), matching);
+				}
+			}
+
+			if(!common && !pseudo && isNamespace()) {
 				unordered_map<string, int> IDs = {};  // imports;
 
 				if(IDs.count(identifier)) {
-					backingStore = Ref<MemberOverload>(
+					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
 						MemberOverload::Modifiers { .final = true },
 						PredefinedCAnyTypeRef,
 						getComposite(IDs[identifier])
-					);
-
-					if(!getMemberOverloadMatch(backingStore, matching)) {
-						backingStore = nullptr;
-					}
+					), matching);
 				} else
 				for(auto& [identifier, ID] : IDs) {
 					auto composite = getComposite(IDs[identifier]);
@@ -1475,19 +1479,19 @@ namespace Interpreter {
 						continue;
 					}
 
-					overload = composite->getMemberOverload(identifier, matching);  // TODO: Investigate if this should be replaced with a search function
+					common = composite->getMemberOverload(identifier, matching);  // TODO: Investigate if this should be replaced with a search function
 
-					if(overload) {
+					if(common) {
 						break;
 					}
 				}
 			}
 
-			if(backingStore) {
-				return OverloadSearch(nullptr, backingStore);
-			} else
-			if(overload) {
-				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), overload);
+			if(common) {
+				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), common);
+			}
+			if(pseudo) {
+				return OverloadSearch(nullptr, pseudo);
 			}
 
 			return OverloadSearch();
@@ -1588,7 +1592,7 @@ namespace Interpreter {
 				value && !value->conformsTo(type) ||
 				!value && !PredefinedEVoidTypeRef->conformsTo(type)
 			) {
-				throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+type->toString()+"'");
+				throw invalid_argument("Value '"+to_string(value)+"' does not conform to expected type '"+type->toString()+"'");
 			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
@@ -1603,9 +1607,12 @@ namespace Interpreter {
 			}
 
 			if(!overload) {
-				Member& member = addMember(identifier);
-				member.push_back(Ref<MemberOverload>());
-				overload = member.back();
+				overload = Ref<MemberOverload>();
+
+				addMember(identifier).insert(overload);
+			} else
+			if(overload->modifiers.final) {
+				throw invalid_argument("Overload is a 'final' constant");
 			}
 
 			TypeRef OT = overload->type ?: Ref<Type>(),  // Old/new type
@@ -1620,6 +1627,63 @@ namespace Interpreter {
 			if(OV != NV) {
 				composite->retainOrRelease(OV, NV);
 			}
+		}
+
+		/*
+		function accessMemberOverload(identifier, args = null, callType = null, value = null)
+			var := getVariable(identifier)
+
+			if callType = "subscript" then
+				if value = null then
+					// Получение через сабскрипт: a[b, c]
+					return var.getSubscript(args)
+				else
+					// Присваивание через сабскрипт: a[b, c] = d
+					var.setSubscript(args, value)
+					return
+				end if
+			else
+			if callType = "call" then
+				// Вызов функции: a(b, c)
+				return var.call(args)
+			end if
+
+			// Если аргументы не заданы, но есть присваивание: a = b
+			if value ≠ null then
+				setVariable(identifier, value)
+				return
+			end if
+
+			return var
+		end function
+		*/
+
+		/*
+		 * a						find "a" first overload and call *get observers or get, or call composite *get observers
+		 * a = b					find "a" first overload and call *set obversers or set, or call composite *set observers
+		 *
+		 * a(b, c)					find "a" function overload and call
+		 * a(b, c) = d				find "a" function overload and set
+		 *
+		 * subscript(a, b)			find "subscript" function overload and call *get observers
+		 * subscript(a, b) = c		find "subscript" function overload and call *set obversers
+		 *
+		 * a[...]					syntax sugar for a.subscript(...)
+		 * a[...] = b				syntax sugar for a.subscript(...) = b
+		*/
+		TypeRef accessMemberOverload(
+			const string& identifier,  // Can be 'subscript' as a special case
+			optional<vector<TypeRef>> arguments,
+			optional<TypeRef> value,
+			optional<bool> internal = nullopt
+		) {
+			// Найти chain перегрузку с учётом передаваемых аргументов, попутно вызвать chain наблюдателей
+
+			return Ref<Type>();
+		}
+
+		TypeRef call() {
+			return Ref<Type>();
 		}
 	};
 
@@ -1678,6 +1742,29 @@ namespace Interpreter {
 			return "Reference("+compType->getTitle()+argsStr+")";
 		}
 	};
+
+	set<TypeRef> CompositeType::getFullInheritanceChain() const {
+		auto chain = inheritedTypes;
+
+		for(const TypeRef& parentType : inheritedTypes) {
+			CompositeTypeRef compType;
+
+			if(parentType->ID == TypeID::Composite) {
+				compType = static_pointer_cast<CompositeType>(parentType);
+			} else
+			if(parentType->ID == TypeID::Reference) {
+				compType = static_pointer_cast<ReferenceType>(parentType)->compType;
+			}
+
+			if(compType) {
+				set<TypeRef> parentChain = compType->getFullInheritanceChain();
+
+				chain.insert(parentChain.begin(), parentChain.end());
+			}
+		}
+
+		return chain;
+	}
 
 	bool CompositeType::acceptsA(const TypeRef& type) {
 		if(type->ID == TypeID::Composite) {

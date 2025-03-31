@@ -5,6 +5,17 @@
         "bitset": "cpp",
         "ranges": "cpp",
         "chrono": "cpp",
-        "span": "cpp"
+        "span": "cpp",
+        "array": "cpp",
+        "deque": "cpp",
+        "list": "cpp",
+        "string": "cpp",
+        "unordered_map": "cpp",
+        "unordered_set": "cpp",
+        "vector": "cpp",
+        "format": "cpp",
+        "initializer_list": "cpp",
+        "text_encoding": "cpp",
+        "regex": "cpp"
     }
 }

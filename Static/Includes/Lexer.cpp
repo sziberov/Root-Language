@@ -1,17 +1,5 @@
 #pragma once
 
-#include <iostream>
-#include <regex>
-#include <set>
-#include <string>
-#include <variant>
-#include <unordered_map>
-#include <functional>
-#include <optional>
-#include <deque>
-#include <map>
-#include <unordered_set>
-
 #include "Std.cpp"
 
 // ----------------------------------------------------------------

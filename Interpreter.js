@@ -28,7 +28,7 @@ class Interpreter {
 				let value_ = this.executeNode(n.values[i]);
 
 				if(value_ != null) {
-					value.primitiveValue.set(i, value_);
+					value.primitiveValue.set(i, value_);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -288,7 +288,7 @@ class Interpreter {
 				entry = this.rules.entry(entry);
 
 				if(entry != null) {
-					value.primitiveValue.set(entry.key, entry.value);
+					value.primitiveValue.set(entry.key, entry.value);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
@@ -521,6 +521,7 @@ class Interpreter {
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
 			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', If>', this.scope, null),
 				condition,
 				elseif = n.else?.type === 'ifStatement';
@@ -782,7 +783,7 @@ class Interpreter {
 				}
 			}
 
-			// TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
 
 			return value;
 		},
@@ -815,7 +816,7 @@ class Interpreter {
 				}
 			}
 
-			// TODO: Dynamic operators lookup
+			// TODO: Dynamic operators lookup, check for values mutability, observers notification
 
 			return value;
 		},
@@ -839,7 +840,7 @@ class Interpreter {
 
 			return value;
 		},
-		stringLiteral: (n, primitive) => {
+		stringLiteral: (n) => {
 			let string = '';
 
 			for(let segment of n.segments) {
@@ -1000,6 +1001,7 @@ class Interpreter {
 			}
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
+			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
 			let namespace = this.createNamespace('Local<'+(this.scope.title ?? '#'+this.getOwnID(this.scope))+', While>', this.scope, null),
 				condition;
 

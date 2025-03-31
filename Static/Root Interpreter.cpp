@@ -3,7 +3,7 @@
 #include "Interpreter.cpp"
 
 #include "crow_all.h"
-#include "glaze/glaze.hpp"
+#include "glaze.hpp"
 
 int main() {
 	Lexer lexer;

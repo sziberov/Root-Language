@@ -13,7 +13,7 @@
                 "isDefault": true
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Компиляция C++ проекта"
+            "detail": "Компиляция проекта"
         },
         {
             "label": "Run",

@@ -1,16 +1,8 @@
 #pragma once
 
-#include <iostream>
-#include <string>
-#include <unordered_map>
-#include <variant>
-#include <vector>
-#include <optional>
-#include <any>
+#include "Std.cpp"
 
-#include "glaze/glaze.hpp"
-
-using namespace std;
+#include "glaze.hpp"
 
 template <typename T>
 constexpr auto type_name() {
