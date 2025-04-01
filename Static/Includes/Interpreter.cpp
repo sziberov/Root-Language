@@ -894,7 +894,15 @@ namespace Interpreter {
 		const CompositeTypeID subID;
 		string title;
 		const int ownID = composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
-		unordered_map<string, optional<int>> IDs;
+		unordered_map<string, optional<int>> IDs = {
+			{"super", nullopt},
+			{"Super", nullopt},
+			{"self", nullopt},
+			{"Self", nullopt},
+			{"sub", nullopt},
+			{"Sub", nullopt},
+			{"scope", nullopt}
+		};
 		unordered_map<int, Retention> retentions;  // Another ID : Retention
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
 		set<TypeRef> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
@@ -1220,18 +1228,22 @@ namespace Interpreter {
 				return;
 			}
 
-			if(tolower(key) != "self" && NV != -1) {  // ID chains should not be cyclic, intentionally missed IDs can't create cycles
+			bool self = tolower(key) == "self";
+
+			if(NV && (!self || NV != ownID)) {  // ID chains should not be cyclic, empty IDs can't create cycles
 				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 				set<CompositeTypeRef> composites;
 
 				while(composite) {
-					if(composites.contains(composite)) {
+					if(!composites.insert(composite).second) {
 						IDs[key] = OV;
 
 						return;
 					}
 
-					composites.insert(composite);
+					if(self && composite->IDs[key] == composite->ownID) {
+            			break;
+					}
 
 					composite = getComposite(composite->IDs[key]);
 				}
@@ -1239,6 +1251,14 @@ namespace Interpreter {
 
 			retain(getComposite(NV));
 			release(getComposite(OV));
+		}
+
+		void removeID(const string& key) {
+			if(auto keyNode = IDs.extract(key)) {
+				optional<int> ID = move(keyNode.mapped());
+
+				release(getComposite(ID));
+			}
 		}
 
 		bool isFunction() {
@@ -1300,26 +1320,22 @@ namespace Interpreter {
 			setID("Self", selfComposite->getSelfCompositeID());
 		}
 
-		void setInheritedLevelIDs(CompositeTypeRef inheritedComposite) {
+		void inheritLevelIDs(CompositeTypeRef inheritedComposite) {
 			if(inheritedComposite == shared_from_this()) {
 				return;
 			}
 
-			static set<string> excluded = {"scope"};
-
 			for(const auto& [key, value] : IDs) {
-				if(!excluded.contains(key)) {
+				if(key != "scope") {
 					setID(key, inheritedComposite ? inheritedComposite->IDs[key] : nullopt);
 				}
 			}
 		}
 
-		void setMissedLevelIDs() {
-			static set<string> excluded = {"scope"};
-
+		void removeLevelIDs() {
 			for(const auto& [key, value] : IDs) {
-				if(!excluded.contains(key)) {
-					setID(key, -1);
+				if(key != "scope") {
+					removeID(key);
 				}
 			}
 		}
@@ -1330,7 +1346,7 @@ namespace Interpreter {
 
 		bool IDsRetain(CompositeTypeRef retainedComposite) {
 			for(const auto& [key, value] : IDs) {
-				if(IDs[key] == retainedComposite->ownID) {
+				if(value == retainedComposite->ownID) {
 					return true;
 				}
 			}
@@ -1414,21 +1430,17 @@ namespace Interpreter {
 			if(!common) {
 				unordered_map<string, optional<int>> IDs = this->IDs;
 
-				IDs.erase("scope");							// Only object and inheritance chains
-				IDs.emplace("Global", 0);					// Global-type
-			//	IDs.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
-			//	IDs.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
+				IDs.erase("scope");				// Only object and inheritance chains
+				IDs.emplace("Global", 0);		// Global-type
+			//	IDs.emplace("metaSelf", -1);	   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+			//	IDs.emplace("arguments", -1);	   Function arguments array (should be in callFunction() if needed)
 
 				if(IDs.count(identifier)) {
-					auto ID = IDs[identifier];
-
-					if(ID != -1) {  // Intentionally missed IDs should be treated like non-existent
-						pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
-							MemberOverload::Modifiers { .final = true },
-							Ref<NillableType>(PredefinedCAnyTypeRef),
-							getComposite(ID)
-						), matching);
-					}
+					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
+						MemberOverload::Modifiers { .final = true },
+						Ref<NillableType>(PredefinedCAnyTypeRef),
+						getComposite(IDs[identifier])
+					), matching);
 				}
 			}
 
@@ -1453,7 +1465,7 @@ namespace Interpreter {
 					), matching);
 				} else
 				for(auto& [identifier, ID] : IDs) {
-					auto composite = getComposite(IDs[identifier]);
+					auto composite = getComposite(ID);
 
 					if(!composite) {
 						continue;
@@ -1483,17 +1495,21 @@ namespace Interpreter {
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
 		 */
 		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
-			auto object = isObject()
-						? static_pointer_cast<CompositeType>(shared_from_this())
-						: getComposite(IDs["self"]);
-
-			if(!object || object == shared_from_this() || !object->isObject()) {
-				return OverloadSearch();
-			}
+			CompositeTypeRef object = static_pointer_cast<CompositeType>(shared_from_this());
 
 			bool descended;
 
 			while(object) {  // Higher
+				if(!object->isObject()) {
+					if(!object->IDs.count("self") || object->IDs["self"] == ownID) {
+						break;
+					}
+
+					object = getComposite(object->IDs["self"]);
+
+					continue;
+				}
+
 				auto overload = object->getMemberOverload(identifier, matching);
 
 				if(overload) {
@@ -1519,16 +1535,26 @@ namespace Interpreter {
 		/**
 		 * Looking for member overload in Inheritance chain (Super, Self, Sub).
 		 *
-		 * When a "virtual" overload is found, search oncely descends to a lowest sub-composite (if searching in object).
+		 * TODO:
+		 * Check if following is valuable:
+		 * When a "virtual" overload is found, search oncely descends to a lowest sub-composite.
+		 * This is possible in objects, where sub/Sub is set.
+		 * (Both chains (object and inheritance) should be looked up if this will ever be implemented).
 		 */
 		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
-			auto composite = !isObject()
-						   ? static_pointer_cast<CompositeType>(shared_from_this())
-						   : getComposite(IDs["Self"]);
-
-			bool descended;
+			CompositeTypeRef composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
+				if(composite->isObject()) {
+					if(!composite->IDs.count("Self") || composite->IDs["Self"] == composite->ownID) {
+						break;
+					}
+
+					composite = getComposite(composite->IDs["Self"]);
+
+					continue;
+				}
+
 				auto overload = composite->getMemberOverload(identifier, matching);
 
 				if(overload) {
@@ -2054,17 +2080,17 @@ namespace Interpreter {
 	}
 
 	/**
-	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or missed.
-	 * If levels are intentionally missed, Scope will prevail over Object and Inheritance chains at member overload search.
+	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or unset.
+	 * If levels are intentionally unset, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
 	CompositeTypeRef createNamespace(const string& title, CompositeTypeRef scope = nullptr, optional<CompositeTypeRef> levels = nullptr) {
 		CompositeTypeRef namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
 
 		if(levels && *levels) {
-			namespace_->setInheritedLevelIDs(*levels);
+			namespace_->inheritLevelIDs(*levels);
 		} else
 		if(!levels) {
-			namespace_->setMissedLevelIDs();
+			namespace_->removeLevelIDs();
 		} else {
 			namespace_->setSelfID(namespace_);
 		}
