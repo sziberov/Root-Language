@@ -894,14 +894,14 @@ namespace Interpreter {
 		const CompositeTypeID subID;
 		string title;
 		const int ownID = composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
-		unordered_map<string, optional<int>> IDs = {
-			{"super", nullopt},
-			{"Super", nullopt},
-			{"self", nullopt},
-			{"Self", nullopt},
-			{"sub", nullopt},
-			{"Sub", nullopt},
-			{"scope", nullopt}
+		unordered_map<string, CompositeTypeRef> hierarchy = {
+			{"super", nullptr},
+			{"Super", nullptr},
+			{"self", nullptr},
+			{"Self", nullptr},
+			{"sub", nullptr},
+			{"Sub", nullptr},
+			{"scope", nullptr}
 		};
 		unordered_map<int, Retention> retentions;  // Another ID : Retention
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
@@ -1159,8 +1159,8 @@ namespace Interpreter {
 		 *
 		 * Composite A is considered directly retained if it presents in composite B's retained IDs list.
 		 *
-		 * Formally this is the case when composite B uses composite A in its IDs (excluding own and retainers list),
-		 * types, imports, members or observers, but technically retain and release functions must be utilized
+		 * Formally this is the case when composite B uses composite A in its hierarchy, types,
+		 * imports, members or observers, but technically retain and release functions must be utilized
 		 * in corresponding places for this to work.
 		 */
 		bool retains(CompositeTypeRef retainedComposite) {
@@ -1213,16 +1213,16 @@ namespace Interpreter {
 							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
-			if(retainingComposite = Interpreter::scope())						if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
 		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
 			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
 
 			return false;
 		}
 
-		void setID(const string& key, const optional<int>& value) {
-			optional<int> OV = IDs[key],  // Old/new value
-						  NV = IDs[key] = value;
+		void setHierarchy(const string& key, CompositeTypeRef value) {
+			CompositeTypeRef OV = hierarchy[key],  // Old/new value
+							 NV = hierarchy[key] = value;
 
 			if(OV == NV) {
 				return;
@@ -1230,35 +1230,37 @@ namespace Interpreter {
 
 			bool self = tolower(key) == "self";
 
-			if(NV && (!self || NV != ownID)) {  // ID chains should not be cyclic, empty IDs can't create cycles
+			if(NV && (!self || NV->ownID != ownID)) {  // Chains should not be cyclic, empty values can't create cycles
 				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 				set<CompositeTypeRef> composites;
 
 				while(composite) {
 					if(!composites.insert(composite).second) {
-						IDs[key] = OV;
+						hierarchy[key] = OV;
 
 						return;
 					}
 
-					if(self && composite->IDs[key] == composite->ownID) {
+					if(self && composite->hierarchy[key] == composite) {
             			break;
 					}
 
-					composite = getComposite(composite->IDs[key]);
+					composite = composite->hierarchy[key];
 				}
 			}
 
-			retain(getComposite(NV));
-			release(getComposite(OV));
+			retain(NV);
+			release(OV);
 		}
 
-		void removeID(const string& key) {
-			if(auto keyNode = IDs.extract(key)) {
-				optional<int> ID = move(keyNode.mapped());
+		bool removeHierarchy(const string& key) {
+			if(auto keyNode = hierarchy.extract(key)) {
+				release(move(keyNode.mapped()));
 
-				release(getComposite(ID));
+				return true;
 			}
+
+			return false;
 		}
 
 		bool isFunction() {
@@ -1287,12 +1289,12 @@ namespace Interpreter {
 			return title.length() ? title : "#"+std::to_string(ownID);
 		}
 
-		optional<int> getSelfCompositeID() {
-			return !isObject() ? ownID : getTypeInheritedID();
+		CompositeTypeRef getSelfComposite() {
+			return !isObject() ? static_pointer_cast<CompositeType>(shared_from_this()) : getInheritedTypeComposite();
 		}
 
-		optional<int> getScopeID() {
-			return IDs["scope"];
+		CompositeTypeRef getScope() {
+			return hierarchy["scope"];
 		}
 
 		unordered_set<int> getRetentionsIDs(bool direction) const {
@@ -1315,38 +1317,49 @@ namespace Interpreter {
 			return getRetentionsIDs(true);
 		}
 
-		void setSelfID(CompositeTypeRef selfComposite) {
-			setID("self", selfComposite->ownID);
-			setID("Self", selfComposite->getSelfCompositeID());
+		void setSelfLevels(CompositeTypeRef selfComposite) {
+			setHierarchy("self", selfComposite);
+			setHierarchy("Self", selfComposite->getSelfComposite());
 		}
 
-		void inheritLevelIDs(CompositeTypeRef inheritedComposite) {
+		void inheritLevels(CompositeTypeRef inheritedComposite) {
 			if(inheritedComposite == shared_from_this()) {
 				return;
 			}
 
-			for(const auto& [key, value] : IDs) {
+			for(const auto& [key, value] : hierarchy) {
 				if(key != "scope") {
-					setID(key, inheritedComposite ? inheritedComposite->IDs[key] : nullopt);
+					setHierarchy(key, inheritedComposite ? inheritedComposite->hierarchy[key] : nullptr);
 				}
 			}
 		}
 
-		void removeLevelIDs() {
-			for(const auto& [key, value] : IDs) {
-				if(key != "scope") {
-					removeID(key);
+		void removeLevels() {
+			/*
+			for(auto it = hierarchy.cbegin(), next_it = it; it != hierarchy.cend(); it = next_it) {
+				++next_it;
+
+				if(removeHierarchy(it->first)) {
+					hierarchy.erase(it);
 				}
 			}
+			*/
+
+			removeHierarchy("super");
+			removeHierarchy("Super");
+			removeHierarchy("self");
+			removeHierarchy("Self");
+			removeHierarchy("sub");
+			removeHierarchy("Sub");
 		}
 
-		void setScopeID(CompositeTypeRef scopeComposite) {
-			setID("scope", scopeComposite ? optional(scopeComposite->ownID) : nullopt);
+		void setScope(CompositeTypeRef scopeComposite) {
+			setHierarchy("scope", scopeComposite);
 		}
 
-		bool IDsRetain(CompositeTypeRef retainedComposite) {
-			for(const auto& [key, value] : IDs) {
-				if(value == retainedComposite->ownID) {
+		bool hierarchyRetains(CompositeTypeRef retainedComposite) {
+			for(const auto& [key, value] : hierarchy) {
+				if(value == retainedComposite) {
 					return true;
 				}
 			}
@@ -1354,12 +1367,8 @@ namespace Interpreter {
 			return false;
 		}
 
-		optional<int> getTypeInheritedID() {
-			if(inheritedTypes.size(); auto composite = getValueComposite(*inheritedTypes.begin())) {
-				return composite->ownID;
-			}
-
-			return nullopt;
+		CompositeTypeRef getInheritedTypeComposite() {
+			return inheritedTypes.size() ? getValueComposite(*inheritedTypes.begin()) : nullptr;
 		}
 
 		optional<reference_wrapper<Member>> getMember(const string& identifier) {
@@ -1428,18 +1437,18 @@ namespace Interpreter {
 							  pseudo;
 
 			if(!common) {
-				unordered_map<string, optional<int>> IDs = this->IDs;
+				auto hierarchy = this->hierarchy;
 
-				IDs.erase("scope");				// Only object and inheritance chains
-				IDs.emplace("Global", 0);		// Global-type
-			//	IDs.emplace("metaSelf", -1);	   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
-			//	IDs.emplace("arguments", -1);	   Function arguments array (should be in callFunction() if needed)
+				hierarchy.erase("scope");						// Only object and inheritance chains
+				hierarchy.emplace("Global", getComposite(0));	// Global-type
+			//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+			//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
 
-				if(IDs.count(identifier)) {
+				if(hierarchy.count(identifier)) {
 					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
 						MemberOverload::Modifiers { .final = true },
 						Ref<NillableType>(PredefinedCAnyTypeRef),
-						getComposite(IDs[identifier])
+						hierarchy[identifier]
 					), matching);
 				}
 			}
@@ -1501,11 +1510,11 @@ namespace Interpreter {
 
 			while(object) {  // Higher
 				if(!object->isObject()) {
-					if(!object->IDs.count("self") || object->IDs["self"] == ownID) {
+					if(!object->hierarchy.count("self") || object->hierarchy["self"] == object) {
 						break;
 					}
 
-					object = getComposite(object->IDs["self"]);
+					object = object->hierarchy["self"];
 
 					continue;
 				}
@@ -1516,7 +1525,7 @@ namespace Interpreter {
 					if(!descended && overload->modifiers.virtual_) {
 						descended = true;
 
-						while(CompositeTypeRef object_ = getComposite(object->IDs["sub"])) {  // Lowest
+						while(CompositeTypeRef object_ = object->hierarchy["sub"]) {  // Lowest
 							object = object_;
 						}
 
@@ -1526,7 +1535,7 @@ namespace Interpreter {
 					return OverloadSearch(object, overload);
 				}
 
-				object = getComposite(object->IDs["super"]);
+				object = object->hierarchy["super"];
 			}
 
 			return OverloadSearch();
@@ -1546,11 +1555,11 @@ namespace Interpreter {
 
 			while(composite) {
 				if(composite->isObject()) {
-					if(!composite->IDs.count("Self") || composite->IDs["Self"] == composite->ownID) {
+					if(!composite->hierarchy.count("Self") || composite->hierarchy["Self"] == composite) {
 						break;
 					}
 
-					composite = getComposite(composite->IDs["Self"]);
+					composite = composite->hierarchy["Self"];
 
 					continue;
 				}
@@ -1561,7 +1570,7 @@ namespace Interpreter {
 					return OverloadSearch(composite, overload);
 				}
 
-				composite = getComposite(composite->IDs["Super"]);
+				composite = composite->hierarchy["Super"];
 			}
 
 			return OverloadSearch();
@@ -1586,7 +1595,7 @@ namespace Interpreter {
 					break;
 				}
 
-				composite = getComposite(composite->getScopeID());
+				composite = composite->getScope();
 			}
 
 			return OverloadSearch();
@@ -2073,7 +2082,7 @@ namespace Interpreter {
 		composites.push_back(composite);
 
 		if(scope) {
-			composite->setScopeID(scope);
+			composite->setScope(scope);
 		}
 
 		return composite;
@@ -2087,12 +2096,12 @@ namespace Interpreter {
 		CompositeTypeRef namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
 
 		if(levels && *levels) {
-			namespace_->inheritLevelIDs(*levels);
+			namespace_->inheritLevels(*levels);
 		} else
 		if(!levels) {
-			namespace_->removeLevelIDs();
+			namespace_->removeLevels();
 		} else {
-			namespace_->setSelfID(namespace_);
+			namespace_->setSelfLevels(namespace_);
 		}
 
 		return namespace_;
