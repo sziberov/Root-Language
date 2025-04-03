@@ -895,6 +895,7 @@ namespace Interpreter {
 		string title;
 		const int ownID = composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
 		unordered_map<string, CompositeTypeRef> hierarchy = {
+			// Defaults are needed to distinguish between "not set" and "intentionally unset" states
 			{"super", nullptr},
 			{"Super", nullptr},
 			{"self", nullptr},
@@ -908,7 +909,7 @@ namespace Interpreter {
 		set<TypeRef> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
 		vector<TypeRef> genericParametersTypes;
 		NodeArrayRef statements;
-		unordered_map<string, int> imports;
+		unordered_map<string, CompositeTypeRef> imports;
 		unordered_map<string, Member> members;
 		Observers observers;
 
@@ -1401,7 +1402,7 @@ namespace Interpreter {
 			}
 		}
 
-		MemberOverloadRef getMemberOverload(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
+		MemberOverloadRef getMemberOverload(const string& identifier, TypeRef matching = nullptr) {
 			if(auto member = getMember(identifier)) {
 				for(auto& overload : member->get()) {
 					if(auto match = getMemberOverloadMatch(overload, matching)) {
@@ -1413,8 +1414,16 @@ namespace Interpreter {
 			return nullptr;
 		}
 
-		MemberOverloadRef getMemberOverloadMatch(const MemberOverloadRef& overload, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
-			return !matching || (*matching)(overload) ? overload : nullptr;
+		/**
+		 * TODO:
+		 * - Rework acceptsA/conformsTo() to support ranged response: -1 == false, 0+ == count of an actions to find a conforming type (lower is better).
+		 * - Member overload search should collect all named overloads and only then try to get a match.
+		 * - Replace overload with overloads list and predicate with required type:
+		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
+		 *   lowest index in the list (first found, if range is equal).
+		 */
+		MemberOverloadRef getMemberOverloadMatch(const MemberOverloadRef& overload, TypeRef matching = nullptr) {
+			return !matching || matching->acceptsA(overload->value ?: PredefinedEVoidTypeRef) ? overload : nullptr;
 		}
 
 		struct OverloadSearch {
@@ -1432,7 +1441,7 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		OverloadSearch findMemberOverloadInComposite(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInComposite(const string& identifier, TypeRef matching = nullptr) {
 			MemberOverloadRef common = getMemberOverload(identifier, matching),
 							  pseudo;
 
@@ -1447,11 +1456,15 @@ namespace Interpreter {
 				if(hierarchy.count(identifier)) {
 					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
 						MemberOverload::Modifiers { .final = true },
-						Ref<NillableType>(PredefinedCAnyTypeRef),
+						PredefinedCAnyTypeRef,
 						hierarchy[identifier]
 					), matching);
 				}
 			}
+
+			/*
+			TODO:
+			Probably observers search should ask for a type of search (get/set).
 
 			if(!common && !pseudo) {
 				if(observers.get) {  // observers.set
@@ -1462,24 +1475,22 @@ namespace Interpreter {
 					), matching);
 				}
 			}
+			*/
+
+			/*
+			TODO:
+			Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain).
+			If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
 
 			if(!common && !pseudo && isNamespace()) {
-				unordered_map<string, int> IDs = imports;
-
-				if(IDs.count(identifier)) {
+				if(imports.count(identifier)) {
 					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
 						MemberOverload::Modifiers { .final = true },
 						PredefinedCAnyTypeRef,
-						getComposite(IDs[identifier])
+						imports[identifier]
 					), matching);
 				} else
-				for(auto& [identifier, ID] : IDs) {
-					auto composite = getComposite(ID);
-
-					if(!composite) {
-						continue;
-					}
-
+				for(auto& [identifier, composite] : imports) {
 					common = composite->getMemberOverload(identifier, matching);  // TODO: Investigate if this should be replaced with a search function
 
 					if(common) {
@@ -1487,6 +1498,7 @@ namespace Interpreter {
 					}
 				}
 			}
+			*/
 
 			if(common) {
 				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), common);
@@ -1503,7 +1515,7 @@ namespace Interpreter {
 		 *
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
 		 */
-		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, TypeRef matching = nullptr) {
 			CompositeTypeRef object = static_pointer_cast<CompositeType>(shared_from_this());
 
 			bool descended;
@@ -1550,7 +1562,7 @@ namespace Interpreter {
 		 * This is possible in objects, where sub/Sub is set.
 		 * (Both chains (object and inheritance) should be looked up if this will ever be implemented).
 		 */
-		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt) {
+		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, TypeRef matching = nullptr) {
 			CompositeTypeRef composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
@@ -1581,7 +1593,7 @@ namespace Interpreter {
 		 *
 		 * If search is internal, only first composite in chain will be checked.
 		 */
-		OverloadSearch findMemberOverload(const string& identifier, optional<function<bool(MemberOverloadRef)>> matching = nullopt, bool internal = false) {
+		OverloadSearch findMemberOverload(const string& identifier, TypeRef matching = nullptr, bool internal = false) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
@@ -1604,7 +1616,7 @@ namespace Interpreter {
 		/**
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
-		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, optional<function<bool(MemberOverloadRef)>> matching = nullopt, optional<bool> internal = nullopt) {
+		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, TypeRef matching = nullptr, optional<bool> internal = nullopt) {
 			type = type ?: Ref<NillableType>(PredefinedEAnyTypeRef);
 
 			if(
