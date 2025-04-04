@@ -81,10 +81,14 @@
         "variant": "cpp"
     },
     "files.watcherExclude": {
+        "**/*.Old.cpp": true,
         "**/ArbitraryPrecisionMath.cpp": true,
         "**/crow_all.hpp": true,
-        "**/Interpreter.Old.cpp": true,
         "**/Static/Includes/asio/**": true,
         "**/Static/Includes/glaze/**": true
+    },
+    "C_Cpp.files.exclude": {
+        "**/.vscode": true,
+        "**/.vs": true
     }
 }

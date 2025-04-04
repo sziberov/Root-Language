@@ -215,7 +215,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "callExpression") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "callExpression"},
 				{"range", {
@@ -363,7 +363,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "chainExpression") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "chainExpression"},
 				{"range", {
@@ -392,7 +392,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "chainIdentifier") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "chainIdentifier"},
 				{"range", {
@@ -631,7 +631,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "defaultExpression") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "defaultExpression"},
 				{"range", {
@@ -649,7 +649,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "defaultType") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "defaultType"},
 				{"range", {
@@ -806,7 +806,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "elseClause") {
-			NodeRef node;
+			NodeSP node;
 			int start = position;
 
 			if(token().type != "keywordElse") {
@@ -941,7 +941,7 @@ struct Parser {
 				return nullptr;
 			}
 			if(filter(values, [&](const Node& v) { return !subsequentialTypes.contains(v.get("type")); }).size()%2 == 0) {
-				position = values.back().get<NodeRef>()->get<Node&>("range").get("start");
+				position = values.back().get<NodeSP>()->get<Node&>("range").get("start");
 
 				values.pop_back();
 			}
@@ -1147,10 +1147,10 @@ struct Parser {
 			return node;
 		} else
 		if(type == "functionStatement") {
-			NodeArrayRef types = rules("functionStatements", true);
+			NodeArraySP types = rules("functionStatements", true);
 
 			for(const string& type : *types) {
-				NodeRef node = rules(type);
+				NodeSP node = rules(type);
 
 				if(node != nullptr) {
 					return node;
@@ -1419,7 +1419,7 @@ struct Parser {
 
 			if(!node.empty("value")) {
 				while(!tokensEnd()) {
-					NodeRef node_ = rules("chainIdentifier", node.get<NodeRef>("value"));
+					NodeSP node_ = rules("chainIdentifier", node.get<NodeSP>("value"));
 
 					if(node_ == nullptr) {
 						break;
@@ -1483,7 +1483,7 @@ struct Parser {
 			return nodes;
 		} else
 		if(type == "initializerClause") {
-			NodeRef node;
+			NodeSP node;
 			int start = position;
 
 			if(!token().type.starts_with("operator") || token().value != "=") {
@@ -1813,7 +1813,7 @@ struct Parser {
 			return rules("statements", vector<string> {"declaration"});
 		} else
 		if(type == "nillableExpression") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "nillableExpression"},
 				{"range", {
@@ -1831,7 +1831,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "nillableType") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "nillableType"},
 				{"range", {
@@ -1873,7 +1873,7 @@ struct Parser {
 				{"body", nullptr}
 			};
 
-			NodeRef identifier = node.get("identifier");
+			NodeSP identifier = node.get("identifier");
 
 			if(!set<string> {
 				"willGet",
@@ -1903,7 +1903,7 @@ struct Parser {
 		} else
 		if(type == "observersBody") {
 			bool strict = !arguments.empty() && any_cast<bool>(arguments[0]);
-			NodeRef node = rules("body", "observers");
+			NodeSP node = rules("body", "observers");
 
 			if(node != nullptr && strict && !some(node->get<NodeArray&>("statements"), [](const Node& v) { return v.get("type") != "unsupported"; })) {
 				position = node->get<Node&>("range").get("start");
@@ -2101,7 +2101,7 @@ struct Parser {
 			}
 
 			while(!tokensEnd()) {
-				NodeRef value = node.get("value"),
+				NodeSP value = node.get("value"),
 						node_ =
 					rules("callExpression", value) ?:
 					rules("chainExpression", value) ?:
@@ -2146,14 +2146,14 @@ struct Parser {
 			return node;
 		} else
 		if(type == "postfixType") {
-			NodeRef node = rules("primaryType");
+			NodeSP node = rules("primaryType");
 
 			if(node == nullptr) {
 				return nullptr;
 			}
 
 			while(!tokensEnd()) {
-				NodeRef node_ =
+				NodeSP node_ =
 					rules("defaultType", node) ?:
 					rules("nillableType", node);
 
@@ -2585,7 +2585,7 @@ struct Parser {
 			return node;
 		} else
 		if(type == "subscriptExpression") {
-			NodeRef node_ = any_cast<NodeRef>(arguments[0]);
+			NodeSP node_ = any_cast<NodeSP>(arguments[0]);
 			Node node = {
 				{"type", "subscriptExpression"},
 				{"range", {
@@ -2700,7 +2700,7 @@ struct Parser {
 			);
 		} else
 		if(type == "typeClause") {
-			NodeRef node;
+			NodeSP node;
 			int start = position;
 
 			if(!token().type.starts_with("operator") || token().value != ":") {
@@ -2760,7 +2760,7 @@ struct Parser {
 			}
 
 			while(!tokensEnd()) {
-				NodeRef node_ = rules("chainIdentifier", node.get<NodeRef>("identifier"));
+				NodeSP node_ = rules("chainIdentifier", node.get<NodeSP>("identifier"));
 
 				if(node_ == nullptr) {
 					break;
@@ -2909,7 +2909,7 @@ struct Parser {
 	 *
 	 * Useful for unwrapping trailing bodies and completing preconditional statements, such as if or for.
 	 */
-	void helpers_bodyTrailedValue(Node& node, const string& valueKey, const string& bodyKey, bool statementTrailed = true, function<NodeRef()> body = nullptr) {
+	void helpers_bodyTrailedValue(Node& node, const string& valueKey, const string& bodyKey, bool statementTrailed = true, function<NodeSP()> body = nullptr) {
 		if(!body) {
 			body = [this]() { return rules("functionBody"); };
 		}
@@ -2944,7 +2944,7 @@ struct Parser {
 				n.get("closure") = nullptr;
 				end = position-1;
 
-				NodeRef lhs = n.get("callee") ?: n.get("composite");
+				NodeSP lhs = n.get("callee") ?: n.get("composite");
 				bool exportable = lhs->get<Node&>("range").get("end") == end;
 
 				if(exportable) {
@@ -2984,7 +2984,7 @@ struct Parser {
 
 		while(!tokensEnd()) {
 			string type = types[offset%types.size()];
-			NodeRef node = rules(type);
+			NodeSP node = rules(type);
 
 			if(node == nullptr) {
 				break;
@@ -3017,15 +3017,15 @@ struct Parser {
 	 *
 	 * Useful for imprecise single enclosed(ing) nodes lookup.
 	 */
-	NodeRef helpers_skippableNode(const string& type, function<bool()> opening, function<bool()> closing) {
-		NodeRef node = rules(type);
+	NodeSP helpers_skippableNode(const string& type, function<bool()> opening, function<bool()> closing) {
+		NodeSP node = rules(type);
 		int scopeLevel = 1;
 
 		if(node != nullptr || closing() || tokensEnd()) {
 			return node;
 		}
 
-		node = Ref<Node>({
+		node = SP<Node>({
 			{"type", "unsupported"},
 			{"range", {
 				{"start", position},
@@ -3074,9 +3074,9 @@ struct Parser {
 		int scopeLevel = 1;
 
 		while(!tokensEnd()) {
-			NodeRef node;
+			NodeSP node;
 
-			if(!separating || nodes.empty() || nodes.back().get<NodeRef>()->get("type") == "separator" || optionalSeparator) {
+			if(!separating || nodes.empty() || nodes.back().get<NodeSP>()->get("type") == "separator" || optionalSeparator) {
 				for(const string& type : types) {
 					node = rules(type);
 
@@ -3093,11 +3093,11 @@ struct Parser {
 			}
 
 			if(separating && separating()) {
-				node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
+				node = !nodes.empty() ? nodes.back().get<NodeSP>() : nullptr;
 
 				if(node != nullptr) {
 					if(node->get("type") != "separator") {
-						node = Ref<Node>({
+						node = SP<Node>({
 							{"type", "separator"},
 							{"range", {
 								{"start", position},
@@ -3118,10 +3118,10 @@ struct Parser {
 				continue;
 			}
 
-			node = !nodes.empty() ? nodes.back().get<NodeRef>() : nullptr;
+			node = !nodes.empty() ? nodes.back().get<NodeSP>() : nullptr;
 
 			if(node == nullptr || node->get("type") != "unsupported") {
-				node = Ref<Node>({
+				node = SP<Node>({
 					{"type", "unsupported"},
 					{"range", {
 						{"start", position},
@@ -3141,15 +3141,15 @@ struct Parser {
 			node->get<NodeArray&>("tokens").push_back(make_any<Token&>(token()));
 			node->get<Node&>("range").get("end") = position++;
 
-			if(node != (!nodes.empty() ? nodes.back().get<NodeRef>() : nullptr)) {
+			if(node != (!nodes.empty() ? nodes.back().get<NodeSP>() : nullptr)) {
 				nodes.push_back(node);
 			}
 		}
 
 		for(int key = 0; key < nodes.size(); key++) {
-			NodeRef node = nodes[key];
+			NodeSP node = nodes[key];
 			string type = node->get("type");
-			NodeRef nodeRange = node->get("range");
+			NodeSP nodeRange = node->get("range");
 			int start = nodeRange->get("start"),
 				end = nodeRange->get("end");
 			bool range = start != end;
@@ -3271,7 +3271,7 @@ struct Parser {
 	}
 
 	struct Result {
-		NodeRef tree;
+		NodeSP tree;
 		deque<Report> reports;
 	};
 

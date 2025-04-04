@@ -8,7 +8,7 @@ namespace Interpreter {
 	using Report = Parser::Report;
 
 	deque<Token> tokens;
-	NodeRef tree;
+	NodeSP tree;
 	int position;
 	struct Preferences {
 		int callStackSize,
@@ -18,7 +18,7 @@ namespace Interpreter {
 	} preferences;
 	deque<Report> reports;
 
-	void report(int level, NodeRef node, const string& string) {
+	void report(int level, NodeSP node, const string& string) {
 		Location location = position < tokens.size()
 						  ? tokens[position].location
 						  : Location();
@@ -62,23 +62,23 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
-	using TypeRef = shared_ptr<Type>;
+	using TypeSP = sp<Type>;
 
-	using ParenthesizedTypeRef = shared_ptr<ParenthesizedType>;
-	using NillableTypeRef = shared_ptr<NillableType>;
-	using DefaultTypeRef = shared_ptr<DefaultType>;
-	using UnionTypeRef = shared_ptr<UnionType>;
-	using IntersectionTypeRef = shared_ptr<IntersectionType>;
+	using ParenthesizedTypeSP = sp<ParenthesizedType>;
+	using NillableTypeSP = sp<NillableType>;
+	using DefaultTypeSP = sp<DefaultType>;
+	using UnionTypeSP = sp<UnionType>;
+	using IntersectionTypeSP = sp<IntersectionType>;
 
-	using PredefinedTypeRef = shared_ptr<PredefinedType>;
-	using PrimitiveTypeRef = shared_ptr<PrimitiveType>;
-	using DictionaryTypeRef = shared_ptr<DictionaryType>;
-	using CompositeTypeRef = shared_ptr<CompositeType>;
-	using ReferenceTypeRef = shared_ptr<ReferenceType>;
+	using PredefinedTypeSP = sp<PredefinedType>;
+	using PrimitiveTypeSP = sp<PrimitiveType>;
+	using DictionaryTypeSP = sp<DictionaryType>;
+	using CompositeTypeSP = sp<CompositeType>;
+	using ReferenceTypeSP = sp<ReferenceType>;
 
-	using FunctionTypeRef = shared_ptr<FunctionType>;
-	using InoutTypeRef = shared_ptr<InoutType>;
-	using VariadicTypeRef = shared_ptr<VariadicType>;
+	using FunctionTypeSP = sp<FunctionType>;
+	using InoutTypeSP = sp<InoutType>;
+	using VariadicTypeSP = sp<VariadicType>;
 
 	// ----------------------------------------------------------------
 
@@ -148,42 +148,42 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
-	extern const TypeRef PredefinedEVoidTypeRef;
-	extern const TypeRef PredefinedEAnyTypeRef;
+	extern const TypeSP PredefinedEVoidTypeSP;
+	extern const TypeSP PredefinedEAnyTypeSP;
 
-	extern const TypeRef PredefinedPAnyTypeRef;
-	extern const TypeRef PredefinedPBooleanTypeRef;
-	extern const TypeRef PredefinedPFloatTypeRef;
-	extern const TypeRef PredefinedPIntegerTypeRef;
-	extern const TypeRef PredefinedPStringTypeRef;
-	extern const TypeRef PredefinedPTypeTypeRef;
+	extern const TypeSP PredefinedPAnyTypeSP;
+	extern const TypeSP PredefinedPBooleanTypeSP;
+	extern const TypeSP PredefinedPFloatTypeSP;
+	extern const TypeSP PredefinedPIntegerTypeSP;
+	extern const TypeSP PredefinedPStringTypeSP;
+	extern const TypeSP PredefinedPTypeTypeSP;
 
-	extern const TypeRef PredefinedCAnyTypeRef;
-	extern const TypeRef PredefinedCClassTypeRef;
-	extern const TypeRef PredefinedCEnumerationTypeRef;
-	extern const TypeRef PredefinedCFunctionTypeRef;
-	extern const TypeRef PredefinedCNamespaceTypeRef;
-	extern const TypeRef PredefinedCObjectTypeRef;
-	extern const TypeRef PredefinedCProtocolTypeRef;
-	extern const TypeRef PredefinedCStructureTypeRef;
+	extern const TypeSP PredefinedCAnyTypeSP;
+	extern const TypeSP PredefinedCClassTypeSP;
+	extern const TypeSP PredefinedCEnumerationTypeSP;
+	extern const TypeSP PredefinedCFunctionTypeSP;
+	extern const TypeSP PredefinedCNamespaceTypeSP;
+	extern const TypeSP PredefinedCObjectTypeSP;
+	extern const TypeSP PredefinedCProtocolTypeSP;
+	extern const TypeSP PredefinedCStructureTypeSP;
 
 	// ----------------------------------------------------------------
 
-	deque<CompositeTypeRef> composites;  // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
-	deque<CompositeTypeRef> scopes;
+	deque<CompositeTypeSP> composites;  // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
+	deque<CompositeTypeSP> scopes;
 
-	CompositeTypeRef getComposite(optional<int> ID) {
+	CompositeTypeSP getComposite(optional<int> ID) {
 		return ID && *ID < composites.size() ? composites[*ID] : nullptr;
 	}
 
-	CompositeTypeRef scope();
-	CompositeTypeRef getValueComposite(TypeRef value);
-	unordered_set<CompositeTypeRef> getValueComposites(TypeRef value);
+	CompositeTypeSP scope();
+	CompositeTypeSP getValueComposite(TypeSP value);
+	unordered_set<CompositeTypeSP> getValueComposites(TypeSP value);
 
 	// ----------------------------------------------------------------
 
 	struct ControlTransfer {
-		TypeRef value;
+		TypeSP value;
 		optional<string> type;
 	};
 
@@ -215,7 +215,7 @@ namespace Interpreter {
 	 *
 	 * Specifying a type means explicit control transfer.
 	 */
-	void setControlTransfer(TypeRef value = nullptr, optional<string> type = nullopt) {
+	void setControlTransfer(TypeSP value = nullptr, optional<string> type = nullopt) {
 		ControlTransfer& CT = controlTransfer();
 
 		CT.value = value;
@@ -238,58 +238,58 @@ namespace Interpreter {
 		Type(TypeID ID = TypeID::Undefined, bool concrete = false) : ID(ID), concrete(concrete) { /*cout << "Type created\n";*/ }
 		virtual ~Type() { /*cout << "Type destroyed\n";*/ }
 
-		virtual bool acceptsA(const TypeRef& type) { return false; }
-		virtual bool conformsTo(const TypeRef& type) { return type->acceptsA(shared_from_this()); }
-		virtual TypeRef normalized() { return shared_from_this(); }
+		virtual bool acceptsA(const TypeSP& type) { return false; }
+		virtual bool conformsTo(const TypeSP& type) { return type->acceptsA(shared_from_this()); }
+		virtual TypeSP normalized() { return shared_from_this(); }
 		virtual string toString() const { return string(); }  // User-friendly representation
 
 		virtual operator bool() const { return bool(); }
 		virtual operator double() const { return double(); }
 		virtual operator int() const { return operator double(); }
 		virtual operator string() const { return string(); }  // Machine-friendly representation
-		virtual TypeRef operator=(TypeRef type) { return shared_from_this(); }
-		virtual TypeRef operator+() const { return Ref<Type>(); }
-		virtual TypeRef operator-() const { return Ref<Type>(); }
-		virtual TypeRef operator+(TypeRef type) const { return Ref<Type>(); }
-		virtual TypeRef operator-(TypeRef type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
-		virtual TypeRef operator++() { return shared_from_this(); }  // Prefix
-		virtual TypeRef operator--() { return shared_from_this(); }  // Prefix
-		virtual TypeRef operator++(int) { return Ref<Type>(); }  // Postfix
-		virtual TypeRef operator--(int) { return Ref<Type>(); }  // Postfix
-		virtual TypeRef operator*(TypeRef type) const { return Ref<Type>(); }
-		virtual TypeRef operator/(TypeRef type) const { return Ref<Type>(); }
+		virtual TypeSP operator=(TypeSP type) { return shared_from_this(); }
+		virtual TypeSP operator+() const { return SP<Type>(); }
+		virtual TypeSP operator-() const { return SP<Type>(); }
+		virtual TypeSP operator+(TypeSP type) const { return SP<Type>(); }
+		virtual TypeSP operator-(TypeSP type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
+		virtual TypeSP operator++() { return shared_from_this(); }  // Prefix
+		virtual TypeSP operator--() { return shared_from_this(); }  // Prefix
+		virtual TypeSP operator++(int) { return SP<Type>(); }  // Postfix
+		virtual TypeSP operator--(int) { return SP<Type>(); }  // Postfix
+		virtual TypeSP operator*(TypeSP type) const { return SP<Type>(); }
+		virtual TypeSP operator/(TypeSP type) const { return SP<Type>(); }
 		virtual bool operator!() const { return !operator bool(); }
-		virtual bool operator==(const TypeRef& type) { return acceptsA(type) && conformsTo(type); }
-		virtual bool operator!=(const TypeRef& type) { return !operator==(type); }
+		virtual bool operator==(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
+		virtual bool operator!=(const TypeSP& type) { return !operator==(type); }
 
 		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
-		static bool acceptsANormalized(const TypeRef& left, const TypeRef& right) {
-			return left && left->acceptsA(right ? right->normalized() : PredefinedEVoidTypeRef);
+		static bool acceptsANormalized(const TypeSP& left, const TypeSP& right) {
+			return left && left->acceptsA(right ? right->normalized() : PredefinedEVoidTypeSP);
 		}
 
-		static bool acceptsAConcrete(const TypeRef& left, const TypeRef& right) {
+		static bool acceptsAConcrete(const TypeSP& left, const TypeSP& right) {
 			return left && right && right->concrete && left->acceptsA(right);
 		}
 	};
 
-	static string to_string(const TypeRef& type, bool raw = false) {
+	static string to_string(const TypeSP& type, bool raw = false) {
 		return type ? (raw ? type->operator string() : type->toString()) : "nil";  // std::to_string(type.use_count());
 	}
 
 	// ----------------------------------------------------------------
 
 	struct ParenthesizedType : Type {
-		TypeRef innerType;
+		TypeSP innerType;
 
-		ParenthesizedType(TypeRef type) : Type(TypeID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
+		ParenthesizedType(TypeSP type) : Type(TypeID::Parenthesized), innerType(move(type)) { cout << "(" << innerType->toString() << ") type created\n"; }
 		~ParenthesizedType() { cout << "(" << innerType->toString() << ") type destroyed\n"; }
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			return innerType->acceptsA(type);
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			return innerType->normalized();
 		}
 
@@ -299,25 +299,25 @@ namespace Interpreter {
 	};
 
 	struct NillableType : Type {
-		TypeRef innerType;
+		TypeSP innerType;
 
-		NillableType(TypeRef type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+		NillableType(TypeSP type) : Type(TypeID::Nillable), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 		~NillableType() { cout << innerType->toString() << "? type destroyed\n"; }
 
-		bool acceptsA(const TypeRef& type) override {
-			return PredefinedEVoidTypeRef->acceptsA(type) ||
+		bool acceptsA(const TypeSP& type) override {
+			return PredefinedEVoidTypeSP->acceptsA(type) ||
 				   type->ID == TypeID::Nillable && innerType->acceptsA(static_pointer_cast<NillableType>(type)->innerType) ||
 				   innerType->acceptsA(type);
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			auto normInnerType = innerType->normalized();
 
 			if(normInnerType->ID == TypeID::Nillable) {
 				return normInnerType;
 			}
 
-			return Ref<NillableType>(normInnerType);
+			return SP<NillableType>(normInnerType);
 		}
 
 		string toString() const override {
@@ -326,25 +326,25 @@ namespace Interpreter {
 	};
 
 	struct DefaultType : Type {
-		TypeRef innerType;
+		TypeSP innerType;
 
-		DefaultType(TypeRef type) : Type(TypeID::Default), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
+		DefaultType(TypeSP type) : Type(TypeID::Default), innerType(move(type)) { cout << innerType->toString() << "? type created\n"; }
 		~DefaultType() { cout << innerType->toString() << "! type destroyed\n"; }
 
-		bool acceptsA(const TypeRef& type) override {
-			return PredefinedEVoidTypeRef->acceptsA(type) ||
+		bool acceptsA(const TypeSP& type) override {
+			return PredefinedEVoidTypeSP->acceptsA(type) ||
 				   type->ID == TypeID::Default && innerType->acceptsA(static_pointer_cast<DefaultType>(type)->innerType) ||
 				   innerType->acceptsA(type);
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			auto normInnerType = innerType->normalized();
 
 			if(normInnerType->ID == TypeID::Default) {
 				return normInnerType;
 			}
 
-			return Ref<DefaultType>(normInnerType);
+			return SP<DefaultType>(normInnerType);
 		}
 
 		string toString() const override {
@@ -353,12 +353,12 @@ namespace Interpreter {
 	};
 
 	struct UnionType : Type {
-		vector<TypeRef> alternatives;
+		vector<TypeSP> alternatives;
 
-		UnionType(const vector<TypeRef>& alternatives) : Type(TypeID::Union), alternatives(alternatives) {}
+		UnionType(const vector<TypeSP>& alternatives) : Type(TypeID::Union), alternatives(alternatives) {}
 
-		bool acceptsA(const TypeRef& type) override {
-			for(const TypeRef& alt : alternatives) {
+		bool acceptsA(const TypeSP& type) override {
+			for(const TypeSP& alt : alternatives) {
 				if(alt->acceptsA(type)) {
 					return true;
 				}
@@ -367,11 +367,11 @@ namespace Interpreter {
 			return false;
 		}
 
-		TypeRef normalized() override {
-			vector<TypeRef> normAlts;
+		TypeSP normalized() override {
+			vector<TypeSP> normAlts;
 
-			for(const TypeRef& alt : alternatives) {
-				TypeRef normAlt = alt->normalized();
+			for(const TypeSP& alt : alternatives) {
+				TypeSP normAlt = alt->normalized();
 
 				if(normAlt->ID == TypeID::Union) {
 					auto normUnionAlt = static_pointer_cast<UnionType>(normAlt);
@@ -386,7 +386,7 @@ namespace Interpreter {
 				return normAlts[0];
 			}
 
-			return Ref<UnionType>(normAlts);
+			return SP<UnionType>(normAlts);
 		}
 
 		string toString() const override {
@@ -405,12 +405,12 @@ namespace Interpreter {
 	};
 
 	struct IntersectionType : Type {
-		vector<TypeRef> alternatives;
+		vector<TypeSP> alternatives;
 
-		IntersectionType(const vector<TypeRef>& alternatives) : Type(TypeID::Intersection), alternatives(alternatives) {}
+		IntersectionType(const vector<TypeSP>& alternatives) : Type(TypeID::Intersection), alternatives(alternatives) {}
 
-		bool acceptsA(const TypeRef& type) override {
-			for(const TypeRef& alt : alternatives) {
+		bool acceptsA(const TypeSP& type) override {
+			for(const TypeSP& alt : alternatives) {
 				if(!alt->acceptsA(type)) {
 					return false;
 				}
@@ -419,11 +419,11 @@ namespace Interpreter {
 			return true;
 		}
 
-		TypeRef normalized() override {
-			vector<TypeRef> normAlts;
+		TypeSP normalized() override {
+			vector<TypeSP> normAlts;
 
-			for(const TypeRef& alt : alternatives) {
-				TypeRef normAlt = alt->normalized();
+			for(const TypeSP& alt : alternatives) {
+				TypeSP normAlt = alt->normalized();
 
 				if(normAlt->ID == TypeID::Intersection) {
 					auto normUnionAlt = static_pointer_cast<IntersectionType>(normAlt);
@@ -438,7 +438,7 @@ namespace Interpreter {
 				return normAlts[0];
 			}
 
-			return Ref<IntersectionType>(normAlts);
+			return SP<IntersectionType>(normAlts);
 		}
 
 		string toString() const override {
@@ -460,11 +460,11 @@ namespace Interpreter {
 
 	struct PredefinedType : Type {
 		const PredefinedTypeID subID;
-		function<bool(const TypeRef&)> acceptsFn;
+		function<bool(const TypeSP&)> acceptsFn;
 
-		PredefinedType(PredefinedTypeID subID, function<bool(const TypeRef&)> acceptsFn) : Type(TypeID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
+		PredefinedType(PredefinedTypeID subID, function<bool(const TypeSP&)> acceptsFn) : Type(TypeID::Predefined), subID(subID), acceptsFn(acceptsFn) {}
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			return acceptsFn(type);
 		}
 
@@ -505,18 +505,18 @@ namespace Interpreter {
 		PrimitiveType(const int& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Integer), value(v) { cout << toString() << " type created\n"; }
 		PrimitiveType(const char* v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(string(v)) { cout << toString() << " type created\n"; }
 		PrimitiveType(const string& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::String), value(v) { cout << toString() << " type created\n"; }
-		PrimitiveType(const TypeRef& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
+		PrimitiveType(const TypeSP& v) : Type(TypeID::Primitive, true), subID(PrimitiveTypeID::Type), value(v ?
 																										   (!v->concrete ? v : throw invalid_argument("Primitive type isn't mean to store concrete types")) :
 																															   throw invalid_argument("Primitive type cannot be represented by nil")) { cout << toString() << " type created\n"; }
 		~PrimitiveType() { cout << toString() << " type destroyed\n"; }
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			if(type->ID == TypeID::Primitive) {
 				auto primType = static_pointer_cast<PrimitiveType>(type);
 
 				if(subID == primType->subID) {
 					if(subID == PrimitiveTypeID::Type) {
-						return any_cast<TypeRef>(value)->acceptsA(any_cast<TypeRef>(primType->value));
+						return any_cast<TypeSP>(value)->acceptsA(any_cast<TypeSP>(primType->value));
 					}
 
 					return true;
@@ -532,7 +532,7 @@ namespace Interpreter {
 				case PrimitiveTypeID::Float:	return format("{}", any_cast<double>(value));
 				case PrimitiveTypeID::Integer:	return std::to_string(any_cast<int>(value));
 				case PrimitiveTypeID::String:	return "'"+any_cast<string>(value)+"'";
-				case PrimitiveTypeID::Type:		return "type "+any_cast<TypeRef>(value)->toString();
+				case PrimitiveTypeID::Type:		return "type "+any_cast<TypeSP>(value)->toString();
 				default:						return string();
 			}
 		}
@@ -547,7 +547,7 @@ namespace Interpreter {
 				case PrimitiveTypeID::Float:	return any_cast<double>(value);
 				case PrimitiveTypeID::Integer:	return any_cast<int>(value);
 				case PrimitiveTypeID::String:	return stod(any_cast<string>(value));
-				case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator double();
+				case PrimitiveTypeID::Type:		return any_cast<TypeSP>(value)->operator double();
 				default:						return double();
 			}
 		}
@@ -559,12 +559,12 @@ namespace Interpreter {
 		operator string() const override {
 			switch(subID) {
 				case PrimitiveTypeID::String:	return any_cast<string>(value);
-				case PrimitiveTypeID::Type:		return any_cast<TypeRef>(value)->operator string();
+				case PrimitiveTypeID::Type:		return any_cast<TypeSP>(value)->operator string();
 				default:						return toString();
 			}
 		}
 
-		TypeRef operator=(TypeRef type) override {
+		TypeSP operator=(TypeSP type) override {
 			if(type->ID == TypeID::Primitive) {
 				auto primType = static_pointer_cast<PrimitiveType>(type);
 
@@ -576,19 +576,19 @@ namespace Interpreter {
 			return shared_from_this();
 		}
 
-		TypeRef operator+() const override {
+		TypeSP operator+() const override {
 			return subID == PrimitiveTypeID::Type
-				 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
-				 : Ref<PrimitiveType>(operator double());
+				 ? SP<PrimitiveType>(any_cast<TypeSP>(value))
+				 : SP<PrimitiveType>(operator double());
 		}
 
-		TypeRef operator-() const override {
+		TypeSP operator-() const override {
 			return subID == PrimitiveTypeID::Type
-				 ? Ref<PrimitiveType>(any_cast<TypeRef>(value))
-				 : Ref<PrimitiveType>(-operator double());
+				 ? SP<PrimitiveType>(any_cast<TypeSP>(value))
+				 : SP<PrimitiveType>(-operator double());
 		}
 
-		TypeRef operator+(TypeRef type) const override {
+		TypeSP operator+(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
 				return Type::operator+();
 			}
@@ -596,20 +596,20 @@ namespace Interpreter {
 			auto primType = static_pointer_cast<PrimitiveType>(type);
 
 			if(subID == PrimitiveTypeID::String || primType->subID == PrimitiveTypeID::String) {
-				return Ref<PrimitiveType>(operator string()+primType->operator string());
+				return SP<PrimitiveType>(operator string()+primType->operator string());
 			}
 
-			return Ref<PrimitiveType>(operator double()+primType->operator double());
+			return SP<PrimitiveType>(operator double()+primType->operator double());
 		}
 
-		TypeRef operator-(TypeRef type) const override {
+		TypeSP operator-(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
 				return Type::operator-();
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
 
-			return Ref<PrimitiveType>(operator double()-primType->operator double());
+			return SP<PrimitiveType>(operator double()-primType->operator double());
 		}
 
 		// TODO:
@@ -628,43 +628,43 @@ namespace Interpreter {
 		//
 		// And to contrast that two, there is idea where no special mechanism exist. This is no go, as changes can't be observed at all.
 
-		TypeRef operator++() override {  // Prefix
+		TypeSP operator++() override {  // Prefix
 			return shared_from_this();
 		}
 
-		TypeRef operator--() override {  // Prefix
+		TypeSP operator--() override {  // Prefix
 			return shared_from_this();
 		}
 
-		TypeRef operator++(int) override {  // Postfix
-			return Ref<Type>();
+		TypeSP operator++(int) override {  // Postfix
+			return SP<Type>();
 		}
 
-		TypeRef operator--(int) override {  // Postfix
-			return Ref<Type>();
+		TypeSP operator--(int) override {  // Postfix
+			return SP<Type>();
 		}
 
-		TypeRef operator*(TypeRef type) const override {
+		TypeSP operator*(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
 				return Type::operator*(type);
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
 
-			return Ref<PrimitiveType>(operator double()*primType->operator double());
+			return SP<PrimitiveType>(operator double()*primType->operator double());
 		}
 
-		TypeRef operator/(TypeRef type) const override {
+		TypeSP operator/(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
 				return Type::operator/(type);
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
 
-			return Ref<PrimitiveType>(operator double()/primType->operator double());
+			return SP<PrimitiveType>(operator double()/primType->operator double());
 		}
 
-		bool operator==(const TypeRef& type) override {
+		bool operator==(const TypeSP& type) override {
 			if(type->ID != TypeID::Primitive) {
 				return Type::operator==(type);
 			}
@@ -684,27 +684,27 @@ namespace Interpreter {
 
 	struct DictionaryType : Type {
 		struct Hasher {
-			size_t operator()(const TypeRef& t) const {
+			size_t operator()(const TypeSP& t) const {
 				return 0;  // TODO
 			}
 		};
 
 		struct Comparator {
-			bool operator()(const TypeRef& lhs, const TypeRef& rhs) const {
+			bool operator()(const TypeSP& lhs, const TypeSP& rhs) const {
 				return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->operator==(rhs);
 			}
 		};
 
-		using Entry = pair<TypeRef, TypeRef>;
+		using Entry = pair<TypeSP, TypeSP>;
 
-		TypeRef keyType,
+		TypeSP keyType,
 				valueType;
-		unordered_map<TypeRef, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
+		unordered_map<TypeSP, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
 		vector<Entry> iEntries;													// index -> entry
 
-		DictionaryType(const TypeRef& keyType = PredefinedEAnyTypeRef, const TypeRef& valueType = PredefinedEAnyTypeRef, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
+		DictionaryType(const TypeSP& keyType = PredefinedEAnyTypeSP, const TypeSP& valueType = PredefinedEAnyTypeSP, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			if(type->ID == TypeID::Dictionary) {
 				auto dictType = static_pointer_cast<DictionaryType>(type);
 
@@ -714,8 +714,8 @@ namespace Interpreter {
 			return false;
 		}
 
-		TypeRef normalized() override {
-			return Ref<DictionaryType>(keyType->normalized(), valueType->normalized());
+		TypeSP normalized() override {
+			return SP<DictionaryType>(keyType->normalized(), valueType->normalized());
 		}
 
 		string toString() const override {
@@ -743,23 +743,23 @@ namespace Interpreter {
 			return result;
 		}
 
-		bool operator==(const TypeRef& type) override {
+		bool operator==(const TypeSP& type) override {
 			return false;  // TODO
 		}
 
-		void emplace(const TypeRef& key, const TypeRef& value, bool replace = false) {
+		void emplace(const TypeSP& key, const TypeSP& value, bool replace = false) {
 			if(!concrete) {
 				throw invalid_argument("Abstract dictionary type cannot contain values");
 			}
 			if(
 				key && !key->conformsTo(keyType) ||
-				!key && !PredefinedEVoidTypeRef->conformsTo(keyType)
+				!key && !PredefinedEVoidTypeSP->conformsTo(keyType)
 			) {
 				throw invalid_argument("'"+to_string(key)+"' does not conform to expected key type '"+keyType->toString()+"'");
 			}
 			if(
 				value && !value->conformsTo(valueType) ||
-				!value && !PredefinedEVoidTypeRef->conformsTo(valueType)
+				!value && !PredefinedEVoidTypeSP->conformsTo(valueType)
 			) {
 				throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+valueType->toString()+"'");
 			}
@@ -780,7 +780,7 @@ namespace Interpreter {
 			}
 		}
 
-		void replace(const TypeRef& key, const TypeRef& value) {
+		void replace(const TypeSP& key, const TypeSP& value) {
 			emplace(key, value, true);
 		}
 
@@ -796,7 +796,7 @@ namespace Interpreter {
 			}
 		}
 
-		void removeFirst(const TypeRef& key) {
+		void removeFirst(const TypeSP& key) {
 			auto it = kIndexes.find(key);
 
 			if(it == kIndexes.end() || it->second.empty()) {
@@ -812,7 +812,7 @@ namespace Interpreter {
 			}
 		}
 
-		void removeLast(const TypeRef& key) {
+		void removeLast(const TypeSP& key) {
 			auto it = kIndexes.find(key);
 
 			if(it == kIndexes.end() || it->second.empty()) {
@@ -828,7 +828,7 @@ namespace Interpreter {
 			}
 		}
 
-		TypeRef get(const TypeRef& key) const {
+		TypeSP get(const TypeSP& key) const {
 			if(concrete) {
 				auto it = kIndexes.find(key);
 
@@ -860,15 +860,18 @@ namespace Interpreter {
 		};
 
 		struct Observers {
-			CompositeTypeRef willGet,
-							 get,
-							 didGet,
-							 willSet,
-							 set,
-							 didSet;
+			CompositeTypeSP willGet,
+							get,
+							didGet,
+							willSet,
+							set,
+							didSet,
+							willDelete,
+							delete_,
+							didDelete;
 		};
 
-		struct MemberOverload {
+		struct Overload {
 			struct Modifiers {
 				bool infix,
 					 postfix,
@@ -883,18 +886,18 @@ namespace Interpreter {
 					 static_,
 					 virtual_;
 			} modifiers;
-			TypeRef type,
-					value;
+			TypeSP type,
+				   value;
 			Observers observers;
 		};
 
-		using MemberOverloadRef = shared_ptr<MemberOverload>;
-		using Member = set<MemberOverloadRef>;
+		using OverloadSP = sp<Overload>;
+		using Member = deque<OverloadSP>;
 
 		const CompositeTypeID subID;
 		string title;
 		const int ownID = composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
-		unordered_map<string, CompositeTypeRef> hierarchy = {
+		unordered_map<string, CompositeTypeSP> hierarchy = {
 			// Defaults are needed to distinguish between "not set" and "intentionally unset" states
 			{"super", nullptr},
 			{"Super", nullptr},
@@ -906,17 +909,17 @@ namespace Interpreter {
 		};
 		unordered_map<int, Retention> retentions;  // Another ID : Retention
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-		set<TypeRef> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
-		vector<TypeRef> genericParametersTypes;
-		NodeArrayRef statements;
-		unordered_map<string, CompositeTypeRef> imports;
+		set<TypeSP> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
+		vector<TypeSP> genericParametersTypes;
+		NodeArraySP statements;
+		unordered_map<string, CompositeTypeSP> imports;
 		unordered_map<string, Member> members;
 		Observers observers;
 
 		CompositeType(CompositeTypeID subID,
 					  const string& title,
-					  const set<TypeRef>& inheritedTypes = {},
-					  const vector<TypeRef>& genericParametersTypes = {}) : Type(TypeID::Composite, true),
+					  const set<TypeSP>& inheritedTypes = {},
+					  const vector<TypeSP>& genericParametersTypes = {}) : Type(TypeID::Composite, true),
 																		   subID(subID),
 																		   title(title),
 																		   inheritedTypes(inheritedTypes),
@@ -925,9 +928,9 @@ namespace Interpreter {
 			// TODO: Statically retain inherited types
 		}
 
-		set<TypeRef> getFullInheritanceChain() const;
+		set<TypeSP> getFullInheritanceChain() const;
 
-		static bool checkConformance(const CompositeTypeRef& base, const CompositeTypeRef& candidate, const optional<vector<TypeRef>>& candidateGenericArgumentsTypes = {}) {
+		static bool checkConformance(const CompositeTypeSP& base, const CompositeTypeSP& candidate, const optional<vector<TypeSP>>& candidateGenericArgumentsTypes = {}) {
 			if(candidate != base && !candidate->getFullInheritanceChain().contains(base)) {
 				return false;
 			}
@@ -946,7 +949,7 @@ namespace Interpreter {
 			return true;
 		}
 
-		bool acceptsA(const TypeRef& type) override;
+		bool acceptsA(const TypeSP& type) override;
 
 		string toString() const override {
 			string result;
@@ -978,7 +981,7 @@ namespace Interpreter {
 			}
 
 			if(!inheritedTypes.empty()) {
-				set<TypeRef> chain = getFullInheritanceChain();
+				set<TypeSP> chain = getFullInheritanceChain();
 				bool first = true;
 
 				result += " : [";
@@ -1013,7 +1016,7 @@ namespace Interpreter {
 			unordered_set<int> retainedIDs = getRetainedIDs();
 
 			for(int retainedID : retainedIDs) {
-				if(CompositeTypeRef retainedComposite = getComposite(retainedID)) {
+				if(CompositeTypeSP retainedComposite = getComposite(retainedID)) {
 					release(retainedComposite);
 
 					/*  Let the objects destroy no matter of errors
@@ -1024,7 +1027,7 @@ namespace Interpreter {
 				}
 			}
 
-			TypeRef self = shared_from_this();
+			TypeSP self = shared_from_this();
 
 			composites[ownID].reset();
 
@@ -1032,7 +1035,7 @@ namespace Interpreter {
 			int aliveRetainers = 0;
 
 			for(int retainerID : retainersIDs) {
-				if(CompositeTypeRef retainingComposite = getComposite(retainerID); retainingComposite->life < 2) {
+				if(CompositeTypeSP retainingComposite = getComposite(retainerID); retainingComposite->life < 2) {
 					aliveRetainers++;
 
 					// TODO: Notify retainers about destroy
@@ -1064,7 +1067,7 @@ namespace Interpreter {
 		 *
 		 * Each entry will be added if not exists.
 		 */
-		void retain(CompositeTypeRef retainedComposite) {
+		void retain(CompositeTypeSP retainedComposite) {
 			if(!retainedComposite || retainedComposite == shared_from_this()) {
 				return;
 			}
@@ -1088,7 +1091,7 @@ namespace Interpreter {
 		 *
 		 * Each entry will be removed if redundant.
 		 */
-		void release(CompositeTypeRef retainedComposite) {
+		void release(CompositeTypeSP retainedComposite) {
 			if(!retainedComposite || retainedComposite == shared_from_this()) {
 				return;
 			}
@@ -1125,7 +1128,7 @@ namespace Interpreter {
 		 *
 		 * Check `getValueComposites()` for details of search.
 		 */
-		void retainOrRelease(TypeRef oldRetainedValue, TypeRef newRetainedValue) {
+		void retainOrRelease(TypeSP oldRetainedValue, TypeSP newRetainedValue) {
 			auto ORC = getValueComposites(oldRetainedValue),  // Old/new retained composites
 				 NRC = getValueComposites(newRetainedValue);
 
@@ -1138,7 +1141,7 @@ namespace Interpreter {
 		 *
 		 * Check `getValueComposites()` for details of search.
 		 */
-		void retain(TypeRef retainedValue) {
+		void retain(TypeSP retainedValue) {
 			for(auto retainedComposite : getValueComposites(retainedValue)) {
 				retain(retainedComposite);
 			}
@@ -1149,7 +1152,7 @@ namespace Interpreter {
 		 *
 		 * Check `getValueComposites()` for details of search.
 		 */
-		void release(TypeRef retainedValue) {
+		void release(TypeSP retainedValue) {
 			for(auto retainedComposite : getValueComposites(retainedValue)) {
 				release(retainedComposite);
 			}
@@ -1164,7 +1167,7 @@ namespace Interpreter {
 		 * imports, members or observers, but technically retain and release functions must be utilized
 		 * in corresponding places for this to work.
 		 */
-		bool retains(CompositeTypeRef retainedComposite) {
+		bool retains(CompositeTypeSP retainedComposite) {
 			if(life == 2 || !retainedComposite) {
 				return false;
 			}
@@ -1183,7 +1186,7 @@ namespace Interpreter {
 		 * visitedIDs is used to exclude a retain cycles and redundant passes
 		 * from the lookup and is meant to be set internally only.
 		 */
-		bool retainsDistant(CompositeTypeRef retainedComposite, shared_ptr<unordered_set<int>> visitedIDs = Ref<unordered_set<int>>()) {
+		bool retainsDistant(CompositeTypeSP retainedComposite, sp<unordered_set<int>> visitedIDs = SP<unordered_set<int>>()) {
 			if(life == 2 || !retainedComposite) {
 				return false;
 			}
@@ -1210,7 +1213,7 @@ namespace Interpreter {
 		 * the global namespace, a current scope composite or a current control trasfer value.
 		 */
 		bool retained() {
-			CompositeTypeRef retainingComposite,
+			CompositeTypeSP retainingComposite,
 							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
@@ -1221,8 +1224,8 @@ namespace Interpreter {
 			return false;
 		}
 
-		void setHierarchy(const string& key, CompositeTypeRef value) {
-			CompositeTypeRef OV = hierarchy[key],  // Old/new value
+		void setHierarchy(const string& key, CompositeTypeSP value) {
+			CompositeTypeSP OV = hierarchy[key],  // Old/new value
 							 NV = hierarchy[key] = value;
 
 			if(OV == NV) {
@@ -1233,7 +1236,7 @@ namespace Interpreter {
 
 			if(NV && (!self || NV->ownID != ownID)) {  // Chains should not be cyclic, empty values can't create cycles
 				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-				set<CompositeTypeRef> composites;
+				set<CompositeTypeSP> composites;
 
 				while(composite) {
 					if(!composites.insert(composite).second) {
@@ -1243,7 +1246,7 @@ namespace Interpreter {
 					}
 
 					if(self && composite->hierarchy[key] == composite) {
-            			break;
+						break;
 					}
 
 					composite = composite->hierarchy[key];
@@ -1290,11 +1293,11 @@ namespace Interpreter {
 			return title.length() ? title : "#"+std::to_string(ownID);
 		}
 
-		CompositeTypeRef getSelfComposite() {
+		CompositeTypeSP getSelfComposite() {
 			return !isObject() ? static_pointer_cast<CompositeType>(shared_from_this()) : getInheritedTypeComposite();
 		}
 
-		CompositeTypeRef getScope() {
+		CompositeTypeSP getScope() {
 			return hierarchy["scope"];
 		}
 
@@ -1318,12 +1321,12 @@ namespace Interpreter {
 			return getRetentionsIDs(true);
 		}
 
-		void setSelfLevels(CompositeTypeRef selfComposite) {
+		void setSelfLevels(CompositeTypeSP selfComposite) {
 			setHierarchy("self", selfComposite);
 			setHierarchy("Self", selfComposite->getSelfComposite());
 		}
 
-		void inheritLevels(CompositeTypeRef inheritedComposite) {
+		void inheritLevels(CompositeTypeSP inheritedComposite) {
 			if(inheritedComposite == shared_from_this()) {
 				return;
 			}
@@ -1354,11 +1357,11 @@ namespace Interpreter {
 			removeHierarchy("Sub");
 		}
 
-		void setScope(CompositeTypeRef scopeComposite) {
+		void setScope(CompositeTypeSP scopeComposite) {
 			setHierarchy("scope", scopeComposite);
 		}
 
-		bool hierarchyRetains(CompositeTypeRef retainedComposite) {
+		bool hierarchyRetains(CompositeTypeSP retainedComposite) {
 			for(const auto& [key, value] : hierarchy) {
 				if(value == retainedComposite) {
 					return true;
@@ -1368,7 +1371,7 @@ namespace Interpreter {
 			return false;
 		}
 
-		CompositeTypeRef getInheritedTypeComposite() {
+		CompositeTypeSP getInheritedTypeComposite() {
 			return inheritedTypes.size() ? getValueComposite(*inheritedTypes.begin()) : nullptr;
 		}
 
@@ -1402,17 +1405,33 @@ namespace Interpreter {
 			}
 		}
 
-		MemberOverloadRef getMemberOverload(const string& identifier, TypeRef matching = nullptr) {
-			if(auto member = getMember(identifier)) {
-				for(auto& overload : member->get()) {
-					if(auto match = getMemberOverloadMatch(overload, matching)) {
-						return match;
-					}
-				}
+		struct OverloadCandidate {
+			usize ID;
+			CompositeTypeSP composite;
+			OverloadSP overload;
+			bool generated;
+			usize rank;
+
+			bool operator<(const OverloadCandidate& candidate) const {
+				return rank != candidate.rank ?
+					   rank <  candidate.rank :
+						 ID <  candidate.ID;
 			}
 
-			return nullptr;
-		}
+			bool operator==(const OverloadCandidate& candidate) const {
+				return		  ID == candidate.ID ||
+					   composite == candidate.composite &&
+						overload == candidate.overload;
+			}
+		};
+
+		using OverloadSearch = set<OverloadCandidate>;
+
+		enum class AccessMode : u8 {
+			Get,
+			Set,
+			Delete
+		};
 
 		/**
 		 * TODO:
@@ -1422,17 +1441,42 @@ namespace Interpreter {
 		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
 		 *   lowest index in the list (first found, if range is equal).
 		 */
-		MemberOverloadRef getMemberOverloadMatch(const MemberOverloadRef& overload, TypeRef matching = nullptr) {
-			return !matching || matching->acceptsA(overload->value ?: PredefinedEVoidTypeRef) ? overload : nullptr;
+		optional<OverloadCandidate> matchOverload(OverloadSearch& search, TypeSP matching = nullptr, AccessMode mode = AccessMode::Get) {
+			if(!search.size()) {
+				return nullopt;
+			}
+			if(!matching) {
+				return *search.begin();
+			}
+
+			for(auto it = search.begin(); it != search.end();) {
+				auto node = search.extract(it++);
+				node.value().rank = matching->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
+				search.insert(move(node));												// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
+			}
+
+			return *search.begin();
 		}
 
-		struct OverloadSearch {
-			CompositeTypeRef owner;		// An exact composite where an overload was found, defined if found real (and nil if not found or found virtual)
-			MemberOverloadRef overload;	// Reference to a found overload, defined if found (and nil if not found)
-		};
+		/**
+		 * Looking for member overloads directly in a member.
+		 */
+		bool findOverloadsInMember(const string& identifier, OverloadSearch& search) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+
+			if(auto member = getMember(identifier)) {
+				for(auto& overload : member->get()) {
+					if(search.insert(OverloadCandidate(search.size(), composite, overload)).second) {
+						return true;
+					}
+				}
+			}
+
+			return false;
+		}
 
 		/**
-		 * Looking for member overload in a composite itself.
+		 * Looking for member overloads in a composite itself.
 		 *
 		 * Used to find member overloads (primarily of functions and namespaces),
 		 * pseudovariables (such as "Global" or "self"), and imports within namespaces.
@@ -1441,11 +1485,15 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		OverloadSearch findMemberOverloadInComposite(const string& identifier, TypeRef matching = nullptr) {
-			MemberOverloadRef common = getMemberOverload(identifier, matching),
-							  pseudo;
+		void findOverloadsInComposite(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
+			if(findOverloadsInMember(identifier, search)) {
+				return;
+			}
 
-			if(!common) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			bool generated;
+
+			if(!generated) {
 				auto hierarchy = this->hierarchy;
 
 				hierarchy.erase("scope");						// Only object and inheritance chains
@@ -1454,70 +1502,59 @@ namespace Interpreter {
 			//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
 
 				if(hierarchy.count(identifier)) {
-					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
-						MemberOverload::Modifiers { .final = true },
-						PredefinedCAnyTypeRef,
+					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
+						Overload::Modifiers { .final = true },
+						PredefinedCAnyTypeSP,
 						hierarchy[identifier]
-					), matching);
+					), generated = true));
 				}
 			}
 
-			/*
-			TODO:
-			Probably observers search should ask for a type of search (get/set).
-
-			if(!common && !pseudo) {
-				if(observers.get) {  // observers.set
-					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
-						MemberOverload::Modifiers { .final = true },
-						Ref<NillableType>(PredefinedEAnyTypeRef),
-						observers.get->call()
-					), matching);
-				}
-			}
-			*/
-
-			/*
-			TODO:
-			Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain).
-			If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
-
-			if(!common && !pseudo && isNamespace()) {
+			if(!generated && isNamespace()) {
 				if(imports.count(identifier)) {
-					pseudo = getMemberOverloadMatch(Ref<MemberOverload>(
-						MemberOverload::Modifiers { .final = true },
-						PredefinedCAnyTypeRef,
+					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
+						Overload::Modifiers { .final = true },
+						PredefinedCAnyTypeSP,
 						imports[identifier]
-					), matching);
-				} else
-				for(auto& [identifier, composite] : imports) {
-					common = composite->getMemberOverload(identifier, matching);  // TODO: Investigate if this should be replaced with a search function
+					), generated = true));
+				}
+				/*
+				TODO:
+				Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain / scope chain).
+				If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
 
-					if(common) {
+				else
+				for(auto& [identifier, composite] : imports) {
+					if(found = search->insert(composite->findOverload(identifier, PredefinedEAnyTypeSP)).second) {
 						break;
 					}
 				}
-			}
-			*/
-
-			if(common) {
-				return OverloadSearch(static_pointer_cast<CompositeType>(shared_from_this()), common);
-			}
-			if(pseudo) {
-				return OverloadSearch(nullptr, pseudo);
+				*/
 			}
 
-			return OverloadSearch();
+			if(!generated) {
+				if(
+					mode == AccessMode::Get && observers.get ||
+					mode == AccessMode::Set && observers.set ||
+					mode == AccessMode::Delete && observers.delete_
+				) {
+					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
+						Overload::Modifiers { .final = true },
+						SP<NillableType>(PredefinedEAnyTypeSP),
+						nullptr,
+						observers
+					), generated = true));
+				}
+			}
 		}
 
 		/**
-		 * Looking for member overload in Object chain (super, self, sub).
+		 * Looking for member overloads in Object chain (super, self, sub).
 		 *
 		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
 		 */
-		OverloadSearch findMemberOverloadInObjectChain(const string& identifier, TypeRef matching = nullptr) {
-			CompositeTypeRef object = static_pointer_cast<CompositeType>(shared_from_this());
-
+		OverloadCandidate findOverloadsInObjectChain(const string& identifier, OverloadSearch& search) {
+			CompositeTypeSP object = static_pointer_cast<CompositeType>(shared_from_this());
 			bool descended;
 
 			while(object) {  // Higher
@@ -1531,30 +1568,30 @@ namespace Interpreter {
 					continue;
 				}
 
-				auto overload = object->getMemberOverload(identifier, matching);
+				auto overload = object->getOverload(identifier, matching);
 
 				if(overload) {
 					if(!descended && overload->modifiers.virtual_) {
 						descended = true;
 
-						while(CompositeTypeRef object_ = object->hierarchy["sub"]) {  // Lowest
+						while(CompositeTypeSP object_ = object->hierarchy["sub"]) {  // Lowest
 							object = object_;
 						}
 
 						continue;
 					}
 
-					return OverloadSearch(object, overload);
+					return OverloadCandidate(object, overload);
 				}
 
 				object = object->hierarchy["super"];
 			}
 
-			return OverloadSearch();
+			return OverloadCandidate();
 		}
 
 		/**
-		 * Looking for member overload in Inheritance chain (Super, Self, Sub).
+		 * Looking for member overloads in Inheritance chain (Super, Self, Sub).
 		 *
 		 * TODO:
 		 * Check if following is valuable:
@@ -1562,8 +1599,8 @@ namespace Interpreter {
 		 * This is possible in objects, where sub/Sub is set.
 		 * (Both chains (object and inheritance) should be looked up if this will ever be implemented).
 		 */
-		OverloadSearch findMemberOverloadInInheritanceChain(const string& identifier, TypeRef matching = nullptr) {
-			CompositeTypeRef composite = static_pointer_cast<CompositeType>(shared_from_this());
+		OverloadCandidate findOverloadsInInheritanceChain(const string& identifier) {
+			CompositeTypeSP composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
 				if(composite->isObject()) {
@@ -1576,16 +1613,16 @@ namespace Interpreter {
 					continue;
 				}
 
-				auto overload = composite->getMemberOverload(identifier, matching);
+				auto overload = composite->getOverload(identifier, matching);
 
 				if(overload) {
-					return OverloadSearch(composite, overload);
+					return OverloadCandidate(composite, overload);
 				}
 
 				composite = composite->hierarchy["Super"];
 			}
 
-			return OverloadSearch();
+			return OverloadCandidate();
 		}
 
 		/**
@@ -1593,15 +1630,19 @@ namespace Interpreter {
 		 *
 		 * If search is internal, only first composite in chain will be checked.
 		 */
-		OverloadSearch findMemberOverload(const string& identifier, TypeRef matching = nullptr, bool internal = false) {
+		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP matching = nullptr, bool internal = false) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
 				OverloadSearch search;
 
-				if(search = composite->findMemberOverloadInComposite(identifier, matching);			search.overload) return search;
-				if(search = composite->findMemberOverloadInObjectChain(identifier, matching);		search.overload) return search;
-				if(search = composite->findMemberOverloadInInheritanceChain(identifier, matching);	search.overload) return search;
+				composite->findOverloadsInComposite(identifier, search);
+				composite->findOverloadsInObjectChain(identifier, search);
+				composite->findOverloadsInInheritanceChain(identifier, search);
+
+				if(auto candidate = matchOverload(search, matching)) {
+					return candidate;
+				}
 
 				if(internal) {
 					break;
@@ -1610,35 +1651,35 @@ namespace Interpreter {
 				composite = composite->getScope();
 			}
 
-			return OverloadSearch();
+			return nullopt;
 		}
 
 		/**
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
-		void setMemberOverload(const string& identifier, MemberOverload::Modifiers modifiers, TypeRef type, TypeRef value, TypeRef matching = nullptr, optional<bool> internal = nullopt) {
-			type = type ?: Ref<NillableType>(PredefinedEAnyTypeRef);
+		void setOverload(const string& identifier, Overload::Modifiers modifiers, TypeSP type, TypeSP value, TypeSP matching = nullptr, optional<bool> internal = nullopt) {
+			type = type ?: SP<NillableType>(PredefinedEAnyTypeSP);
 
 			if(
 				value && !value->conformsTo(type) ||
-				!value && !PredefinedEVoidTypeRef->conformsTo(type)
+				!value && !PredefinedEVoidTypeSP->conformsTo(type)
 			) {
 				throw invalid_argument("Value '"+to_string(value)+"' does not conform to expected type '"+type->toString()+"'");
 			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			MemberOverloadRef overload;
+			OverloadSP overload;
 
 			if(!internal) {
-				overload = getMemberOverload(identifier, matching);
+				overload = getOverload(identifier, matching);
 			} else
-			if(auto search = findMemberOverload(identifier, matching, *internal); search.owner) {
-				composite = search.owner;
-				overload = search.overload;
+			if(auto search = findOverload(identifier, matching, *internal); !search->generated) {
+				composite = search->composite;
+				overload = search->overload;
 			}
 
 			if(!overload) {
-				overload = Ref<MemberOverload>();
+				overload = SP<Overload>();
 
 				addMember(identifier).insert(overload);
 			} else
@@ -1646,8 +1687,8 @@ namespace Interpreter {
 				throw invalid_argument("Overload is a 'final' constant");
 			}
 
-			TypeRef OT = overload->type ?: Ref<Type>(),  // Old/new type
-					NT = type ?: Ref<Type>(),
+			TypeSP OT = overload->type ?: SP<Type>(),  // Old/new type
+					NT = type ?: SP<Type>(),
 					OV = overload->value,  // Old/new value
 					NV = value;
 
@@ -1661,70 +1702,89 @@ namespace Interpreter {
 		}
 
 		/*
-		function accessMemberOverload(identifier, args = null, callType = null, value = null)
-			var := getVariable(identifier)
-
-			if callType = "subscript" then
-				if value = null then
-					// Получение через сабскрипт: a[b, c]
-					return var.getSubscript(args)
-				else
-					// Присваивание через сабскрипт: a[b, c] = d
-					var.setSubscript(args, value)
-					return
-				end if
-			else
-			if callType = "call" then
-				// Вызов функции: a(b, c)
-				return var.call(args)
-			end if
-
-			// Если аргументы не заданы, но есть присваивание: a = b
-			if value ≠ null then
-				setVariable(identifier, value)
-				return
-			end if
-
-			return var
-		end function
+		 * Modes:
+		 * - Get: collects all possible overloads and uses the one that did match.
+		 * - Set/Delete: collects overloads that has not been shadowed and uses the one that did match.
+		 *
+		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
+		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
+		 * delete a
+		 *
+		 * 		  a(b, c)		Find "a" function overload and call *get observers or get
+		 * 		  a(b, c) = d	Find "a" function overload and call *set observers or set
+		 * delete a(b, c)
+		 *
+		 * 		  a[...]		Syntax sugar for 		a.subscript(...)
+		 * 		  a[...] = b	Syntax sugar for 		a.subscript(...) = b
+		 * delete a[...]		Syntax sugar for delete a.subscript(...)
+		 *
+		 * "a" can be an identifier, chain or another expression, but its evaluated value should be:
+		 * - Function composite if arguments specified.
+		 * -
 		*/
-
-		/*
-		 * a						find "a" first overload and call *get observers or get, or call composite *get observers
-		 * a = b					find "a" first overload and call *set obversers or set, or call composite *set observers
-		 *
-		 * a(b, c)					find "a" function overload and call
-		 * a(b, c) = d				find "a" function overload and set
-		 *
-		 * subscript(a, b)			find "subscript" function overload and call *get observers
-		 * subscript(a, b) = c		find "subscript" function overload and call *set obversers
-		 *
-		 * a[...]					syntax sugar for a.subscript(...)
-		 * a[...] = b				syntax sugar for a.subscript(...) = b
-		*/
-		TypeRef accessMemberOverload(
-			const string& identifier,  // Can be 'subscript' as a special case
-			optional<vector<TypeRef>> arguments,
-			optional<TypeRef> value,
+		TypeSP accessOverload(
+			AccessMode mode,
+			const string& identifier,
+			optional<vector<TypeSP>> arguments = nullopt,
+			TypeSP type = nullptr,  // Expected type if mode is Get
+			TypeSP value = nullptr,
 			optional<bool> internal = nullopt
 		) {
-			// Найти chain перегрузку с учётом передаваемых аргументов, попутно вызвать chain наблюдателей
+			TypeSP matches;
 
-			return Ref<Type>();
+			if(mode == AccessMode::Get) {
+				if(!arguments) {
+					matches = type;
+				} else {
+					matches = SP<FunctionType>(vector<TypeSP>(), arguments, type, FunctionType::Modifiers());
+				}
+			} else
+			if(mode == AccessMode::Set) {
+				matches = value;
+			}
+
+			optional<OverloadCandidate> candidate;
+
+			if(mode == AccessMode::Get) {
+				TypeSP value = candidate->overload->value;
+
+				if(!arguments) {
+					return value;
+				} else
+				if(value->ID == TypeID::Composite) {
+					auto compValue = static_pointer_cast<CompositeType>(value);
+
+					if(compValue->isCallable()) {
+						return compValue->call();
+					}
+				}
+			} else
+			if(mode == AccessMode::Set) {
+
+			} else
+			if(mode == AccessMode::Delete) {
+
+			}
+
+			return nullptr;
 		}
 
-		TypeRef call() {
-			return Ref<Type>();
+	//	void getOverload(OverloadCandidate& candidate, TypeSP type) {}
+	//	void setOverload(OverloadCandidate& candidate, TypeSP value) {}
+	//	void deleteOverload(OverloadCandidate& candidate) {}
+
+		TypeSP call() {
+			return nullptr;
 		}
 	};
 
 	struct ReferenceType : Type {
-		CompositeTypeRef compType;
-		optional<vector<TypeRef>> typeArgs;
+		CompositeTypeSP compType;
+		optional<vector<TypeSP>> typeArgs;
 
-		ReferenceType(const CompositeTypeRef& compType, const optional<vector<TypeRef>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
+		ReferenceType(const CompositeTypeSP& compType, const optional<vector<TypeSP>>& typeArgs = nullopt) : Type(TypeID::Reference), compType(compType), typeArgs(typeArgs) {}
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			if(type->ID == TypeID::Composite) {
 				auto compType = static_pointer_cast<CompositeType>(type);
 
@@ -1739,18 +1799,18 @@ namespace Interpreter {
 			return false;
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			if(!typeArgs) {
 				return shared_from_this();
 			}
 
-			vector<TypeRef> normArgs;
+			vector<TypeSP> normArgs;
 
-			for(const TypeRef& arg : *typeArgs) {
+			for(const TypeSP& arg : *typeArgs) {
 				normArgs.push_back(arg->normalized());
 			}
 
-			return Ref<ReferenceType>(compType, normArgs);
+			return SP<ReferenceType>(compType, normArgs);
 		}
 
 		string toString() const override {
@@ -1774,11 +1834,11 @@ namespace Interpreter {
 		}
 	};
 
-	set<TypeRef> CompositeType::getFullInheritanceChain() const {
+	set<TypeSP> CompositeType::getFullInheritanceChain() const {
 		auto chain = inheritedTypes;
 
-		for(const TypeRef& parentType : inheritedTypes) {
-			CompositeTypeRef compType;
+		for(const TypeSP& parentType : inheritedTypes) {
+			CompositeTypeSP compType;
 
 			if(parentType->ID == TypeID::Composite) {
 				compType = static_pointer_cast<CompositeType>(parentType);
@@ -1788,7 +1848,7 @@ namespace Interpreter {
 			}
 
 			if(compType) {
-				set<TypeRef> parentChain = compType->getFullInheritanceChain();
+				set<TypeSP> parentChain = compType->getFullInheritanceChain();
 
 				chain.insert(parentChain.begin(), parentChain.end());
 			}
@@ -1797,7 +1857,7 @@ namespace Interpreter {
 		return chain;
 	}
 
-	bool CompositeType::acceptsA(const TypeRef& type) {
+	bool CompositeType::acceptsA(const TypeSP& type) {
 		if(type->ID == TypeID::Composite) {
 			auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
 			auto compType = static_pointer_cast<CompositeType>(type);
@@ -1817,9 +1877,9 @@ namespace Interpreter {
 	// ----------------------------------------------------------------
 
 	struct FunctionType : Type {
-		vector<TypeRef> genericParametersTypes,
-						parametersTypes;
-		TypeRef returnType;
+		vector<TypeSP> genericParametersTypes,
+					   parametersTypes;
+		TypeSP returnType;
 		struct Modifiers {
 			optional<bool> inits,
 						   deinits,
@@ -1827,17 +1887,20 @@ namespace Interpreter {
 						   throws;
 		} modifiers;
 
-		FunctionType(const vector<TypeRef>& genericParametersTypes,
-					 const vector<TypeRef>& parametersTypes,
-					 const TypeRef& returnType,
+		FunctionType(const vector<TypeSP>& genericParametersTypes,
+					 const vector<TypeSP>& parametersTypes,
+					 const TypeSP& returnType,
 					 const Modifiers& modifiers) : genericParametersTypes(genericParametersTypes),
 												   parametersTypes(parametersTypes),
 												   returnType(returnType),
 												   modifiers(modifiers) {}
 
-		static bool matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList);
+		static bool matchTypeLists(const vector<TypeSP>& expectedList, const vector<TypeSP>& providedList);
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
+			if(type->ID == TypeID::Composite) {
+				// TODO: Compare with a composite's inherited function type
+			} else
 			if(type->ID == TypeID::Function) {
 				auto funcType = static_pointer_cast<FunctionType>(type);
 
@@ -1853,10 +1916,10 @@ namespace Interpreter {
 			return false;
 		}
 
-		TypeRef normalized() override {
-			return Ref<FunctionType>(
-				transform(genericParametersTypes, [](const TypeRef& v) { return v->normalized(); }),
-				transform(parametersTypes, [](const TypeRef& v) { return v->normalized(); }),
+		TypeSP normalized() override {
+			return SP<FunctionType>(
+				transform(genericParametersTypes, [](const TypeSP& v) { return v->normalized(); }),
+				transform(parametersTypes, [](const TypeSP& v) { return v->normalized(); }),
 				returnType->normalized(),
 				modifiers
 			);
@@ -1903,22 +1966,22 @@ namespace Interpreter {
 	};
 
 	struct InoutType : Type {
-		TypeRef innerType;
+		TypeSP innerType;
 
-		InoutType(const TypeRef& innerType) : Type(TypeID::Inout), innerType(innerType) {}
+		InoutType(const TypeSP& innerType) : Type(TypeID::Inout), innerType(innerType) {}
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			auto normInner = innerType->normalized();
 
 			if(normInner->ID == TypeID::Inout) {
 				return normInner;
 			}
 
-			return Ref<InoutType>(normInner);
+			return SP<InoutType>(normInner);
 		}
 
 		string toString() const override {
@@ -1927,11 +1990,11 @@ namespace Interpreter {
 	};
 
 	struct VariadicType : Type {
-		TypeRef innerType;
+		TypeSP innerType;
 
-		VariadicType(const TypeRef& innerType = nullptr) : Type(TypeID::Variadic), innerType(innerType) {}
+		VariadicType(const TypeSP& innerType = nullptr) : Type(TypeID::Variadic), innerType(innerType) {}
 
-		bool acceptsA(const TypeRef& type) override {
+		bool acceptsA(const TypeSP& type) override {
 			if(!innerType) {
 				return true;
 			}
@@ -1942,18 +2005,18 @@ namespace Interpreter {
 			auto varType = static_pointer_cast<VariadicType>(type);
 
 			if(!varType->innerType) {
-				return innerType->acceptsA(PredefinedEVoidTypeRef);
+				return innerType->acceptsA(PredefinedEVoidTypeSP);
 			}
 
 			return innerType->acceptsA(varType->innerType);
 		}
 
-		TypeRef normalized() override {
+		TypeSP normalized() override {
 			if(!innerType) {
 				return shared_from_this();
 			}
 
-			return Ref<VariadicType>(innerType->normalized());
+			return SP<VariadicType>(innerType->normalized());
 		}
 
 		string toString() const override {
@@ -1961,7 +2024,7 @@ namespace Interpreter {
 		}
 	};
 
-	bool FunctionType::matchTypeLists(const vector<TypeRef>& expectedList, const vector<TypeRef>& providedList) {
+	bool FunctionType::matchTypeLists(const vector<TypeSP>& expectedList, const vector<TypeSP>& providedList) {
 		int expectedSize = expectedList.size(),
 			providedSize = providedList.size();
 
@@ -1970,13 +2033,13 @@ namespace Interpreter {
 				return providedIndex == providedSize;
 			}
 
-			const TypeRef& expectedType = expectedList[expectedIndex];
+			const TypeSP& expectedType = expectedList[expectedIndex];
 
 			if(expectedType->ID == TypeID::Variadic) {
 				auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
 
 				if(expectedIndex == expectedSize-1) {
-					return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeRef& t) {
+					return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeSP& t) {
 						return varExpectedType->acceptsA(t);
 					});
 				}
@@ -2009,87 +2072,87 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
-	const TypeRef PredefinedEVoidTypeRef = Ref<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeRef& type) {
+	const TypeSP PredefinedEVoidTypeSP = SP<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeSP& type) {
 		return type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
 	});
 
-	const TypeRef PredefinedEAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::EAny, [](const TypeRef& type) {
+	const TypeSP PredefinedEAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::EAny, [](const TypeSP& type) {
 		return true;
 	});
 
-	const TypeRef PredefinedPAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::PAny, [](const TypeRef& type) {
+	const TypeSP PredefinedPAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::PAny, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive;
 	});
 
-	const TypeRef PredefinedPBooleanTypeRef = Ref<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeRef& type) {
+	const TypeSP PredefinedPBooleanTypeSP = SP<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Boolean;
 	});
 
-	const TypeRef PredefinedPDictionaryTypeRef = Ref<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeRef& type) {
+	const TypeSP PredefinedPDictionaryTypeRef = SP<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeSP& type) {
 		return type->ID == TypeID::Dictionary;
 	});
 
-	const TypeRef PredefinedPFloatTypeRef = Ref<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeRef& type) {
+	const TypeSP PredefinedPFloatTypeSP = SP<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Float;
 	});
 
-	const TypeRef PredefinedPIntegerTypeRef = Ref<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeRef& type) {
+	const TypeSP PredefinedPIntegerTypeSP = SP<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Integer;
 	});
 
-	const TypeRef PredefinedPStringTypeRef = Ref<PredefinedType>(PredefinedTypeID::PString, [](const TypeRef& type) {
+	const TypeSP PredefinedPStringTypeSP = SP<PredefinedType>(PredefinedTypeID::PString, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::String;
 	});
 
-	const TypeRef PredefinedPTypeTypeRef = Ref<PredefinedType>(PredefinedTypeID::PType, [](const TypeRef& type) {
+	const TypeSP PredefinedPTypeTypeSP = SP<PredefinedType>(PredefinedTypeID::PType, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Type;
 	});
 
-	const TypeRef PredefinedCAnyTypeRef = Ref<PredefinedType>(PredefinedTypeID::CAny, [](const TypeRef& type) {
+	const TypeSP PredefinedCAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::CAny, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite ||
 			   type->ID == TypeID::Reference;
 	});
 
-	const TypeRef PredefinedCClassTypeRef = Ref<PredefinedType>(PredefinedTypeID::CClass, [](const TypeRef& type) {
+	const TypeSP PredefinedCClassTypeSP = SP<PredefinedType>(PredefinedTypeID::CClass, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Class ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Class;
 	});
 
-	const TypeRef PredefinedCEnumerationTypeRef = Ref<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeRef& type) {
+	const TypeSP PredefinedCEnumerationTypeSP = SP<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Enumeration ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Enumeration;
 	});
 
-	const TypeRef PredefinedCFunctionTypeRef = Ref<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeRef& type) {
+	const TypeSP PredefinedCFunctionTypeSP = SP<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
 	});
 
-	const TypeRef PredefinedCNamespaceTypeRef = Ref<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeRef& type) {
+	const TypeSP PredefinedCNamespaceTypeSP = SP<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Namespace ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Namespace;
 	});
 
-	const TypeRef PredefinedCObjectTypeRef = Ref<PredefinedType>(PredefinedTypeID::CObject, [](const TypeRef& type) {
+	const TypeSP PredefinedCObjectTypeSP = SP<PredefinedType>(PredefinedTypeID::CObject, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Object ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Object;
 	});
 
-	const TypeRef PredefinedCProtocolTypeRef = Ref<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeRef& type) {
+	const TypeSP PredefinedCProtocolTypeSP = SP<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Protocol ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Protocol;
 	});
 
-	const TypeRef PredefinedCStructureTypeRef = Ref<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeRef& type) {
+	const TypeSP PredefinedCStructureTypeSP = SP<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
 	});
 
 	// ----------------------------------------------------------------
 
-	CompositeTypeRef createComposite(const string& title, CompositeTypeID type, CompositeTypeRef scope = nullptr) {
+	CompositeTypeSP createComposite(const string& title, CompositeTypeID type, CompositeTypeSP scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
-		auto composite = Ref<CompositeType>(type, title);
+		auto composite = SP<CompositeType>(type, title);
 
 		composites.push_back(composite);
 
@@ -2104,8 +2167,8 @@ namespace Interpreter {
 	 * Levels such as super, self or sub, can be self-defined (self only), inherited from another composite or unset.
 	 * If levels are intentionally unset, Scope will prevail over Object and Inheritance chains at member overload search.
 	 */
-	CompositeTypeRef createNamespace(const string& title, CompositeTypeRef scope = nullptr, optional<CompositeTypeRef> levels = nullptr) {
-		CompositeTypeRef namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
+	CompositeTypeSP createNamespace(const string& title, CompositeTypeSP scope = nullptr, optional<CompositeTypeSP> levels = nullptr) {
+		CompositeTypeSP namespace_ = createComposite(title, CompositeTypeID::Namespace, scope);
 
 		if(levels && *levels) {
 			namespace_->inheritLevels(*levels);
@@ -2119,39 +2182,39 @@ namespace Interpreter {
 		return namespace_;
 	}
 
-	string getTitle(CompositeTypeRef composite) {
+	string getTitle(CompositeTypeSP composite) {
 		return composite ? composite->getTitle() : "";
 	}
 
 	/*
-	bool compositeIsFunction(const CompositeTypeRef& composite) {
+	bool compositeIsFunction(const CompositeTypeSP& composite) {
 		return composite && composite->isFunction();
 	}
 
-	bool compositeIsNamespace(const CompositeTypeRef& composite) {
+	bool compositeIsNamespace(const CompositeTypeSP& composite) {
 		return composite && composite->isNamespace();
 	}
 
-	bool compositeIsObject(const CompositeTypeRef& composite) {
+	bool compositeIsObject(const CompositeTypeSP& composite) {
 		return composite && composite->isObject();
 	}
 
-	bool compositeIsInstantiable(const CompositeTypeRef& composite) {
+	bool compositeIsInstantiable(const CompositeTypeSP& composite) {
 		return composite && composite->isInstantiable();
 	}
 
-	bool compositeIsCallable(const CompositeTypeRef& composite) {
+	bool compositeIsCallable(const CompositeTypeSP& composite) {
 		return composite && composite->isCallable();
 	}
 	*/
 
-	CompositeTypeRef getScope(int offset = 0) {
+	CompositeTypeSP getScope(int offset = 0) {
 		return scopes.size() > scopes.size()-1+offset
 			 ? scopes[scopes.size()-1+offset]
 			 : nullptr;
 	}
 
-	CompositeTypeRef scope() {
+	CompositeTypeSP scope() {
 		return getScope();
 	}
 
@@ -2159,7 +2222,7 @@ namespace Interpreter {
 	 * Should be used for a bodies before executing its contents,
 	 * as ARC utilizes a current scope at the moment.
 	 */
-	void addScope(CompositeTypeRef composite) {
+	void addScope(CompositeTypeSP composite) {
 		scopes.push_back(composite);
 	}
 
@@ -2167,7 +2230,7 @@ namespace Interpreter {
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	void removeScope(bool destroy = true) {
-		CompositeTypeRef composite = scopes.back();
+		CompositeTypeSP composite = scopes.back();
 
 		scopes.pop_back();
 
@@ -2179,20 +2242,20 @@ namespace Interpreter {
 	/**
 	 * Returns result of identifier(value) call or plain value if no appropriate function found in current scope.
 	 */
-	TypeRef getValueWrapper(const TypeRef& value, string identifier) {
+	TypeSP getValueWrapper(const TypeSP& value, string identifier) {
 		// TODO
 
 		return value;
 	}
 
-	TypeRef getValueWrapper(const PrimitiveType& value, string identifier) {
-		return getValueWrapper(Ref(value), identifier);
+	TypeSP getValueWrapper(const PrimitiveType& value, string identifier) {
+		return getValueWrapper(SP(value), identifier);
 	}
 
 	/**
 	 * Returns a live composite found in value. Works with `CompositeType`.
 	 */
-	CompositeTypeRef getValueComposite(TypeRef value) {
+	CompositeTypeSP getValueComposite(TypeSP value) {
 		if(value && value->ID == TypeID::Composite) {
 			auto compValue = static_pointer_cast<CompositeType>(value);
 
@@ -2209,8 +2272,8 @@ namespace Interpreter {
 	/**
 	 * Returns a set of live composites found in value (recursively). Works with `CompositeType` and `DictionaryType`.
 	 */
-	unordered_set<CompositeTypeRef> getValueComposites(TypeRef value) {
-		unordered_set<CompositeTypeRef> result;
+	unordered_set<CompositeTypeSP> getValueComposites(TypeSP value) {
+		unordered_set<CompositeTypeSP> result;
 
 		if(value && value->ID == TypeID::Dictionary) {
 			for(auto& [key, value_] : *static_pointer_cast<DictionaryType>(value)) {
@@ -2221,7 +2284,7 @@ namespace Interpreter {
 				result.insert(valueComposites.begin(), valueComposites.end());
 			}
 		} else
-		if(CompositeTypeRef composite = getValueComposite(value)) {
+		if(CompositeTypeSP composite = getValueComposite(value)) {
 			result.insert(composite);
 		}
 
@@ -2231,24 +2294,24 @@ namespace Interpreter {
 	// ----------------------------------------------------------------
 
 	template<typename... Args>
-	TypeRef rules(const string& type, NodeRef n = nullptr, Args... args);
+	TypeSP rules(const string& type, NodeSP n = nullptr, Args... args);
 
 	template<typename... Args>
-	TypeRef executeNode(NodeRef node, bool concrete = true, Args... arguments) {
+	TypeSP executeNode(NodeSP node, bool concrete = true, Args... arguments) {
 		if(!node) {
 			return nullptr;
 		}
 
 		int OP = position,  // Old/new position
 			NP = node ? node->get<Node&>("range").get<int>("start") : 0;
-		TypeRef value;
+		TypeSP value;
 
 		position = NP;
 
 		try {
 			value = rules(node->get("type"), node, arguments...);
 		} catch(exception& e) {
-			value = Ref<PrimitiveType>(e.what());
+			value = SP<PrimitiveType>(e.what());
 
 			setControlTransfer(value, "throw");
 		//	report(2, node, to_string(value));
@@ -2270,14 +2333,14 @@ namespace Interpreter {
 	 *
 	 * Control transfer result can be discarded (fully - 1, value only - 0).
 	 */
-	void executeNodes(NodeArrayRef nodes) {
+	void executeNodes(NodeArraySP nodes) {
 		int OP = position;  // Old position
 
-		for(const NodeRef& node : nodes ? *nodes : NodeArray()) {
+		for(const NodeSP& node : nodes ? *nodes : NodeArray()) {
 			int NP = node->get<Node&>("range").get("start");  // New position
-			TypeRef value = executeNode(node);
+			TypeSP value = executeNode(node);
 
-			if(node == nodes->back().get<NodeRef>() && !controlTransfer().type) {  // Implicit control transfer
+			if(node == nodes->back().get<NodeSP>() && !controlTransfer().type) {  // Implicit control transfer
 				setControlTransfer(value);
 			}
 
@@ -2291,7 +2354,7 @@ namespace Interpreter {
 		position = OP;
 	}
 
-	any any_rules(const string& type, NodeRef n) {
+	any any_rules(const string& type, NodeSP n) {
 		if(!n) {
 			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
 		}
@@ -2332,7 +2395,7 @@ namespace Interpreter {
 	}
 
 	template<typename... Args>
-	TypeRef rules(const string& type, NodeRef n, Args... args) {
+	TypeSP rules(const string& type, NodeSP n, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(
@@ -2344,9 +2407,9 @@ namespace Interpreter {
 		}
 
 		if(type == "arrayLiteral") {
-			auto value = Ref<DictionaryType>(
-				PredefinedPIntegerTypeRef,
-				Ref<NillableType>(PredefinedEAnyTypeRef),
+			auto value = SP<DictionaryType>(
+				PredefinedPIntegerTypeSP,
+				SP<NillableType>(PredefinedEAnyTypeSP),
 				true
 			);
 
@@ -2354,30 +2417,30 @@ namespace Interpreter {
 				auto value_ = executeNode(n->get<NodeArray&>("values")[i]);
 
 				if(value_) {
-					value->emplace(Ref<PrimitiveType>(i), value_);  // TODO: Copy or link value in accordance to type
+					value->emplace(SP<PrimitiveType>(i), value_);  // TODO: Copy or link value in accordance to type
 				}
 			}
 
 			return getValueWrapper(value, "Array");
 		} else
 		if(type == "arrayType") {
-			TypeRef valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
-			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Array")?.value*/);
+			TypeSP valueType = executeNode(n->get("value"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP);
+			CompositeTypeSP composite = getValueComposite(nullptr/*findOverload(scope, "Array")?.value*/);
 
 			if(composite) {
-				return Ref<ReferenceType>(composite, vector<TypeRef> { valueType });  // TODO: Check if type accepts passed generic argument
+				return SP<ReferenceType>(composite, vector<TypeSP> { valueType });  // TODO: Check if type accepts passed generic argument
 			} else {
-				return Ref<DictionaryType>(PredefinedPIntegerTypeRef, valueType);
+				return SP<DictionaryType>(PredefinedPIntegerTypeSP, valueType);
 			}
 		} else
 		if(type == "booleanLiteral") {
 			return getValueWrapper(n->get("value") == "true", "Boolean");
 		} else
 		if(type == "breakStatement") {
-			TypeRef value;
+			TypeSP value;
 
 			if(!n->empty("label")) {
-				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
+				value = SP<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "break");
@@ -2385,10 +2448,10 @@ namespace Interpreter {
 			return value;
 		} else
 		if(type == "continueStatement") {
-			TypeRef value;
+			TypeSP value;
 
 			if(!n->empty("label")) {
-				value = Ref<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
+				value = SP<PrimitiveType>(n->get<Node&>("label").get<string>("value"));
 			}
 
 			setControlTransfer(value, "continue");
@@ -2396,13 +2459,13 @@ namespace Interpreter {
 			return value;
 		} else
 		if(type == "dictionaryLiteral") {
-			auto value = Ref<DictionaryType>(
-				Ref<NillableType>(PredefinedEAnyTypeRef),
-				Ref<NillableType>(PredefinedEAnyTypeRef),
+			auto value = SP<DictionaryType>(
+				SP<NillableType>(PredefinedEAnyTypeSP),
+				SP<NillableType>(PredefinedEAnyTypeSP),
 				true
 			);
 
-			for(const NodeRef& entry : n->get<NodeArray&>("entries")) {
+			for(const NodeSP& entry : n->get<NodeArray&>("entries")) {
 				auto entry_ = any_optcast<DictionaryType::Entry>(any_rules("entry", entry));
 
 				if(entry_) {
@@ -2413,14 +2476,14 @@ namespace Interpreter {
 			return getValueWrapper(value, "Dictionary");
 		} else
 		if(type == "dictionaryType") {
-			TypeRef keyType = executeNode(n->get("key"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef),
-					valueType = executeNode(n->get("value"), false) ?: Ref<NillableType>(PredefinedEAnyTypeRef);
-			CompositeTypeRef composite = getValueComposite(nullptr/*findMemberOverload(scope, "Dictionary")?.value*/);
+			TypeSP keyType = executeNode(n->get("key"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP),
+					valueType = executeNode(n->get("value"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP);
+			CompositeTypeSP composite = getValueComposite(nullptr/*findOverload(scope, "Dictionary")?.value*/);
 
 			if(composite) {
-				return Ref<ReferenceType>(composite, vector<TypeRef> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
+				return SP<ReferenceType>(composite, vector<TypeSP> { keyType, valueType });  // TODO: Check if type accepts passed generic arguments
 			} else {
-				return Ref<DictionaryType>(keyType, valueType);
+				return SP<DictionaryType>(keyType, valueType);
 			}
 		} else
 		if(type == "floatLiteral") {
@@ -2428,7 +2491,7 @@ namespace Interpreter {
 		} else
 		if(type == "identifier") {
 			string identifier = n->get("value");
-			auto overload = scope()->findMemberOverload(identifier).overload;
+			auto overload = scope()->findOverload(identifier).overload;
 
 			if(!overload) {
 				report(1, n, "Member overload wasn't found (accessing '"+identifier+"').");
@@ -2445,7 +2508,7 @@ namespace Interpreter {
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "if var a = b() {}"? That isn't even implemented in the parser right now
-			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
+			CompositeTypeSP namespace_ = createNamespace("Local<"+getTitle(scope())+", If>", scope(), nullopt);
 
 			addScope(namespace_);
 
@@ -2454,7 +2517,7 @@ namespace Interpreter {
 				 elseif = !n->empty("else") && n->get<Node&>("else").get("type") == "ifStatement";
 
 			if(condition || !elseif) {
-				NodeRef branch = n->get(condition ? "then" : "else");
+				NodeSP branch = n->get(condition ? "then" : "else");
 
 				if(branch && branch->get("type") == "functionBody") {
 					executeNodes(branch->get("statements"));
@@ -2478,7 +2541,7 @@ namespace Interpreter {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
 		//	addDefaultMembers(scope());
-			executeNodes(n->get<NodeArrayRef>("statements")/*, (t) => t !== 'throw' ? 0 : -1*/);
+			executeNodes(n->get<NodeArraySP>("statements")/*, (t) => t !== 'throw' ? 0 : -1*/);
 
 			ControlTransfer& CT = controlTransfer();
 
@@ -2503,14 +2566,14 @@ namespace Interpreter {
 
 			if(value->ID == TypeID::Primitive && !n->empty("operator")) {
 				if(n->get<Node&>("operator").get("value") == "++") {
-					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+					*value = value->operator+()->operator+(SP<PrimitiveType>(1));
 
-					return value->operator-(Ref<PrimitiveType>(1));
+					return value->operator-(SP<PrimitiveType>(1));
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+					*value = value->operator+()->operator-(SP<PrimitiveType>(1));
 
-					return value->operator+(Ref<PrimitiveType>(1));
+					return value->operator+(SP<PrimitiveType>(1));
 				}
 			}
 
@@ -2521,27 +2584,27 @@ namespace Interpreter {
 		if(type == "predefinedType") {
 			string predefinedTypeTitle = n->get("value");
 
-			if(predefinedTypeTitle == "void")			return PredefinedEVoidTypeRef;
-			if(predefinedTypeTitle == "_")				return PredefinedEAnyTypeRef;
+			if(predefinedTypeTitle == "void")			return PredefinedEVoidTypeSP;
+			if(predefinedTypeTitle == "_")				return PredefinedEAnyTypeSP;
 
-			if(predefinedTypeTitle == "any")			return PredefinedPAnyTypeRef;
-			if(predefinedTypeTitle == "bool")			return PredefinedPBooleanTypeRef;
+			if(predefinedTypeTitle == "any")			return PredefinedPAnyTypeSP;
+			if(predefinedTypeTitle == "bool")			return PredefinedPBooleanTypeSP;
 			if(predefinedTypeTitle == "dict")			return PredefinedPDictionaryTypeRef;
-			if(predefinedTypeTitle == "float")			return PredefinedPFloatTypeRef;
-			if(predefinedTypeTitle == "int")			return PredefinedPIntegerTypeRef;
-			if(predefinedTypeTitle == "string")			return PredefinedPStringTypeRef;
-			if(predefinedTypeTitle == "type")			return PredefinedPTypeTypeRef;
+			if(predefinedTypeTitle == "float")			return PredefinedPFloatTypeSP;
+			if(predefinedTypeTitle == "int")			return PredefinedPIntegerTypeSP;
+			if(predefinedTypeTitle == "string")			return PredefinedPStringTypeSP;
+			if(predefinedTypeTitle == "type")			return PredefinedPTypeTypeSP;
 
-			if(predefinedTypeTitle == "Any")			return PredefinedCAnyTypeRef;
-			if(predefinedTypeTitle == "Class")			return PredefinedCClassTypeRef;
-			if(predefinedTypeTitle == "Enumeration")	return PredefinedCEnumerationTypeRef;
-			if(predefinedTypeTitle == "Function")		return PredefinedCFunctionTypeRef;
-			if(predefinedTypeTitle == "Namespace")		return PredefinedCNamespaceTypeRef;
-			if(predefinedTypeTitle == "Object")			return PredefinedCObjectTypeRef;
-			if(predefinedTypeTitle == "Protocol")		return PredefinedCProtocolTypeRef;
-			if(predefinedTypeTitle == "Structure")		return PredefinedCStructureTypeRef;
+			if(predefinedTypeTitle == "Any")			return PredefinedCAnyTypeSP;
+			if(predefinedTypeTitle == "Class")			return PredefinedCClassTypeSP;
+			if(predefinedTypeTitle == "Enumeration")	return PredefinedCEnumerationTypeSP;
+			if(predefinedTypeTitle == "Function")		return PredefinedCFunctionTypeSP;
+			if(predefinedTypeTitle == "Namespace")		return PredefinedCNamespaceTypeSP;
+			if(predefinedTypeTitle == "Object")			return PredefinedCObjectTypeSP;
+			if(predefinedTypeTitle == "Protocol")		return PredefinedCProtocolTypeSP;
+			if(predefinedTypeTitle == "Structure")		return PredefinedCStructureTypeSP;
 
-			return PredefinedEAnyTypeRef;
+			return PredefinedEAnyTypeSP;
 		} else
 		if(type == "prefixExpression") {
 			auto value = executeNode(n->get("value"));
@@ -2552,18 +2615,18 @@ namespace Interpreter {
 
 			if(value->ID == TypeID::Primitive && !n->empty("operator") ) {
 				if(n->get<Node&>("operator").get("value") == "!") {
-					return Ref<PrimitiveType>(value->operator!());
+					return SP<PrimitiveType>(value->operator!());
 				}
 				if(n->get<Node&>("operator").get("value") == "-") {
 					return value->operator-();
 				}
 				if(n->get<Node&>("operator").get("value") == "++") {
-					*value = value->operator+()->operator+(Ref<PrimitiveType>(1));
+					*value = value->operator+()->operator+(SP<PrimitiveType>(1));
 
 					return value;
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					*value = value->operator+()->operator-(Ref<PrimitiveType>(1));
+					*value = value->operator+()->operator-(SP<PrimitiveType>(1));
 
 					return value;
 				}
@@ -2587,7 +2650,7 @@ namespace Interpreter {
 		if(type == "stringLiteral") {
 			::string string = "";
 
-			for(const NodeRef& segment : n->get<NodeArray&>("segments")) {
+			for(const NodeSP& segment : n->get<NodeArray&>("segments")) {
 				if(segment->get("type") == "stringSegment") {
 					string += segment->get<::string>("value");
 				} else {  // stringExpression
@@ -2617,19 +2680,19 @@ namespace Interpreter {
 				return nullptr;
 			}
 
-			return Ref<PrimitiveType>(type);
+			return SP<PrimitiveType>(type);
 		} else
 		if(type == "typeIdentifier") {
-			CompositeTypeRef composite = getValueComposite(executeNode(n->get("identifier")));
+			CompositeTypeSP composite = getValueComposite(executeNode(n->get("identifier")));
 
 			if(!composite || composite->isObject()) {
 				report(1, n, "Composite is an object or wasn\'t found.");
 
-				return PredefinedCAnyTypeRef;
+				return PredefinedCAnyTypeSP;
 			} else {
-				vector<TypeRef> genericArguments;
+				vector<TypeSP> genericArguments;
 
-				for(const NodeRef& type : n->get<NodeArray&>("genericArguments")) {
+				for(const NodeSP& type : n->get<NodeArray&>("genericArguments")) {
 					auto type_ = executeNode(type, false);
 
 					if(type_) {
@@ -2637,15 +2700,15 @@ namespace Interpreter {
 					}
 				}
 
-				return Ref<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
+				return SP<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
 			}
 		} else
 		if(type == "variableDeclaration") {
-			NodeArrayRef modifiers = n->get("modifiers");
+			NodeArraySP modifiers = n->get("modifiers");
 
 			for(Node& declarator : n->get<NodeArray&>("declarators")) {
 				string identifier = declarator.get<Node&>("identifier").get("value");
-				TypeRef type = executeNode(declarator.get("type_"), false),
+				TypeSP type = executeNode(declarator.get("type_"), false),
 						value;
 
 			//	addContext({ type: type }, ['implicitChainExpression']);
@@ -2654,7 +2717,7 @@ namespace Interpreter {
 
 			//	removeContext();
 
-				scope()->setMemberOverload(identifier, CompositeType::MemberOverload::Modifiers(), type, value);
+				scope()->setOverload(identifier, CompositeType::Overload::Modifiers(), type, value);
 			}
 		} else
 		if(type == "whileStatement") {
@@ -2664,7 +2727,7 @@ namespace Interpreter {
 
 			// TODO: Align namespace/scope creation/destroy close to functionBody execution (it will allow single statements to affect current scope)
 			// Edit: What did I mean by "single statements", inline declarations like "while var a = b() {}"? That isn't even implemented in the parser right now
-			CompositeTypeRef namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
+			CompositeTypeSP namespace_ = createNamespace("Local<"+getTitle(scope())+", While>", scope(), nullopt);
 
 			addScope(namespace_);
 
@@ -2705,7 +2768,7 @@ namespace Interpreter {
 	// ----------------------------------------------------------------
 
 	struct Place {
-		NodeRef node,
+		NodeSP node,
 				location;
 	};
 

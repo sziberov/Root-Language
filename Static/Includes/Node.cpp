@@ -35,16 +35,16 @@ constexpr auto type_name() {
 class Node;
 class NodeValue;
 
-using NodeRef = shared_ptr<Node>;
+using NodeSP = sp<Node>;
 using NodeArray = vector<NodeValue>;
-using NodeArrayRef = shared_ptr<NodeArray>;
+using NodeArraySP = sp<NodeArray>;
 
 static string to_string(const Node& node);
 static string to_string(const NodeArray& node);
 
 class NodeValue {
 private:
-	mutable variant<nullptr_t, bool, int, double, string, NodeRef, NodeArrayRef, any> value;
+	mutable variant<nullptr_t, bool, int, double, string, NodeSP, NodeArraySP, any> value;
 
 public:
 	NodeValue() : value(nullptr) {}
@@ -54,16 +54,16 @@ public:
 	NodeValue(double v) : value(v) {}
 	NodeValue(const char* v) : value(string(v)) {}
 	NodeValue(const string& v) : value(v) {}
-	NodeValue(const Node& v) : value(make_shared<Node>(v)) {}
-	NodeValue(const NodeRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
-	NodeValue(const NodeArray& v) : value(make_shared<NodeArray>(v)) {}
-	NodeValue(const NodeArrayRef& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
+	NodeValue(const Node& v) : value(SP<Node>(v)) {}
+	NodeValue(const NodeSP& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
+	NodeValue(const NodeArray& v) : value(SP<NodeArray>(v)) {}
+	NodeValue(const NodeArraySP& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const any& v) : value(v) {}
 
-	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(make_shared<Node>(v)) {}
+	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(SP<Node>(v)) {}
 
 	template <bool prioritize = false>
-	NodeValue(initializer_list<NodeValue> v) : value(make_shared<NodeArray>(v)) {}
+	NodeValue(initializer_list<NodeValue> v) : value(SP<NodeArray>(v)) {}
 
 	template <typename T>
 	NodeValue(const optional<T>& v) : value(v ? *v : static_cast<decltype(value)>(nullptr)) {}
@@ -105,8 +105,8 @@ public:
 			case 2:		return get<int>();
 			case 3:		return get<double>();
 			case 4:		return get<string>() == "true" || get<string>() == "1";
-			case 5:		return !!get<NodeRef>();
-			case 6:		return !!get<NodeArrayRef>();
+			case 5:		return !!get<NodeSP>();
+			case 6:		return !!get<NodeArraySP>();
 			default:	return bool();
 		}
 	}
@@ -137,23 +137,23 @@ public:
 			case 2:		return to_string(get<int>());
 			case 3:		return to_string(get<double>());
 			case 4:		return get<string>();
-			case 5:		return to_string(*get<NodeRef>());
-			case 6:		return to_string(*get<NodeArrayRef>());
+			case 5:		return to_string(*get<NodeSP>());
+			case 6:		return to_string(*get<NodeArraySP>());
 			default:	return string();
 		}
 	}
 
 	operator Node&() const {
-		return *get<NodeRef>();
+		return *get<NodeSP>();
 	}
 
 	operator NodeArray&() const {
-		return *get<NodeArrayRef>();
+		return *get<NodeArraySP>();
 	}
 
 	template <typename T, template <typename, typename = allocator<T>> class Container>
 	operator Container<T>() const {
-		auto values = get<NodeArrayRef>();
+		auto values = get<NodeArraySP>();
 		Container<T> values_;
 
 		for(const T& value : *values) {
@@ -211,8 +211,8 @@ public:
 			case 2:		return *this == (int)v;
 			case 3:		return *this == (double)v;
 			case 4:		return *this == (string)v;
-			case 5:		return v.type() == 5 && *this == (NodeRef)v;
-			case 6:		return v.type() == 6 && *this == (NodeArrayRef)v;
+			case 5:		return v.type() == 5 && *this == (NodeSP)v;
+			case 6:		return v.type() == 6 && *this == (NodeArraySP)v;
 			default:	return false;
 		}
 	}
@@ -229,7 +229,7 @@ public:
 			case 2:		return get<int>() == v.get<int>();
 			case 3:		return get<double>() == v.get<double>();
 			case 4:		return get<string>() == v.get<string>();
-			case 5:		return get<NodeRef>() == v.get<NodeRef>();
+			case 5:		return get<NodeSP>() == v.get<NodeSP>();
 			case 6:		return get<NodeArrayRef>() == v.get<NodeArrayRef>();
 			default:	return false;
 		}
