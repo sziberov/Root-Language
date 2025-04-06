@@ -22,11 +22,11 @@ class FunctionCandidate:
 
 class ResolveResult:
     def __init__(self):
-        self.overload_candidates: List[FunctionCandidate] = []
-        self.observer_candidate: Optional[FunctionCandidate] = None
+        self.overloads: List[FunctionCandidate] = []
+        self.observer: Optional[FunctionCandidate] = None
 
     def __repr__(self):
-        return f"ResolveResult(candidates={self.overload_candidates}, observer={self.observer_candidate})"
+        return f"ResolveResult(candidates={self.overloads}, observer={self.observer})"
 
 
 # --- Класс для пространства имён (namespace) ---
@@ -51,12 +51,6 @@ class Namespace:
     def get_overloads(self, identifier: str) -> List[FunctionCandidate]:
         return self.functions.get(identifier, [])
 
-    def has_observer(self) -> bool:
-        return self.observer is not None
-
-    def get_observer(self) -> Optional[FunctionCandidate]:
-        return self.observer
-
     def set_observer(self, candidate: FunctionCandidate):
         self.observer = candidate
 
@@ -66,65 +60,53 @@ class Namespace:
 
 # --- Функция разрешения имён (резолюция) ---
 
-VisitedEntry = Dict[str, bool]  # ключи: 'sub', 'Sub', 'super', 'Super', 'scope'
+def resolve_wide(namespace: Namespace, identifier: str, chain_mode: Optional[str] = None, visited: Optional[Dict[Namespace, Dict[str, bool]]] = None) -> ResolveResult:
+    coordinating = chain_mode is None
 
-def resolve_wide(namespace: Namespace, identifier: str,
-                 visited: Optional[Dict[Namespace, VisitedEntry]] = None) -> ResolveResult:
     if visited is None:
         visited = {}
-    if namespace not in visited:
-        visited[namespace] = {'sub': False, 'Sub': False, 'super': False, 'Super': False, 'scope': False}
+
+    if not coordinating:
+        if namespace in visited:
+            if visited[namespace][chain_mode]:
+                return ResolveResult()
+
+            visited[namespace][chain_mode] = True
+        else:
+            visited[namespace] = {mode: False for mode in ('sub', 'Sub', 'self', 'Self', 'super', 'Super', 'scope')}
 
     result = ResolveResult()
+    result.overloads += namespace.get_overloads(identifier)
+    virtual = [c for c in result.overloads if c.is_virtual]
 
-    local_candidates = namespace.get_overloads(identifier)
-    virtual_candidates = [c for c in local_candidates if c.is_virtual]
-    result.overload_candidates.extend(local_candidates)
+    for mode in ('Sub', 'sub', None, 'self', 'super', 'Self', 'Super', 'scope'):
+        if mode is None:
+            if namespace.observer is not None:
+                result.observer = namespace.observer
 
-    if virtual_candidates:
-        if namespace.sub is not None and not visited[namespace].get('sub', False):
-            visited[namespace]['sub'] = True
-            sub_result = resolve_wide(namespace.sub, identifier, visited)
-            result.overload_candidates = sub_result.overload_candidates + result.overload_candidates
-            if sub_result.observer_candidate is not None:
-                result.observer_candidate = sub_result.observer_candidate
                 return result
+        else:
+            descend = mode in ('Sub', 'sub')
+            descendable = not descend or virtual
+            local = mode in ('self', 'Self')
+            localable = not local or chain_mode is None
+            ordered = chain_mode is None or chain_mode == mode
 
-        if namespace.Sub is not None and not visited[namespace].get('Sub', False):
-            visited[namespace]['Sub'] = True
-            Sub_result = resolve_wide(namespace.Sub, identifier, visited)
-            result.overload_candidates = Sub_result.overload_candidates + result.overload_candidates
-            if Sub_result.observer_candidate is not None:
-                result.observer_candidate = Sub_result.observer_candidate
-                return result
+            if descendable and ordered and localable:
+                chained_namespace = getattr(namespace, mode, None)
+                if chained_namespace is not None:
+                    chained_result = resolve_wide(chained_namespace, identifier, mode, visited)
 
-    if namespace.has_observer():
-        result.observer_candidate = namespace.get_observer()
-        return result
+                    result.overloads = (
+                        chained_result.overloads+result.overloads
+                        if mode in ('Sub', 'sub') else
+                        result.overloads+chained_result.overloads
+                    )
 
-    if namespace.super is not None and not visited[namespace].get('super', False):
-        visited[namespace]['super'] = True
-        super_result = resolve_wide(namespace.super, identifier, visited)
-        result.overload_candidates.extend(super_result.overload_candidates)
-        if super_result.observer_candidate is not None:
-            result.observer_candidate = super_result.observer_candidate
-            return result
+                    if chained_result.observer is not None:
+                        result.observer = chained_result.observer
 
-    if namespace.Super is not None and not visited[namespace].get('Super', False):
-        visited[namespace]['Super'] = True
-        Super_result = resolve_wide(namespace.Super, identifier, visited)
-        result.overload_candidates.extend(Super_result.overload_candidates)
-        if Super_result.observer_candidate is not None:
-            result.observer_candidate = Super_result.observer_candidate
-            return result
-
-    if namespace.scope is not None and not visited[namespace].get('scope', False):
-        visited[namespace]['scope'] = True
-        scope_result = resolve_wide(namespace.scope, identifier, visited)
-        result.overload_candidates.extend(scope_result.overload_candidates)
-        if scope_result.observer_candidate is not None:
-            result.observer_candidate = scope_result.observer_candidate
-            return result
+                        return result
 
     return result
 
@@ -138,11 +120,14 @@ def select_best_candidate(candidates: List[FunctionCandidate], arg_types: List[s
 
 def resolve_call(namespace: Namespace, identifier: str, arg_types: List[str]) -> FunctionCandidate:
     result = resolve_wide(namespace, identifier)
-    candidate = select_best_candidate(result.overload_candidates, arg_types)
+    print()
+    for i, candidate in enumerate(result.overloads):
+        print(repr(i)+': '+repr(candidate)+', ')
+    candidate = select_best_candidate(result.overloads, arg_types)
     if candidate is not None:
         return candidate
-    if result.observer_candidate is not None:
-        return result.observer_candidate
+    if result.observer is not None:
+        return result.observer
     raise Exception("Перегрузки не найдены или ни один кандидат не прошёл ранжирование")
 
 
@@ -171,7 +156,60 @@ def call_function(namespace: Namespace, identifier: str, *args):
         print("Ошибка:", e)
 
 
-# --- Тестовая структура A ---
+# namespace Global {
+#     func test(a: bool) { print('zero') }
+#
+#     namespace A {
+#         chain {
+#             get { print('third') }
+#         }
+#
+#         func test(a: array) { print('fifth') }
+#
+#         namespace B {
+#             func test(a: int) { print('first') }
+#             func test(a: string) { print('second') }
+#         }
+#     }
+#
+#     namespace C: A {
+#         func test(a: int) { print('forth') }
+#     }
+# }
+#
+# // Global.scope == nil
+# // A.scope == Global
+# // B.scope == A
+# // C.scope == Global
+#
+# // Global.Super == nil
+# // A.Super == nil
+# // B.Super == nil
+# // C.Super == A
+#
+# Global.test(123) // ошибка - единственная перегрузка провалилась в ранжировании
+# Global.test('abc') // ошибка - единственная перегрузка провалилась в ранжировании
+# Global.test(true) // zero - победила в ранжировании
+# Global.test([]) // ошибка - единственная перегрузка провалилась в ранжировании
+# Global.test2 // ошибка - перегрузки не найдены
+#
+# A.test(123) // third - единственная перегрузка провалилась в ранжировании, наблюдатель перехватил запрос
+# A.test('abc') // third - единственная перегрузка провалилась в ранжировании, наблюдатель перехватил запрос
+# A.test(true) // third - единственная перегрузка провалилась в ранжировании, наблюдатель перехватил запрос
+# A.test([]) // fifth - победила в ранжировании
+# A.test2 // third - перегрузки не найдены, наблюдатель перехватил запрос
+#
+# B.test(123) // first - победила в ранжировании
+# B.test('abc') // second - победила в ранжировании
+# B.test(true) // third - три перегрузки провалились в ранжировании, наблюдатель перехватил запрос
+# B.test([]) // fifth - победила в ранжировании
+# B.test2 // third - перегрузки не найдены, наблюдатель перехватил запрос
+#
+# С.test(123) // forth - победила в ранжировании
+# C.test('abc') // third - обе перегрузки провалились в ранжировании, наблюдатель перехватил запрос
+# С.test(true) // third - обе перегрузки провалились в ранжировании, наблюдатель перехватил запрос
+# C.test([]) // fifth - победила в ранжировании
+# С.test2 // third - перегрузки не найдены, наблюдатель перехватил запрос
 
 # Создаем пространства имён
 Global = Namespace("Global")
@@ -259,7 +297,26 @@ call_function(C_ns, "test", [])            # array => fifth (из A)
 print("C.test2:", end=" ")
 call_function(C_ns, "test2")               # перегрузок нет => наблюдатель => third
 
-# --- Тестовая структура B (виртуальные перегрузки) ---
+# namespace A {
+#     virtual test() { print('first') }
+# }
+#
+# namespace B: A {
+#     virtual test() { print('second') }
+# }
+#
+# namespace C: B {
+#     test() { print('third') }
+# }
+#
+# namespace D: C {
+#     test() { print('forth') }
+# }
+#
+# A.test() // third
+# B.test() // third
+# C.test() // third
+# D.test() // forth
 
 # Здесь мы моделируем цепочку наследования с виртуальными методами.
 # Для упрощения создадим новые пространства имён.
@@ -298,3 +355,48 @@ print("C_v.test():", end=" ")
 call_function(C_v, "test")   # Ожидается "third"
 print("D_v.test():", end=" ")
 call_function(D_v, "test")   # Ожидается "forth"
+
+# namespace Global {
+#     func test(a: bool) { print("first") }
+#
+#     namespace A {
+#         func test(a: int) { print("second") }
+#
+#         namespace C {}
+#
+#         namespace B: C {
+#             func test(a: string) { print("third") }
+#         }
+#     }
+# }
+#
+# B.test(true) // first
+# B.test(123) // second
+# B.test('hello') // third
+# B.test([]) // ошибка
+
+Global = Namespace('Global')
+A = Namespace('A')
+B = Namespace('B')
+C = Namespace('C')
+
+B.Super = C
+
+A.scope = Global
+B.scope = A
+C.scope = A
+
+# Добавление функций
+Global.add_function(FunctionCandidate('test', ['bool'], lambda _: print("first")))
+A.add_function(FunctionCandidate('test', ['int'], lambda _: print("second")))
+B.add_function(FunctionCandidate('test', ['string'], lambda _: print("third")))
+
+print("\n=== Структура C ===")
+print("B.test(true) →", end=' ')
+call_function(B, 'test', True)  # Должно быть "first"
+print("B.test(123) →", end=' ')
+call_function(B, 'test', 123)  # Должно быть "second"
+print("B.test('hello') →", end=' ')
+call_function(B, 'test', 'hello')  # Должно быть "third"
+print("B.test([]) →", end=' ')
+call_function(B, 'test', [])  # Должно быть "ошибка"

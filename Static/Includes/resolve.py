@@ -22,11 +22,11 @@ class FunctionCandidate:
 
 class ResolveResult:
     def __init__(self):
-        self.overload_candidates: List[FunctionCandidate] = []
-        self.observer_candidate: Optional[FunctionCandidate] = None
+        self.overloads: List[FunctionCandidate] = []
+        self.observer: Optional[FunctionCandidate] = None
 
     def __repr__(self):
-        return f"ResolveResult(candidates={self.overload_candidates}, observer={self.observer_candidate})"
+        return f"ResolveResult(candidates={self.overloads}, observer={self.observer})"
 
 
 # --- Класс для пространства имён (namespace) ---
@@ -51,12 +51,6 @@ class Namespace:
     def get_overloads(self, identifier: str) -> List[FunctionCandidate]:
         return self.functions.get(identifier, [])
 
-    def has_observer(self) -> bool:
-        return self.observer is not None
-
-    def get_observer(self) -> Optional[FunctionCandidate]:
-        return self.observer
-
     def set_observer(self, candidate: FunctionCandidate):
         self.observer = candidate
 
@@ -66,69 +60,58 @@ class Namespace:
 
 # --- Функция разрешения имён (резолюция) ---
 
-def resolve_wide(namespace: Namespace, identifier: str, visited=None) -> ResolveResult:
+def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = None, visited: Optional[Dict[Namespace, Dict[str, bool]]] = None) -> ResolveResult:
+    coordinating = chain_mode is None
+
     if visited is None:
-        visited = set()
-    if namespace in visited:
-        print(namespace.name+" visited")
-        return ResolveResult()  # предотвращаем циклы
-    else:
-        print(namespace.name+" not visited")
+        visited = {}
 
-    visited.add(namespace)
+    if not coordinating:
+        if chain_mode in ('self', 'Self'):
+            return ResolveResult()
+        if namespace in visited:
+            if visited[namespace][chain_mode]:
+                return ResolveResult()
 
-    print('start: '+namespace.name)
+            visited[namespace][chain_mode] = True
+        else:
+            visited[namespace] = {mode: False for mode in ('sub', 'Sub', 'self', 'Self', 'super', 'Super', 'scope')}
+
     result = ResolveResult()
+    local_overloads = namespace.get_overloads(identifier)
+    virtual = [c for c in local_overloads if c.is_virtual]
+    modes = [None]
 
-    local_candidates = namespace.get_overloads(identifier)
-    virtual_candidates = [c for c in local_candidates if c.is_virtual]
-    result.overload_candidates.extend(local_candidates)
+    if coordinating:
+        modes += ['self', 'super', 'Self', 'Super', 'scope']
+        if virtual:
+            modes = ['Sub', 'sub']+modes
+    elif not chain_mode in ('Sub', 'sub') or virtual:
+        modes += [chain_mode]
 
-    if virtual_candidates:
-        if namespace.Sub is not None:
-            print(namespace.name+".Sub")
-            Sub_result = resolve_wide(namespace.Sub, identifier, visited)
-            result.overload_candidates = Sub_result.overload_candidates + result.overload_candidates
-            if Sub_result.observer_candidate is not None:
-                result.observer_candidate = Sub_result.observer_candidate
+    for mode in modes:
+        if mode is None:
+            result.overloads += local_overloads
+
+            if namespace.observer is not None:
+                result.observer = namespace.observer
+
                 return result
+        else:
+            chained_namespace = getattr(namespace, mode, None)
+            if chained_namespace is not None:
+                chained_result = resolve(chained_namespace, identifier, mode, visited)
 
-        if namespace.sub is not None:
-            print(namespace.name+".sub")
-            sub_result = resolve_wide(namespace.sub, identifier, visited)
-            result.overload_candidates = sub_result.overload_candidates + result.overload_candidates
-            if sub_result.observer_candidate is not None:
-                result.observer_candidate = sub_result.observer_candidate
-                return result
+                result.overloads = (
+                    chained_result.overloads+result.overloads
+                    if mode in ('Sub', 'sub') else
+                    result.overloads+chained_result.overloads
+                )
 
-    if namespace.has_observer():
-        result.observer_candidate = namespace.get_observer()
-        return result
+                if chained_result.observer is not None:
+                    result.observer = chained_result.observer
 
-    if namespace.super is not None:
-        print(namespace.name+".super")
-        super_result = resolve_wide(namespace.super, identifier, visited)
-        result.overload_candidates.extend(super_result.overload_candidates)
-        if super_result.observer_candidate is not None:
-            result.observer_candidate = super_result.observer_candidate
-            return result
-
-    if namespace.Super is not None:
-        print(namespace.name+".Super")
-        Super_result = resolve_wide(namespace.Super, identifier, visited)
-        result.overload_candidates.extend(Super_result.overload_candidates)
-        if Super_result.observer_candidate is not None:
-            result.observer_candidate = Super_result.observer_candidate
-            return result
-
-    if namespace.scope is not None:
-        print(namespace.name+".scope")
-        scope_result = resolve_wide(namespace.scope, identifier, visited)
-        result.overload_candidates.extend(scope_result.overload_candidates)
-        if scope_result.observer_candidate is not None:
-            result.observer_candidate = scope_result.observer_candidate
-            return result
-    print('end: '+namespace.name)
+                    return result
 
     return result
 
@@ -141,12 +124,15 @@ def select_best_candidate(candidates: List[FunctionCandidate], arg_types: List[s
 
 
 def resolve_call(namespace: Namespace, identifier: str, arg_types: List[str]) -> FunctionCandidate:
-    result = resolve_wide(namespace, identifier)
-    candidate = select_best_candidate(result.overload_candidates, arg_types)
+    result = resolve(namespace, identifier)
+    print()
+    for i, candidate in enumerate(result.overloads):
+        print(repr(i)+': '+repr(candidate)+', ')
+    candidate = select_best_candidate(result.overloads, arg_types)
     if candidate is not None:
         return candidate
-    if result.observer_candidate is not None:
-        return result.observer_candidate
+    if result.observer is not None:
+        return result.observer
     raise Exception("Перегрузки не найдены или ни один кандидат не прошёл ранжирование")
 
 
@@ -399,6 +385,11 @@ A = Namespace('A')
 B = Namespace('B')
 C = Namespace('C')
 
+Global.Self = Global
+A.Self = A
+B.Self = B
+C.Self = C
+
 B.Super = C
 
 A.scope = Global
@@ -410,14 +401,12 @@ Global.add_function(FunctionCandidate('test', ['bool'], lambda _: print("first")
 A.add_function(FunctionCandidate('test', ['int'], lambda _: print("second")))
 B.add_function(FunctionCandidate('test', ['string'], lambda _: print("third")))
 
+print("\n=== Структура C ===")
 print("B.test(true) →", end=' ')
 call_function(B, 'test', True)  # Должно быть "first"
-
 print("B.test(123) →", end=' ')
 call_function(B, 'test', 123)  # Должно быть "second"
-
 print("B.test('hello') →", end=' ')
 call_function(B, 'test', 'hello')  # Должно быть "third"
-
 print("B.test([]) →", end=' ')
 call_function(B, 'test', [])  # Должно быть "ошибка"
