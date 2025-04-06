@@ -1,0 +1,300 @@
+from typing import List, Optional, Any, Callable, Dict
+
+
+# --- Классы для кандидатов и результатов разрешения ---
+
+class FunctionCandidate:
+    def __init__(self, identifier: str, param_types: List[str],
+                 func: Callable[..., None], is_virtual: bool = False):
+        self.identifier = identifier
+        self.param_types = param_types  # например, ["int"], ["bool"], [] для методов без параметров
+        self.func = func
+        self.is_virtual = is_virtual
+
+    def matches(self, arg_types: List[str]) -> bool:
+        # Простое сравнение списков типов
+        return self.param_types == arg_types
+
+    def __repr__(self):
+        virt = "virtual " if self.is_virtual else ""
+        return f"<{virt}{self.identifier}{self.param_types}>"
+
+
+class ResolveResult:
+    def __init__(self):
+        self.overload_candidates: List[FunctionCandidate] = []
+        self.observer_candidate: Optional[FunctionCandidate] = None
+
+    def __repr__(self):
+        return f"ResolveResult(candidates={self.overload_candidates}, observer={self.observer_candidate})"
+
+
+# --- Класс для пространства имён (namespace) ---
+
+class Namespace:
+    def __init__(self, name: str):
+        self.name = name
+        # Перегрузки для каждого идентификатора: identifier -> List[FunctionCandidate]
+        self.functions: Dict[str, List[FunctionCandidate]] = {}
+        # Наблюдатель для данного пространства имён (если задан)
+        self.observer: Optional[FunctionCandidate] = None
+        # Связи для цепочки объектов и цепочки классов (а также суперконтекст и scope)
+        self.sub: Optional['Namespace'] = None     # объектная цепочка – для методов экземпляра
+        self.Sub: Optional['Namespace'] = None       # цепочка классов (downwards для виртуальных)
+        self.super: Optional['Namespace'] = None     # объектная цепочка вверх
+        self.Super: Optional['Namespace'] = None     # цепочка классов вверх (наследование)
+        self.scope: Optional['Namespace'] = None       # область видимости
+
+    def add_function(self, candidate: FunctionCandidate):
+        self.functions.setdefault(candidate.identifier, []).append(candidate)
+
+    def get_overloads(self, identifier: str) -> List[FunctionCandidate]:
+        return self.functions.get(identifier, [])
+
+    def has_observer(self) -> bool:
+        return self.observer is not None
+
+    def get_observer(self) -> Optional[FunctionCandidate]:
+        return self.observer
+
+    def set_observer(self, candidate: FunctionCandidate):
+        self.observer = candidate
+
+    def __repr__(self):
+        return f"<Namespace {self.name}>"
+
+
+# --- Функция разрешения имён (резолюция) ---
+
+VisitedEntry = Dict[str, bool]  # ключи: 'sub', 'Sub', 'super', 'Super', 'scope'
+
+def resolve_wide(namespace: Namespace, identifier: str,
+                 visited: Optional[Dict[Namespace, VisitedEntry]] = None) -> ResolveResult:
+    if visited is None:
+        visited = {}
+    if namespace not in visited:
+        visited[namespace] = {'sub': False, 'Sub': False, 'super': False, 'Super': False, 'scope': False}
+
+    result = ResolveResult()
+
+    local_candidates = namespace.get_overloads(identifier)
+    virtual_candidates = [c for c in local_candidates if c.is_virtual]
+    result.overload_candidates.extend(local_candidates)
+
+    if virtual_candidates:
+        if namespace.sub is not None and not visited[namespace].get('sub', False):
+            visited[namespace]['sub'] = True
+            sub_result = resolve_wide(namespace.sub, identifier, visited)
+            result.overload_candidates = sub_result.overload_candidates + result.overload_candidates
+            if sub_result.observer_candidate is not None:
+                result.observer_candidate = sub_result.observer_candidate
+                return result
+
+        if namespace.Sub is not None and not visited[namespace].get('Sub', False):
+            visited[namespace]['Sub'] = True
+            Sub_result = resolve_wide(namespace.Sub, identifier, visited)
+            result.overload_candidates = Sub_result.overload_candidates + result.overload_candidates
+            if Sub_result.observer_candidate is not None:
+                result.observer_candidate = Sub_result.observer_candidate
+                return result
+
+    if namespace.has_observer():
+        result.observer_candidate = namespace.get_observer()
+        return result
+
+    if namespace.super is not None and not visited[namespace].get('super', False):
+        visited[namespace]['super'] = True
+        super_result = resolve_wide(namespace.super, identifier, visited)
+        result.overload_candidates.extend(super_result.overload_candidates)
+        if super_result.observer_candidate is not None:
+            result.observer_candidate = super_result.observer_candidate
+            return result
+
+    if namespace.Super is not None and not visited[namespace].get('Super', False):
+        visited[namespace]['Super'] = True
+        Super_result = resolve_wide(namespace.Super, identifier, visited)
+        result.overload_candidates.extend(Super_result.overload_candidates)
+        if Super_result.observer_candidate is not None:
+            result.observer_candidate = Super_result.observer_candidate
+            return result
+
+    if namespace.scope is not None and not visited[namespace].get('scope', False):
+        visited[namespace]['scope'] = True
+        scope_result = resolve_wide(namespace.scope, identifier, visited)
+        result.overload_candidates.extend(scope_result.overload_candidates)
+        if scope_result.observer_candidate is not None:
+            result.observer_candidate = scope_result.observer_candidate
+            return result
+
+    return result
+
+def select_best_candidate(candidates: List[FunctionCandidate], arg_types: List[str]) -> Optional[FunctionCandidate]:
+    # Выбираем первый кандидат, для которого типы аргументов точно совпадают.
+    for cand in candidates:
+        if cand.matches(arg_types):
+            return cand
+    return None
+
+
+def resolve_call(namespace: Namespace, identifier: str, arg_types: List[str]) -> FunctionCandidate:
+    result = resolve_wide(namespace, identifier)
+    candidate = select_best_candidate(result.overload_candidates, arg_types)
+    if candidate is not None:
+        return candidate
+    if result.observer_candidate is not None:
+        return result.observer_candidate
+    raise Exception("Перегрузки не найдены или ни один кандидат не прошёл ранжирование")
+
+
+# --- Утилита для определения строкового представления типа аргумента ---
+
+def type_str(arg: Any) -> str:
+    if isinstance(arg, bool):
+        return "bool"
+    elif isinstance(arg, int):
+        return "int"
+    elif isinstance(arg, str):
+        return "string"
+    elif isinstance(arg, list):
+        return "array"
+    else:
+        return type(arg).__name__
+
+
+def call_function(namespace: Namespace, identifier: str, *args):
+    arg_types = [type_str(arg) for arg in args]
+    try:
+        candidate = resolve_call(namespace, identifier, arg_types)
+        # Вызываем функцию кандидата (печатаем то, что печатается в теле)
+        candidate.func(*args)
+    except Exception as e:
+        print("Ошибка:", e)
+
+
+# --- Тестовая структура A ---
+
+# Создаем пространства имён
+Global = Namespace("Global")
+A_ns = Namespace("A")
+B_ns = Namespace("B")
+C_ns = Namespace("C")
+
+# Связываем области видимости и наследования для структуры A:
+# Global.scope == None
+A_ns.scope = Global
+B_ns.scope = A_ns
+C_ns.scope = Global
+
+# Super (наследование)
+Global.Super = None
+A_ns.Super = None
+B_ns.Super = None
+C_ns.Super = A_ns
+
+# Для простоты не задаем object chain: sub и super остаются None.
+# Но для цепочки классов (downwards для виртуальных) можно задать Sub, если потребуется.
+# Здесь для структуры A виртуальных методов нет.
+
+# Добавляем функции в Global
+Global.add_function(FunctionCandidate("test", ["bool"], lambda a: print("zero")))
+# Наблюдателей в Global нет.
+
+# В A: устанавливаем наблюдатель (общий для пространства)
+A_ns.set_observer(FunctionCandidate("test_observer", [], lambda: print("third")))
+# Добавляем перегрузку test(a: array) => "fifth"
+A_ns.add_function(FunctionCandidate("test", ["array"], lambda a: print("fifth")))
+
+# В B (вложено в A)
+B_ns.add_function(FunctionCandidate("test", ["int"], lambda a: print("first")))
+B_ns.add_function(FunctionCandidate("test", ["string"], lambda a: print("second")))
+
+# В C (наследует от A)
+C_ns.add_function(FunctionCandidate("test", ["int"], lambda a: print("forth")))
+
+print("=== Структура A ===")
+print("Global.test(123):", end=" ")
+call_function(Global, "test", 123)      # 123 -> "int" -> не проходит тест "bool" => ошибка
+print("Global.test('abc'):", end=" ")
+call_function(Global, "test", "abc")      # "abc" -> "string" => ошибка
+print("Global.test(True):", end=" ")
+call_function(Global, "test", True)       # True -> "bool" => zero
+print("Global.test([]):", end=" ")
+call_function(Global, "test", [])         # [] -> "array" => Global не содержит array, ошибка
+print("Global.test2:", end=" ")
+try:
+    call_function(Global, "test2")         # нет перегрузок => ошибка
+except Exception as e:
+    print("Ошибка:", e)
+
+print("A.test(123):", end=" ")
+call_function(A_ns, "test", 123)          # int не проходит array, поэтому срабатывает наблюдатель => third
+print("A.test('abc'):", end=" ")
+call_function(A_ns, "test", "abc")          # наблюдатель => third
+print("A.test(True):", end=" ")
+call_function(A_ns, "test", True)           # наблюдатель => third
+print("A.test([]):", end=" ")
+call_function(A_ns, "test", [])            # array проходит перегрузку => fifth
+print("A.test2:", end=" ")
+call_function(A_ns, "test2")               # нет перегрузок, наблюдатель срабатывает => third
+
+print("B.test(123):", end=" ")
+call_function(B_ns, "test", 123)           # int => first
+print("B.test('abc'):", end=" ")
+call_function(B_ns, "test", "abc")         # string => second
+print("B.test(True):", end=" ")
+call_function(B_ns, "test", True)          # ни один не проходит => перейдет наблюдатель из A (scope B.scope == A) => third
+print("B.test([]):", end=" ")
+call_function(B_ns, "test", [])            # array => fifth (найден в A)
+print("B.test2:", end=" ")
+call_function(B_ns, "test2")               # перегрузок нет => наблюдатель A => third
+
+print("C.test(123):", end=" ")
+call_function(C_ns, "test", 123)           # int => forth (локальная перегрузка в C)
+print("C.test('abc'):", end=" ")
+call_function(C_ns, "test", "abc")         # string => ни одна не проходит, наблюдатель из A (потому что C.Super==A) => third
+print("C.test(True):", end=" ")
+call_function(C_ns, "test", True)          # наблюдатель => third
+print("C.test([]):", end=" ")
+call_function(C_ns, "test", [])            # array => fifth (из A)
+print("C.test2:", end=" ")
+call_function(C_ns, "test2")               # перегрузок нет => наблюдатель => third
+
+# --- Тестовая структура B (виртуальные перегрузки) ---
+
+# Здесь мы моделируем цепочку наследования с виртуальными методами.
+# Для упрощения создадим новые пространства имён.
+A_v = Namespace("A_v")
+B_v = Namespace("B_v")
+C_v = Namespace("C_v")
+D_v = Namespace("D_v")
+
+# Устанавливаем область видимости – здесь можно не задавать scope, т.к. вызовы идут непосредственно по цепочке классов.
+# Устанавливаем цепочку наследования:
+A_v.Sub = B_v   # A_v → B_v
+B_v.Sub = C_v   # B_v → C_v
+C_v.Sub = D_v   # C_v → D_v
+D_v.Sub = None
+
+# Для наследования вверх (Super) можно задать обратную связь, если потребуется:
+B_v.Super = A_v
+C_v.Super = B_v
+D_v.Super = C_v
+
+# В A_v добавляем виртуальный test() => "first"
+A_v.add_function(FunctionCandidate("test", [], lambda: print("first"), is_virtual=True))
+# В B_v – виртуальный test() => "second"
+B_v.add_function(FunctionCandidate("test", [], lambda: print("second"), is_virtual=True))
+# В C_v – обычный (не виртуальный) test() => "third"
+C_v.add_function(FunctionCandidate("test", [], lambda: print("third")))
+# В D_v – обычный test() => "forth"
+D_v.add_function(FunctionCandidate("test", [], lambda: print("forth")))
+
+print("\n=== Структура B (виртуальные перегрузки) ===")
+print("A_v.test():", end=" ")
+call_function(A_v, "test")   # Ожидается "third"
+print("B_v.test():", end=" ")
+call_function(B_v, "test")   # Ожидается "third"
+print("C_v.test():", end=" ")
+call_function(C_v, "test")   # Ожидается "third"
+print("D_v.test():", end=" ")
+call_function(D_v, "test")   # Ожидается "forth"

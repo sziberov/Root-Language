@@ -616,7 +616,7 @@ namespace Interpreter {
 		// Examine the idea of concrete types access through members (as a kind of proxy).
 		// In theory, this will make whole observing mechanism straight-forward:
 		// - Members can track if contained value is changed and call observers when needed.
-		// - Also they can track if value's type is changed and give an error if doesn't conform to expected type.
+		// - Also they can track if value's type is changed and give an error if doesn't conform to accepting type.
 		// Calling concrete type operators may be somewhat transparent, where using "outer" operator will internally recall "inner" and observe for any changes simultaneously.
 		// Direct calls are also possible in case of literals mutation, but should be prohibited when accessing members.
 		// Although (!) this still does not provide solution for automatic member notification about composites deinitialization.
@@ -755,13 +755,13 @@ namespace Interpreter {
 				key && !key->conformsTo(keyType) ||
 				!key && !PredefinedEVoidTypeSP->conformsTo(keyType)
 			) {
-				throw invalid_argument("'"+to_string(key)+"' does not conform to expected key type '"+keyType->toString()+"'");
+				throw invalid_argument("'"+to_string(key)+"' does not conform to accepting key type '"+keyType->toString()+"'");
 			}
 			if(
 				value && !value->conformsTo(valueType) ||
 				!value && !PredefinedEVoidTypeSP->conformsTo(valueType)
 			) {
-				throw invalid_argument("'"+to_string(value)+"' does not conform to expected value type '"+valueType->toString()+"'");
+				throw invalid_argument("'"+to_string(value)+"' does not conform to accepting value type '"+valueType->toString()+"'");
 			}
 
 			if(!replace) {
@@ -1441,17 +1441,17 @@ namespace Interpreter {
 		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
 		 *   lowest index in the list (first found, if range is equal).
 		 */
-		optional<OverloadCandidate> matchOverload(OverloadSearch& search, TypeSP matching = nullptr, AccessMode mode = AccessMode::Get) {
+		optional<OverloadCandidate> matchOverload(OverloadSearch& search, TypeSP accepting = nullptr, AccessMode mode = AccessMode::Get) {
 			if(!search.size()) {
 				return nullopt;
 			}
-			if(!matching) {
+			if(!accepting) {
 				return *search.begin();
 			}
 
 			for(auto it = search.begin(); it != search.end();) {
 				auto node = search.extract(it++);
-				node.value().rank = matching->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
+				node.value().rank = accepting->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
 				search.insert(move(node));												// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
 			}
 
@@ -1462,14 +1462,85 @@ namespace Interpreter {
 		 * Looking for member overloads directly in a member.
 		 */
 		bool findOverloadsInMember(const string& identifier, OverloadSearch& search) {
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			bool found;
 
 			if(auto member = getMember(identifier)) {
+				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+
 				for(auto& overload : member->get()) {
 					if(search.insert(OverloadCandidate(search.size(), composite, overload)).second) {
-						return true;
+						found = true;
 					}
 				}
+			}
+
+			return found;
+		}
+
+		bool findOverloadsInPseudovariables(const string& identifier, OverloadSearch& search) {
+			auto hierarchy = this->hierarchy;
+
+			hierarchy.erase("scope");						// Only object and inheritance chains
+			hierarchy.emplace("Global", getComposite(0));	// Global-type
+		//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+		//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
+
+			if(hierarchy.count(identifier)) {
+				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+				auto overload = SP<Overload>(
+					Overload::Modifiers { .final = true },
+					PredefinedCAnyTypeSP,
+					hierarchy[identifier]
+				);
+
+				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
+			}
+
+			return false;
+		}
+
+		bool findOverloadsInImports(const string& identifier, OverloadSearch& search) {
+			if(isNamespace() && imports.count(identifier)) {
+				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+				auto overload = SP<Overload>(
+					Overload::Modifiers { .final = true },
+					PredefinedCAnyTypeSP,
+					imports[identifier]
+				);
+
+				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
+			}
+			/*
+			TODO:
+			Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain / scope chain).
+			If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
+
+			else
+			for(auto& [identifier, composite] : imports) {
+				if(found = search->insert(composite->findOverload(identifier, PredefinedEAnyTypeSP)).second) {
+					break;
+				}
+			}
+			*/
+
+			return false;
+		}
+
+		bool findOverloadsInObservers(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
+			if(
+				mode == AccessMode::Get && observers.get ||
+				mode == AccessMode::Set && observers.set ||
+				mode == AccessMode::Delete && observers.delete_
+			) {
+				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+				auto overload = SP<Overload>(
+					Overload::Modifiers { .final = true },
+					SP<NillableType>(PredefinedEAnyTypeSP),
+					nullptr,
+					observers
+				);
+
+				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
 			}
 
 			return false;
@@ -1485,67 +1556,11 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		void findOverloadsInComposite(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
-			if(findOverloadsInMember(identifier, search)) {
-				return;
-			}
-
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			bool generated;
-
-			if(!generated) {
-				auto hierarchy = this->hierarchy;
-
-				hierarchy.erase("scope");						// Only object and inheritance chains
-				hierarchy.emplace("Global", getComposite(0));	// Global-type
-			//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
-			//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
-
-				if(hierarchy.count(identifier)) {
-					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
-						Overload::Modifiers { .final = true },
-						PredefinedCAnyTypeSP,
-						hierarchy[identifier]
-					), generated = true));
-				}
-			}
-
-			if(!generated && isNamespace()) {
-				if(imports.count(identifier)) {
-					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
-						Overload::Modifiers { .final = true },
-						PredefinedCAnyTypeSP,
-						imports[identifier]
-					), generated = true));
-				}
-				/*
-				TODO:
-				Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain / scope chain).
-				If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
-
-				else
-				for(auto& [identifier, composite] : imports) {
-					if(found = search->insert(composite->findOverload(identifier, PredefinedEAnyTypeSP)).second) {
-						break;
-					}
-				}
-				*/
-			}
-
-			if(!generated) {
-				if(
-					mode == AccessMode::Get && observers.get ||
-					mode == AccessMode::Set && observers.set ||
-					mode == AccessMode::Delete && observers.delete_
-				) {
-					search.insert(OverloadCandidate(search.size(), composite, SP<Overload>(
-						Overload::Modifiers { .final = true },
-						SP<NillableType>(PredefinedEAnyTypeSP),
-						nullptr,
-						observers
-					), generated = true));
-				}
-			}
+		bool findOverloadsInComposite(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
+			return findOverloadsInMember(identifier, search) ||
+				   findOverloadsInPseudovariables(identifier, search) ||
+				   findOverloadsInImports(identifier, search) ||
+				   findOverloadsInObservers(identifier, search, mode);
 		}
 
 		/**
@@ -1568,7 +1583,7 @@ namespace Interpreter {
 					continue;
 				}
 
-				auto overload = object->getOverload(identifier, matching);
+				auto overload = object->getOverload(identifier, accepting);
 
 				if(overload) {
 					if(!descended && overload->modifiers.virtual_) {
@@ -1613,7 +1628,7 @@ namespace Interpreter {
 					continue;
 				}
 
-				auto overload = composite->getOverload(identifier, matching);
+				auto overload = composite->getOverload(identifier, accepting);
 
 				if(overload) {
 					return OverloadCandidate(composite, overload);
@@ -1630,7 +1645,7 @@ namespace Interpreter {
 		 *
 		 * If search is internal, only first composite in chain will be checked.
 		 */
-		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP matching = nullptr, bool internal = false) {
+		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP accepting = nullptr, bool internal = false) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			while(composite) {
@@ -1640,7 +1655,7 @@ namespace Interpreter {
 				composite->findOverloadsInObjectChain(identifier, search);
 				composite->findOverloadsInInheritanceChain(identifier, search);
 
-				if(auto candidate = matchOverload(search, matching)) {
+				if(auto candidate = matchOverload(search, accepting)) {
 					return candidate;
 				}
 
@@ -1657,23 +1672,23 @@ namespace Interpreter {
 		/**
 		 * Not specifying "internal" means use of direct declaration without search.
 		 */
-		void setOverload(const string& identifier, Overload::Modifiers modifiers, TypeSP type, TypeSP value, TypeSP matching = nullptr, optional<bool> internal = nullopt) {
+		void setOverload(const string& identifier, Overload::Modifiers modifiers, TypeSP type, TypeSP value, TypeSP accepting = nullptr, optional<bool> internal = nullopt) {
 			type = type ?: SP<NillableType>(PredefinedEAnyTypeSP);
 
 			if(
 				value && !value->conformsTo(type) ||
 				!value && !PredefinedEVoidTypeSP->conformsTo(type)
 			) {
-				throw invalid_argument("Value '"+to_string(value)+"' does not conform to expected type '"+type->toString()+"'");
+				throw invalid_argument("Value '"+to_string(value)+"' does not conform to accepting type '"+type->toString()+"'");
 			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 			OverloadSP overload;
 
 			if(!internal) {
-				overload = getOverload(identifier, matching);
+				overload = getOverload(identifier, accepting);
 			} else
-			if(auto search = findOverload(identifier, matching, *internal); !search->generated) {
+			if(auto search = findOverload(identifier, accepting, *internal); !search->generated) {
 				composite = search->composite;
 				overload = search->overload;
 			}
@@ -1726,21 +1741,21 @@ namespace Interpreter {
 			AccessMode mode,
 			const string& identifier,
 			optional<vector<TypeSP>> arguments = nullopt,
-			TypeSP type = nullptr,  // Expected type if mode is Get
+			TypeSP type = nullptr,  // accepting type if mode is Get
 			TypeSP value = nullptr,
 			optional<bool> internal = nullopt
 		) {
-			TypeSP matches;
+			TypeSP accepting;
 
 			if(mode == AccessMode::Get) {
 				if(!arguments) {
-					matches = type;
+					accepting = type;
 				} else {
-					matches = SP<FunctionType>(vector<TypeSP>(), arguments, type, FunctionType::Modifiers());
+					accepting = SP<FunctionType>(vector<TypeSP>(), arguments, type, FunctionType::Modifiers());
 				}
 			} else
 			if(mode == AccessMode::Set) {
-				matches = value;
+				accepting = value;
 			}
 
 			optional<OverloadCandidate> candidate;
