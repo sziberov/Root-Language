@@ -60,34 +60,31 @@ class Namespace:
 
 # --- Функция разрешения имён (резолюция) ---
 
-def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = None, visited: Optional[Dict[Namespace, Dict[str, bool]]] = None) -> ResolveResult:
-    coordinating = chain_mode is None
-
+def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = None, visited: Optional[Dict[Namespace, Dict[Optional[str], bool]]] = None) -> ResolveResult:
     if visited is None:
         visited = {}
 
-    if not coordinating:
-        if chain_mode in ('self', 'Self'):
+    if namespace in visited:
+        if chain_mode in visited[namespace] and visited[namespace][chain_mode]:
             return ResolveResult()
-        if namespace in visited:
-            if visited[namespace][chain_mode]:
-                return ResolveResult()
-
-            visited[namespace][chain_mode] = True
         else:
-            visited[namespace] = {mode: False for mode in ('sub', 'Sub', 'self', 'Self', 'super', 'Super', 'scope')}
+            visited[namespace][chain_mode] = True
+    else:
+        visited[namespace] = {}
 
     result = ResolveResult()
     local_overloads = namespace.get_overloads(identifier)
     virtual = [c for c in local_overloads if c.is_virtual]
     modes = [None]
 
-    if coordinating:
-        modes += ['self', 'super', 'Self', 'Super', 'scope']
+    if chain_mode is None:
         if virtual:
-            modes = ['Sub', 'sub']+modes
-    elif not chain_mode in ('Sub', 'sub') or virtual:
-        modes += [chain_mode]
+            modes = ['Sub', 'sub']+modes  # Reversed lookup because of reversed addition
+
+        modes += ['self', 'super', 'Self', 'Super', 'scope']
+    else:
+        if not chain_mode in ('sub', 'Sub') or virtual:  # Sub/sub descend can only be continued if own virtual overloads exist
+            modes += [chain_mode]
 
     for mode in modes:
         if mode is None:
@@ -100,11 +97,16 @@ def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = N
         else:
             chained_namespace = getattr(namespace, mode, None)
             if chained_namespace is not None:
+                if chained_namespace == namespace:
+                    visited[namespace][mode] = True
+
+                    continue
+
                 chained_result = resolve(chained_namespace, identifier, mode, visited)
 
                 result.overloads = (
                     chained_result.overloads+result.overloads
-                    if mode in ('Sub', 'sub') else
+                    if mode in ('sub', 'Sub') else
                     result.overloads+chained_result.overloads
                 )
 

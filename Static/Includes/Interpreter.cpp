@@ -881,6 +881,7 @@ namespace Interpreter {
 					 protected_,
 					 public_,
 
+					 implicit,
 					 final,
 					 lazy,
 					 static_,
@@ -1214,7 +1215,7 @@ namespace Interpreter {
 		 */
 		bool retained() {
 			CompositeTypeSP retainingComposite,
-							 retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
+							retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
 			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
@@ -1224,9 +1225,13 @@ namespace Interpreter {
 			return false;
 		}
 
+		CompositeTypeSP getHierarchy(const string& mode) {
+			return hierarchy.contains(mode) ? hierarchy[mode] : nullptr;
+		}
+
 		void setHierarchy(const string& key, CompositeTypeSP value) {
 			CompositeTypeSP OV = hierarchy[key],  // Old/new value
-							 NV = hierarchy[key] = value;
+							NV = hierarchy[key] = value;
 
 			if(OV == NV) {
 				return;
@@ -1240,7 +1245,7 @@ namespace Interpreter {
 
 				while(composite) {
 					if(!composites.insert(composite).second) {
-						hierarchy[key] = OV;
+						hierarchy[key] = OV;  // TODO: Avoid accidental key creation
 
 						return;
 					}
@@ -1262,6 +1267,16 @@ namespace Interpreter {
 				release(move(keyNode.mapped()));
 
 				return true;
+			}
+
+			return false;
+		}
+
+		bool hierarchyRetains(CompositeTypeSP retainedComposite) {
+			for(const auto& [key, value] : hierarchy) {
+				if(value == retainedComposite) {
+					return true;
+				}
 			}
 
 			return false;
@@ -1333,7 +1348,7 @@ namespace Interpreter {
 
 			for(const auto& [key, value] : hierarchy) {
 				if(key != "scope") {
-					setHierarchy(key, inheritedComposite ? inheritedComposite->hierarchy[key] : nullptr);
+					setHierarchy(key, inheritedComposite ? inheritedComposite->getHierarchy(key) : nullptr);
 				}
 			}
 		}
@@ -1359,16 +1374,6 @@ namespace Interpreter {
 
 		void setScope(CompositeTypeSP scopeComposite) {
 			setHierarchy("scope", scopeComposite);
-		}
-
-		bool hierarchyRetains(CompositeTypeSP retainedComposite) {
-			for(const auto& [key, value] : hierarchy) {
-				if(value == retainedComposite) {
-					return true;
-				}
-			}
-
-			return false;
 		}
 
 		CompositeTypeSP getInheritedTypeComposite() {
@@ -1406,10 +1411,9 @@ namespace Interpreter {
 		}
 
 		struct OverloadCandidate {
-			usize ID;
+			isize ID;
 			CompositeTypeSP composite;
 			OverloadSP overload;
-			bool generated;
 			usize rank;
 
 			bool operator<(const OverloadCandidate& candidate) const {
@@ -1425,7 +1429,10 @@ namespace Interpreter {
 			}
 		};
 
-		using OverloadSearch = set<OverloadCandidate>;
+		struct OverloadSearch {
+			set<OverloadCandidate> candidates;
+			CompositeTypeSP observer;
+		};
 
 		enum class AccessMode : u8 {
 			Get,
@@ -1436,114 +1443,25 @@ namespace Interpreter {
 		/**
 		 * TODO:
 		 * - Rework acceptsA/conformsTo() to support ranged response: -1 == false, 0+ == count of an actions to find a conforming type (lower is better).
-		 * - Member overload search should collect all named overloads and only then try to get a match.
 		 * - Replace overload with overloads list and predicate with required type:
 		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
 		 *   lowest index in the list (first found, if range is equal).
 		 */
 		optional<OverloadCandidate> matchOverload(OverloadSearch& search, TypeSP accepting = nullptr, AccessMode mode = AccessMode::Get) {
-			if(!search.size()) {
+			if(!search.candidates.size()) {
 				return nullopt;
 			}
 			if(!accepting) {
-				return *search.begin();
+				return *search.candidates.begin();
 			}
 
-			for(auto it = search.begin(); it != search.end();) {
-				auto node = search.extract(it++);
+			for(auto it = search.candidates.begin(); it != search.candidates.end();) {
+				auto node = search.candidates.extract(it++);
 				node.value().rank = accepting->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
-				search.insert(move(node));												// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
+				search.candidates.insert(move(node));									// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
 			}
 
-			return *search.begin();
-		}
-
-		/**
-		 * Looking for member overloads directly in a member.
-		 */
-		bool findOverloadsInMember(const string& identifier, OverloadSearch& search) {
-			bool found;
-
-			if(auto member = getMember(identifier)) {
-				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-
-				for(auto& overload : member->get()) {
-					if(search.insert(OverloadCandidate(search.size(), composite, overload)).second) {
-						found = true;
-					}
-				}
-			}
-
-			return found;
-		}
-
-		bool findOverloadsInPseudovariables(const string& identifier, OverloadSearch& search) {
-			auto hierarchy = this->hierarchy;
-
-			hierarchy.erase("scope");						// Only object and inheritance chains
-			hierarchy.emplace("Global", getComposite(0));	// Global-type
-		//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
-		//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
-
-			if(hierarchy.count(identifier)) {
-				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-				auto overload = SP<Overload>(
-					Overload::Modifiers { .final = true },
-					PredefinedCAnyTypeSP,
-					hierarchy[identifier]
-				);
-
-				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
-			}
-
-			return false;
-		}
-
-		bool findOverloadsInImports(const string& identifier, OverloadSearch& search) {
-			if(isNamespace() && imports.count(identifier)) {
-				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-				auto overload = SP<Overload>(
-					Overload::Modifiers { .final = true },
-					PredefinedCAnyTypeSP,
-					imports[identifier]
-				);
-
-				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
-			}
-			/*
-			TODO:
-			Should be implemented as a secondary stage of search after a _complete_ fail of the primary one (itself, object chain, composite chain / scope chain).
-			If search did not fail completely (that said, some overloads with 0+ range was found), only then imported namespaces lookup should be done.
-
-			else
-			for(auto& [identifier, composite] : imports) {
-				if(found = search->insert(composite->findOverload(identifier, PredefinedEAnyTypeSP)).second) {
-					break;
-				}
-			}
-			*/
-
-			return false;
-		}
-
-		bool findOverloadsInObservers(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
-			if(
-				mode == AccessMode::Get && observers.get ||
-				mode == AccessMode::Set && observers.set ||
-				mode == AccessMode::Delete && observers.delete_
-			) {
-				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-				auto overload = SP<Overload>(
-					Overload::Modifiers { .final = true },
-					SP<NillableType>(PredefinedEAnyTypeSP),
-					nullptr,
-					observers
-				);
-
-				return search.insert(OverloadCandidate(search.size(), composite, overload, true)).second;
-			}
-
-			return false;
+			return *search.candidates.begin();
 		}
 
 		/**
@@ -1556,88 +1474,148 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		bool findOverloadsInComposite(const string& identifier, OverloadSearch& search, AccessMode mode = AccessMode::Get) {
-			return findOverloadsInMember(identifier, search) ||
-				   findOverloadsInPseudovariables(identifier, search) ||
-				   findOverloadsInImports(identifier, search) ||
-				   findOverloadsInObservers(identifier, search, mode);
+		Member findOverloadsInComposite(const string& identifier) {
+			Member overloads;
+
+			// Member
+
+			if(auto member = getMember(identifier)) {
+				auto m = member->get();
+
+				overloads.insert(overloads.end(), m.begin(), m.end());
+			}
+
+			// Hierarchy
+
+			auto hierarchy = this->hierarchy;
+
+			hierarchy.erase("scope");						// Only object and inheritance chains
+			hierarchy.emplace("Global", getComposite(0));	// Global-type
+		//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+		//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
+
+			if(hierarchy.contains(identifier)) {
+				overloads.push_back(SP<Overload>(
+					Overload::Modifiers { .implicit = true, .final = true },
+					PredefinedCAnyTypeSP,
+					hierarchy[identifier]
+				));
+			}
+
+			// Imports
+
+			if(isNamespace() && imports.contains(identifier)) {
+				overloads.push_back(SP<Overload>(
+					Overload::Modifiers { .implicit = true, .final = true },
+					PredefinedCAnyTypeSP,
+					imports[identifier]
+				));
+			}
+
+		//	TODO:
+		//	Search *inside* of imports should be implemented as a secondary stage after a _complete_ fail of the primary one (itself, object chain, composite chain / scope chain).
+		//	If search did not fail completely (that said, some overloads with 0+ range was found), then imported namespaces lookup should not be done.
+
+			return overloads;
 		}
 
-		/**
-		 * Looking for member overloads in Object chain (super, self, sub).
+		using VisitedModes = unordered_map<CompositeTypeSP, unordered_set<string>>;
+
+		/*
+		 * Looking for member overloads in a composite itself and its hierarchy.
 		 *
-		 * When a "virtual" overload is found, search oncely descends to a lowest sub-object.
+		 * The absence of search mode specification allows automatical generation of a complete list that defines the navigation order through the hierarchy:
+		 * - Descent: sub, Sub – only when virtual overloads are present.
+		 * - Current level: None – internally accompanies any other mode.
+		 * - Ascent: self, super, Self, Super, scope.
+		 *
+		 * Each mode is processed sequentially:
+		 * - For the current level, local overloads are added to the results, considering the direction (left for sub, right for super).
+		 * - For other levels, an attempt is made to recursively process the associated composite in the corresponding mode.
+		 * - Upon detecting an observer at any level and in any mode, the function stores it in the result and stops immediately.
+		 *
+		 * The function automatically marks composites that have already been processed and/or do not require further processing for specific search modes.
 		 */
-		OverloadCandidate findOverloadsInObjectChain(const string& identifier, OverloadSearch& search) {
-			CompositeTypeSP object = static_pointer_cast<CompositeType>(shared_from_this());
-			bool descended;
+		void findOverloads(const string& identifier, OverloadSearch& search, const string& mode = "", sp<VisitedModes> visited = nullptr, bool internal = false) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
-			while(object) {  // Higher
-				if(!object->isObject()) {
-					if(!object->hierarchy.count("self") || object->hierarchy["self"] == object) {
-						break;
-					}
+			if(!visited) {
+				visited = SP<VisitedModes>();
+			}
 
-					object = object->hierarchy["self"];
+			if(visited->contains(composite)) {
+				auto& visitedModes = visited->at(composite);
 
-					continue;
+				if(visitedModes.contains(mode)) {
+					return;
+				} else {
+					visitedModes.insert(mode);
+				}
+			} else {
+				visited->at(composite) = unordered_set<string>();
+			}
+
+			Member localOverloads = findOverloadsInComposite(identifier);
+			bool descending = mode == "sub" || mode == "Sub",
+				 hasVirtual = some(localOverloads, [](auto& v) { return v.modifiers.virtual_; });
+			vector<string> modes = {""};
+
+			if(mode == "") {
+				if(hasVirtual) {  // Reversed lookup because of reversed addition
+					modes.insert(modes.begin(), "Sub");
+					modes.insert(modes.begin()+1, "sub");
 				}
 
-				auto overload = object->getOverload(identifier, accepting);
+				modes.push_back("self");
+				modes.push_back("super");
+				modes.push_back("Self");
+				modes.push_back("Super");
+				modes.push_back("scope");
+			} else
+			if(!descending || hasVirtual) {  // Descend can only be continued if own virtual overloads exist
+				modes.push_back(mode);
+			}
 
-				if(overload) {
-					if(!descended && overload->modifiers.virtual_) {
-						descended = true;
+			for(const string& m : modes) {
+				if(m == "") {
+					if(!localOverloads.empty()) {  // Reversed addition order for sub/Sub (to left) and normal for others (to right)
+						isize baseID = 0;
 
-						while(CompositeTypeSP object_ = object->hierarchy["sub"]) {  // Lowest
-							object = object_;
+						if(!search.candidates.empty()) {
+							baseID = descending
+								   ? search.candidates.begin()->ID
+								   : prev(search.candidates.end())->ID+1;
 						}
+
+						for(usize i = 0; i < localOverloads.size(); i++) {
+							isize ID = descending
+									 ? baseID-localOverloads.size()+i
+									 : baseID+i;
+
+							search.candidates.insert(OverloadCandidate(ID, composite, localOverloads[i]));
+						}
+					}
+
+					if(composite->observers.get) {
+						search.observer = composite->observers.get;
+
+						return;
+					}
+				} else
+				if(CompositeTypeSP chainedComposite = composite->getHierarchy(m)) {
+					if(chainedComposite == composite || m == "scope" && internal) {
+						visited->at(composite).insert(m);
 
 						continue;
 					}
 
-					return OverloadCandidate(object, overload);
-				}
+					chainedComposite->findOverloads(identifier, search, m, visited, internal);
 
-				object = object->hierarchy["super"];
-			}
-
-			return OverloadCandidate();
-		}
-
-		/**
-		 * Looking for member overloads in Inheritance chain (Super, Self, Sub).
-		 *
-		 * TODO:
-		 * Check if following is valuable:
-		 * When a "virtual" overload is found, search oncely descends to a lowest sub-composite.
-		 * This is possible in objects, where sub/Sub is set.
-		 * (Both chains (object and inheritance) should be looked up if this will ever be implemented).
-		 */
-		OverloadCandidate findOverloadsInInheritanceChain(const string& identifier) {
-			CompositeTypeSP composite = static_pointer_cast<CompositeType>(shared_from_this());
-
-			while(composite) {
-				if(composite->isObject()) {
-					if(!composite->hierarchy.count("Self") || composite->hierarchy["Self"] == composite) {
-						break;
+					if(search.observer) {
+						return;
 					}
-
-					composite = composite->hierarchy["Self"];
-
-					continue;
 				}
-
-				auto overload = composite->getOverload(identifier, accepting);
-
-				if(overload) {
-					return OverloadCandidate(composite, overload);
-				}
-
-				composite = composite->hierarchy["Super"];
 			}
-
-			return OverloadCandidate();
 		}
 
 		/**
@@ -1646,24 +1624,12 @@ namespace Interpreter {
 		 * If search is internal, only first composite in chain will be checked.
 		 */
 		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP accepting = nullptr, bool internal = false) {
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+			OverloadSearch search;
 
-			while(composite) {
-				OverloadSearch search;
+			findOverloads(identifier, search, "", nullptr, internal);
 
-				composite->findOverloadsInComposite(identifier, search);
-				composite->findOverloadsInObjectChain(identifier, search);
-				composite->findOverloadsInInheritanceChain(identifier, search);
-
-				if(auto candidate = matchOverload(search, accepting)) {
-					return candidate;
-				}
-
-				if(internal) {
-					break;
-				}
-
-				composite = composite->getScope();
+			if(auto candidate = matchOverload(search, accepting)) {
+				return candidate;
 			}
 
 			return nullopt;
@@ -1688,7 +1654,7 @@ namespace Interpreter {
 			if(!internal) {
 				overload = getOverload(identifier, accepting);
 			} else
-			if(auto search = findOverload(identifier, accepting, *internal); !search->generated) {
+			if(auto search = findOverload(identifier, accepting, *internal); !search->overload->modifiers.implicit) {
 				composite = search->composite;
 				overload = search->overload;
 			}
@@ -1696,16 +1662,16 @@ namespace Interpreter {
 			if(!overload) {
 				overload = SP<Overload>();
 
-				addMember(identifier).insert(overload);
+				addMember(identifier).push_back(overload);
 			} else
 			if(overload->modifiers.final) {
 				throw invalid_argument("Overload is a 'final' constant");
 			}
 
 			TypeSP OT = overload->type ?: SP<Type>(),  // Old/new type
-					NT = type ?: SP<Type>(),
-					OV = overload->value,  // Old/new value
-					NV = value;
+				   NT = type ?: SP<Type>(),
+				   OV = overload->value,  // Old/new value
+				   NV = value;
 
 			overload->modifiers = modifiers;
 			overload->type = NT;
