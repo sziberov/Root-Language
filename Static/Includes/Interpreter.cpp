@@ -1225,8 +1225,8 @@ namespace Interpreter {
 			return false;
 		}
 
-		CompositeTypeSP getHierarchy(const string& mode) {
-			return hierarchy.contains(mode) ? hierarchy[mode] : nullptr;
+		CompositeTypeSP getHierarchy(const string& branch) {
+			return hierarchy.contains(branch) ? hierarchy[branch] : nullptr;
 		}
 
 		void setHierarchy(const string& key, CompositeTypeSP value) {
@@ -1431,7 +1431,7 @@ namespace Interpreter {
 
 		struct OverloadSearch {
 			set<OverloadCandidate> candidates;
-			CompositeTypeSP observer;
+			optional<Observers> observers;
 		};
 
 		enum class AccessMode : u8 {
@@ -1519,99 +1519,95 @@ namespace Interpreter {
 			return overloads;
 		}
 
-		using VisitedModes = unordered_map<CompositeTypeSP, unordered_set<string>>;
+		using VisitedBranches = unordered_map<CompositeTypeSP, unordered_set<string>>;
 
 		/*
 		 * Looking for member overloads in a composite itself and its hierarchy.
 		 *
-		 * The absence of search mode specification allows automatical generation of a complete list that defines the navigation order through the hierarchy:
+		 * Each "scope" is searched in the full order:
 		 * - Descent: sub, Sub – only when virtual overloads are present.
-		 * - Current level: None – internally accompanies any other mode.
+		 * - Current – internally accompanies any other branch.
 		 * - Ascent: self, super, Self, Super, scope.
 		 *
-		 * Each mode is processed sequentially:
-		 * - For the current level, local overloads are added to the results, considering the direction (left for sub, right for super).
-		 * - For other levels, an attempt is made to recursively process the associated composite in the corresponding mode.
-		 * - Upon detecting an observer at any level and in any mode, the function stores it in the result and stops immediately.
+		 * Branches are processed with the rules:
+		 * - The order is well-defined and preserved.
+		 * - For the current, local overloads are added to the results.
+		 * - For other, an attempt is made to recursively process the associated composite as the corresponding branch.
+		 * - Upon detecting an observers, the function stores them in the result and stops immediately.
 		 *
-		 * The function automatically marks composites that have already been processed and/or do not require further processing for specific search modes.
+		 * The function automatically marks composites that have already been processed
+		 * and/or do not require further processing as specific branches.
 		 */
-		void findOverloads(const string& identifier, OverloadSearch& search, const string& mode = "", sp<VisitedModes> visited = nullptr, bool internal = false) {
+		void findOverloads(
+			const string& identifier,
+			OverloadSearch& search,
+			const string& branch = "scope",
+			AccessMode mode = AccessMode::Get,
+			bool internal = false,
+			sp<VisitedBranches> visited = nullptr
+		) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
 
 			if(!visited) {
-				visited = SP<VisitedModes>();
+				visited = SP<VisitedBranches>();
 			}
 
-			if(visited->contains(composite)) {
-				auto& visitedModes = visited->at(composite);
-
-				if(visitedModes.contains(mode)) {
-					return;
-				} else {
-					visitedModes.insert(mode);
-				}
-			} else {
-				visited->at(composite) = unordered_set<string>();
-			}
-
-			Member localOverloads = findOverloadsInComposite(identifier);
-			bool descending = mode == "sub" || mode == "Sub",
-				 hasVirtual = some(localOverloads, [](auto& v) { return v.modifiers.virtual_; });
-			vector<string> modes = {""};
-
-			if(mode == "") {
-				if(hasVirtual) {  // Reversed lookup because of reversed addition
-					modes.insert(modes.begin(), "Sub");
-					modes.insert(modes.begin()+1, "sub");
-				}
-
-				modes.push_back("self");
-				modes.push_back("super");
-				modes.push_back("Self");
-				modes.push_back("Super");
-				modes.push_back("scope");
+			if(!visited->contains(composite)) {
+				visited->emplace(composite, unordered_set<string> { branch });
 			} else
-			if(!descending || hasVirtual) {  // Descend can only be continued if own virtual overloads exist
-				modes.push_back(mode);
+			if(!visited->at(composite).insert(branch).second) {
+				return;
 			}
 
-			for(const string& m : modes) {
-				if(m == "") {
-					if(!localOverloads.empty()) {  // Reversed addition order for sub/Sub (to left) and normal for others (to right)
-						isize baseID = 0;
+			Member overloads = findOverloadsInComposite(identifier);
+			bool hasVirtual = some(overloads, [](auto& v) { return v.modifiers.virtual_; });
+			vector<string> branches = {""};
 
-						if(!search.candidates.empty()) {
-							baseID = descending
-								   ? search.candidates.begin()->ID
-								   : prev(search.candidates.end())->ID+1;
-						}
+			if(branch == "scope") {
+				if(hasVirtual) {
+					branches.insert(branches.begin(),   "sub");
+					branches.insert(branches.begin()+1, "Sub");
+				}
 
-						for(usize i = 0; i < localOverloads.size(); i++) {
-							isize ID = descending
-									 ? baseID-localOverloads.size()+i
-									 : baseID+i;
+				branches.push_back("self");
+				branches.push_back("super");
+				branches.push_back("Self");
+				branches.push_back("Super");
+				branches.push_back("scope");
+			} else
+			if(branch != "sub" && branch != "Sub") {
+				branches.push_back(branch);
+			} else
+			if(hasVirtual) {
+				branches.insert(branches.begin(), branch);
+			}
 
-							search.candidates.insert(OverloadCandidate(ID, composite, localOverloads[i]));
-						}
+			for(const string& b : branches) {
+				if(b == "") {
+					for(auto& overload : overloads) {
+						search.candidates.insert(OverloadCandidate(search.candidates.size(), composite, overload));
 					}
 
-					if(composite->observers.get) {
-						search.observer = composite->observers.get;
+					if(
+						mode == AccessMode::Get    && composite->observers.get ||
+						mode == AccessMode::Set    && composite->observers.set ||
+						mode == AccessMode::Delete && composite->observers.delete_
+					) {
+						search.observers = composite->observers;
 
 						return;
 					}
 				} else
-				if(CompositeTypeSP chainedComposite = composite->getHierarchy(m)) {
-					if(chainedComposite == composite || m == "scope" && internal) {
-						visited->at(composite).insert(m);
+				if(CompositeTypeSP chainedComposite = composite->getHierarchy(b)) {
+					if(chainedComposite == composite || b == "scope" && internal) {
+						visited->at(composite).insert(b);
 
 						continue;
 					}
 
-					chainedComposite->findOverloads(identifier, search, m, visited, internal);
+					chainedComposite->findOverloads(identifier, search, b, mode, internal, visited);
 
-					if(search.observer) {
+					if(search.observers) {
 						return;
 					}
 				}
@@ -1626,7 +1622,7 @@ namespace Interpreter {
 		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP accepting = nullptr, bool internal = false) {
 			OverloadSearch search;
 
-			findOverloads(identifier, search, "", nullptr, internal);
+			findOverloads(identifier, search, "scope", AccessMode::Get, internal);
 
 			if(auto candidate = matchOverload(search, accepting)) {
 				return candidate;

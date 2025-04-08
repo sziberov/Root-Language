@@ -20,13 +20,13 @@ class FunctionCandidate:
         return f"<{virt}{self.identifier}{self.param_types}>"
 
 
-class ResolveResult:
+class ResolveSearch:
     def __init__(self):
         self.overloads: List[FunctionCandidate] = []
         self.observer: Optional[FunctionCandidate] = None
 
     def __repr__(self):
-        return f"ResolveResult(candidates={self.overloads}, observer={self.observer})"
+        return f"ResolveSearch(candidates={self.overloads}, observer={self.observer})"
 
 
 # --- Класс для пространства имён (namespace) ---
@@ -60,40 +60,43 @@ class Namespace:
 
 # --- Функция разрешения имён (резолюция) ---
 
-def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = None, visited: Optional[Dict[Namespace, Dict[Optional[str], bool]]] = None) -> ResolveResult:
+def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = 'scope', visited: Optional[Dict[Namespace, Dict[Optional[str], bool]]] = None) -> ResolveSearch:
     if visited is None:
         visited = {}
 
     if namespace in visited:
         if chain_mode in visited[namespace] and visited[namespace][chain_mode]:
-            return ResolveResult()
+            return ResolveSearch()
         else:
             visited[namespace][chain_mode] = True
     else:
-        visited[namespace] = {}
+        visited[namespace] = {
+            chain_mode: True
+        }
 
-    result = ResolveResult()
+    search = ResolveSearch()
     local_overloads = namespace.get_overloads(identifier)
     virtual = [c for c in local_overloads if c.is_virtual]
     modes = [None]
 
-    if chain_mode is None:
+    if chain_mode == 'scope':
         if virtual:
-            modes = ['Sub', 'sub']+modes  # Reversed lookup because of reversed addition
+            modes = ['sub', 'Sub']+modes
 
         modes += ['self', 'super', 'Self', 'Super', 'scope']
-    else:
-        if not chain_mode in ('sub', 'Sub') or virtual:  # Sub/sub descend can only be continued if own virtual overloads exist
-            modes += [chain_mode]
+    elif not chain_mode in ('sub', 'Sub'):
+        modes += [chain_mode]
+    elif virtual:  # Sub/sub descend can only be continued if own virtual overloads exist
+        modes = [chain_mode]+modes
 
     for mode in modes:
         if mode is None:
-            result.overloads += local_overloads
+            search.overloads += local_overloads
 
             if namespace.observer is not None:
-                result.observer = namespace.observer
+                search.observer = namespace.observer
 
-                return result
+                return search
         else:
             chained_namespace = getattr(namespace, mode, None)
             if chained_namespace is not None:
@@ -102,20 +105,14 @@ def resolve(namespace: Namespace, identifier: str, chain_mode: Optional[str] = N
 
                     continue
 
-                chained_result = resolve(chained_namespace, identifier, mode, visited)
+                chained_search = resolve(chained_namespace, identifier, mode, visited)
+                search.overloads += chained_search.overloads
 
-                result.overloads = (
-                    chained_result.overloads+result.overloads
-                    if mode in ('sub', 'Sub') else
-                    result.overloads+chained_result.overloads
-                )
+                if chained_search.observer is not None:
+                    search.observer = chained_search.observer
 
-                if chained_result.observer is not None:
-                    result.observer = chained_result.observer
-
-                    return result
-
-    return result
+                    return search
+    return search
 
 def select_best_candidate(candidates: List[FunctionCandidate], arg_types: List[str]) -> Optional[FunctionCandidate]:
     # Выбираем первый кандидат, для которого типы аргументов точно совпадают.
@@ -126,15 +123,15 @@ def select_best_candidate(candidates: List[FunctionCandidate], arg_types: List[s
 
 
 def resolve_call(namespace: Namespace, identifier: str, arg_types: List[str]) -> FunctionCandidate:
-    result = resolve(namespace, identifier)
+    search = resolve(namespace, identifier, "scope")
     print()
-    for i, candidate in enumerate(result.overloads):
+    for i, candidate in enumerate(search.overloads):
         print(repr(i)+': '+repr(candidate)+', ')
-    candidate = select_best_candidate(result.overloads, arg_types)
+    candidate = select_best_candidate(search.overloads, arg_types)
     if candidate is not None:
         return candidate
-    if result.observer is not None:
-        return result.observer
+    if search.observer is not None:
+        return search.observer
     raise Exception("Перегрузки не найдены или ни один кандидат не прошёл ранжирование")
 
 
