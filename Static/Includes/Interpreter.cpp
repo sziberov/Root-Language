@@ -985,7 +985,7 @@ namespace Interpreter {
 				set<TypeSP> chain = getFullInheritanceChain();
 				bool first = true;
 
-				result += " : [";
+				result += ": ";
 
 				for(auto& type : chain) {
 					if(!first) {
@@ -995,8 +995,6 @@ namespace Interpreter {
 					first = false;
 					result += type->toString();
 				}
-
-				result += "]";
 			}
 
 			return result;
@@ -1443,6 +1441,7 @@ namespace Interpreter {
 		/**
 		 * TODO:
 		 * - Rework acceptsA/conformsTo() to support ranged response: -1 == false, 0+ == count of an actions to find a conforming type (lower is better).
+		 * - Match by overloads values or own types if getting/deleting, and by own types if setting or observers present.
 		 * - Replace overload with overloads list and predicate with required type:
 		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
 		 *   lowest index in the list (first found, if range is equal).
@@ -1455,11 +1454,13 @@ namespace Interpreter {
 				return *search.candidates.begin();
 			}
 
+			/*
 			for(auto it = search.candidates.begin(); it != search.candidates.end();) {
 				auto node = search.candidates.extract(it++);
 				node.value().rank = accepting->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
 				search.candidates.insert(move(node));									// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
 			}
+			*/
 
 			return *search.candidates.begin();
 		}
@@ -1521,19 +1522,22 @@ namespace Interpreter {
 
 		using VisitedBranches = unordered_map<CompositeTypeSP, unordered_set<string>>;
 
-		/*
+		/**
 		 * Looking for member overloads in a composite itself and its hierarchy.
 		 *
 		 * Each "scope" is searched in the full order:
 		 * - Descent: sub, Sub – only when virtual overloads are present.
 		 * - Current – internally accompanies any other branch.
-		 * - Ascent: self, super, Self, Super, scope.
+		 * - Ascent: self, super, Self, Super, scope (only when search is not internal).
 		 *
 		 * Branches are processed with the rules:
 		 * - The order is well-defined and preserved.
-		 * - For the current, local overloads are added to the results.
+		 * - For the current, local overloads and observers are added to the results.
 		 * - For other, an attempt is made to recursively process the associated composite as the corresponding branch.
-		 * - Upon detecting an observers, the function stores them in the result and stops immediately.
+		 *
+		 * Search stops immediately if any of the conditions met:
+		 * - Observers of specified access mode are found.
+		 * - Overloads while shadowing is enabled are found.
 		 *
 		 * The function automatically marks composites that have already been processed
 		 * and/or do not require further processing as specific branches.
@@ -1543,14 +1547,11 @@ namespace Interpreter {
 			OverloadSearch& search,
 			const string& branch = "scope",
 			AccessMode mode = AccessMode::Get,
+			bool shadow = false,
 			bool internal = false,
-			sp<VisitedBranches> visited = nullptr
+			sp<VisitedBranches> visited = SP<VisitedBranches>()
 		) {
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-
-			if(!visited) {
-				visited = SP<VisitedBranches>();
-			}
 
 			if(!visited->contains(composite)) {
 				visited->emplace(composite, unordered_set<string> { branch });
@@ -1573,7 +1574,10 @@ namespace Interpreter {
 				branches.push_back("super");
 				branches.push_back("Self");
 				branches.push_back("Super");
-				branches.push_back("scope");
+
+				if(!internal) {
+					branches.push_back("scope");
+				}
 			} else
 			if(branch != "sub" && branch != "Sub") {
 				branches.push_back(branch);
@@ -1588,55 +1592,50 @@ namespace Interpreter {
 						search.candidates.insert(OverloadCandidate(search.candidates.size(), composite, overload));
 					}
 
-					if(
-						mode == AccessMode::Get    && composite->observers.get ||
-						mode == AccessMode::Set    && composite->observers.set ||
-						mode == AccessMode::Delete && composite->observers.delete_
-					) {
+					if(mode == AccessMode::Get    && composite->observers.get ||
+					   mode == AccessMode::Set    && composite->observers.set ||
+					   mode == AccessMode::Delete && composite->observers.delete_) {
 						search.observers = composite->observers;
-
-						return;
 					}
 				} else
 				if(CompositeTypeSP chainedComposite = composite->getHierarchy(b)) {
-					if(chainedComposite == composite || b == "scope" && internal) {
+					if(chainedComposite == composite) {
 						visited->at(composite).insert(b);
 
 						continue;
 					}
 
-					chainedComposite->findOverloads(identifier, search, b, mode, internal, visited);
+					chainedComposite->findOverloads(identifier, search, b, mode, shadow, internal, visited);
+				} else {
+					continue;
+				}
 
-					if(search.observers) {
-						return;
-					}
+				if(shadow && !search.candidates.empty() || search.observers) {
+					return;
 				}
 			}
 		}
 
-		/**
-		 * Looking for member overload in Scope chain (scope).
-		 *
-		 * If search is internal, only first composite in chain will be checked.
-		 */
-		optional<OverloadCandidate> findOverload(const string& identifier, TypeSP accepting = nullptr, bool internal = false) {
-			OverloadSearch search;
-
-			findOverloads(identifier, search, "scope", AccessMode::Get, internal);
-
-			if(auto candidate = matchOverload(search, accepting)) {
-				return candidate;
+		OverloadSP addOverload(
+			const string& identifier,
+			Overload::Modifiers modifiers = Overload::Modifiers(),
+			TypeSP type = SP<NillableType>(PredefinedEAnyTypeSP),
+			Observers observers = Observers()
+		) {
+			if(!type) {
+				throw invalid_argument("Accepting type is nil");
 			}
 
-			return nullopt;
-		}
+			Member& member = addMember(identifier);
+			auto overload = SP<Overload>(modifiers, type, nullptr, observers);
 
-		/**
-		 * Not specifying "internal" means use of direct declaration without search.
-		 */
-		void setOverload(const string& identifier, Overload::Modifiers modifiers, TypeSP type, TypeSP value, TypeSP accepting = nullptr, optional<bool> internal = nullopt) {
-			type = type ?: SP<NillableType>(PredefinedEAnyTypeSP);
+			// TODO: Warn if equal overloads ranks are detected
 
+			member.push_back(overload);
+
+			return overload;
+
+			/*
 			if(
 				value && !value->conformsTo(type) ||
 				!value && !PredefinedEVoidTypeSP->conformsTo(type)
@@ -1645,21 +1644,7 @@ namespace Interpreter {
 			}
 
 			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-			OverloadSP overload;
 
-			if(!internal) {
-				overload = getOverload(identifier, accepting);
-			} else
-			if(auto search = findOverload(identifier, accepting, *internal); !search->overload->modifiers.implicit) {
-				composite = search->composite;
-				overload = search->overload;
-			}
-
-			if(!overload) {
-				overload = SP<Overload>();
-
-				addMember(identifier).push_back(overload);
-			} else
 			if(overload->modifiers.final) {
 				throw invalid_argument("Overload is a 'final' constant");
 			}
@@ -1676,12 +1661,15 @@ namespace Interpreter {
 			if(OV != NV) {
 				composite->retainOrRelease(OV, NV);
 			}
+			*/
 		}
 
-		/*
+		/**
+		 * Collects all possible overloads and uses the one that did match.
+		 *
 		 * Modes:
-		 * - Get: collects all possible overloads and uses the one that did match.
-		 * - Set/Delete: collects overloads that has not been shadowed and uses the one that did match.
+		 * - Get/Delete: uses overload value type for matching.
+		 * - Set: uses overload own type for matching.
 		 *
 		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
 		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
@@ -1703,24 +1691,33 @@ namespace Interpreter {
 			AccessMode mode,
 			const string& identifier,
 			optional<vector<TypeSP>> arguments = nullopt,
-			TypeSP type = nullptr,  // accepting type if mode is Get
-			TypeSP value = nullptr,
-			optional<bool> internal = nullopt
+			TypeSP getType = nullptr,
+			TypeSP setValue = nullptr,
+			bool internal = false
 		) {
 			TypeSP accepting;
 
 			if(mode == AccessMode::Get) {
 				if(!arguments) {
-					accepting = type;
+					accepting = getType;
 				} else {
-					accepting = SP<FunctionType>(vector<TypeSP>(), arguments, type, FunctionType::Modifiers());
+					accepting = SP<FunctionType>(vector<TypeSP>(), arguments, getType, FunctionType::Modifiers());
 				}
 			} else
 			if(mode == AccessMode::Set) {
-				accepting = value;
+				accepting = setValue;
 			}
 
-			optional<OverloadCandidate> candidate;
+			OverloadSearch search;
+			findOverloads(identifier, search, "scope", mode, !arguments, internal);
+			optional<OverloadCandidate> candidate = matchOverload(search, accepting);
+
+			if(candidate) {
+
+			} else
+			if(search.observers) {
+
+			}
 
 			if(mode == AccessMode::Get) {
 				TypeSP value = candidate->overload->value;
@@ -1746,11 +1743,92 @@ namespace Interpreter {
 			return nullptr;
 		}
 
-	//	void getOverload(OverloadCandidate& candidate, TypeSP type) {}
-	//	void setOverload(OverloadCandidate& candidate, TypeSP value) {}
-	//	void deleteOverload(OverloadCandidate& candidate) {}
+		/**
+		 * var a: A {
+		 *		willGet
+		 *			get -> A
+		 *		 didGet
+		 *
+		 *		willSet(A)
+		 *			set(A)
+		 *		 didSet(A)
+		 *
+		 *		willDelete
+		 *			delete
+		 *		 didDelete
+		 * }
+		 *
+		 * chain {
+		 *		willGet(string)
+		 *			get(string) -> _?
+		 *		 didGet(string)
+		 *
+		 *		willSet(string, _?)
+		 *			set(string, _?)
+		 *		 didSet(string, _?)
+		 *
+		 *		willDelete(string)
+		 *			delete(string)
+		 *		 didDelete(string)
+		 * }
+		 *
+		 * subscript(A, B) -> C {
+		 *		willGet(A, B)
+		 *			get(A, B) -> C
+		 *		 didGet(A, B)
+		 *
+		 *		willSet(A, B, C)
+		 *			set(A, B, C)
+		 *		 didSet(A, B, C)
+		 *
+		 *		willDelete(A, B)
+		 *			delete(A, B)
+		 *		 didDelete(A, B)
+		 * }
+		 */
+		TypeSP callObservers(const Observers& observers, AccessMode mode, vector<TypeSP> arguments = vector<TypeSP>(), TypeSP setValue = nullptr) {
+			TypeSP value;
 
-		TypeSP call() {
+			switch(mode) {
+				case AccessMode::Get:
+					if(observers.willGet) {
+						observers.willGet->call();
+					}
+					if(observers.get) {
+						value = observers.get->call();
+					}
+					if(observers.didGet) {
+						observers.didGet->call();
+					}
+				break;
+				case AccessMode::Set:
+					if(observers.willSet) {
+						observers.willSet->call();
+					}
+					if(observers.set) {
+						value = observers.set->call();
+					}
+					if(observers.didSet) {
+						observers.didSet->call();
+					}
+				break;
+				case AccessMode::Delete:
+					if(observers.willDelete) {
+						observers.willDelete->call();
+					}
+					if(observers.delete_) {
+						value = observers.delete_->call();
+					}
+					if(observers.didDelete) {
+						observers.didDelete->call();
+					}
+				break;
+			}
+
+			return value;
+		}
+
+		TypeSP call(vector<TypeSP> arguments = vector<TypeSP>()) {
 			return nullptr;
 		}
 	};
@@ -2686,7 +2764,7 @@ namespace Interpreter {
 			for(Node& declarator : n->get<NodeArray&>("declarators")) {
 				string identifier = declarator.get<Node&>("identifier").get("value");
 				TypeSP type = executeNode(declarator.get("type_"), false),
-						value;
+					   value;
 
 			//	addContext({ type: type }, ['implicitChainExpression']);
 
@@ -2694,7 +2772,8 @@ namespace Interpreter {
 
 			//	removeContext();
 
-				scope()->setOverload(identifier, CompositeType::Overload::Modifiers(), type, value);
+				scope()->addOverload(identifier, CompositeType::Overload::Modifiers(), type);
+				scope()->accessOverload(AccessMode::Set, identifier, nullopt, nullptr, value, true);
 			}
 		} else
 		if(type == "whileStatement") {
