@@ -261,6 +261,7 @@ namespace Interpreter {
 		virtual bool operator!() const { return !operator bool(); }
 		virtual bool operator==(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
 		virtual bool operator!=(const TypeSP& type) { return !operator==(type); }
+	//	virtual TypeSP operator()(vector<TypeSP> arguments) { return SP<Type>(); }
 
 		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
@@ -698,9 +699,9 @@ namespace Interpreter {
 		using Entry = pair<TypeSP, TypeSP>;
 
 		TypeSP keyType,
-				valueType;
+			   valueType;
 		unordered_map<TypeSP, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
-		vector<Entry> iEntries;													// index -> entry
+		vector<Entry> iEntries;												// index -> entry
 
 		DictionaryType(const TypeSP& keyType = PredefinedEAnyTypeSP, const TypeSP& valueType = PredefinedEAnyTypeSP, bool concrete = false) : Type(TypeID::Dictionary, concrete), keyType(keyType), valueType(valueType) {}
 
@@ -860,6 +861,11 @@ namespace Interpreter {
 		};
 
 		struct Observers {
+			enum class Type {
+				Member,
+				Chain,
+				Subscript
+			} type;
 			CompositeTypeSP willGet,
 							get,
 							didGet,
@@ -889,7 +895,7 @@ namespace Interpreter {
 			} modifiers;
 			TypeSP type,
 				   value;
-			Observers observers;
+			Observers observers; // External access
 		};
 
 		using OverloadSP = sp<Overload>;
@@ -915,7 +921,8 @@ namespace Interpreter {
 		NodeArraySP statements;
 		unordered_map<string, CompositeTypeSP> imports;
 		unordered_map<string, Member> members;
-		Observers observers;
+		Observers chainObservers;  // Internal access
+	//	unordered_map<FunctionTypeSP, Observers> subscriptObservers;  // External-internal access
 
 		CompositeType(CompositeTypeID subID,
 					  const string& title,
@@ -1446,21 +1453,61 @@ namespace Interpreter {
 		 *   This function should create a ranged list using values of overloads and return overload with lowest range (but not -1) and
 		 *   lowest index in the list (first found, if range is equal).
 		 */
-		optional<OverloadCandidate> matchOverload(OverloadSearch& search, TypeSP accepting = nullptr, AccessMode mode = AccessMode::Get) {
+		optional<OverloadCandidate> matchOverload(
+			OverloadSearch& search,
+			AccessMode mode,
+			optional<vector<TypeSP>> arguments = nullopt,
+			TypeSP getType = nullptr,
+			TypeSP setValue = nullptr
+		) {
 			if(!search.candidates.size()) {
 				return nullopt;
 			}
-			if(!accepting) {
+			/*
+			if(mode == AccessMode::Get    && !arguments && !getType ||
+			   mode == AccessMode::Delete && !arguments) {
 				return *search.candidates.begin();
 			}
+			*/
 
-			/*
 			for(auto it = search.candidates.begin(); it != search.candidates.end();) {
 				auto node = search.candidates.extract(it++);
-				node.value().rank = accepting->acceptsA(node.value().overload->value);	// node.value().overload->observers->[g/s]et->returnType
-				search.candidates.insert(move(node));									// getter/setter return type is more important than stored value, because observers work as proxies (literally accessors)
+				OverloadCandidate& candidate = node.value();
+				OverloadSP& overload = candidate.overload;
+				TypeSP accepting,
+					   accepted;
+
+				switch(mode) {
+					case AccessMode::Get:
+						accepting = getType ?: SP<NillableType>(PredefinedEAnyTypeSP);
+						accepted = overload->observers.get
+								 ? overload->type
+								 : overload->value ?: overload->type;
+					break;
+					case AccessMode::Set:
+						accepting = overload->type;
+						accepted = setValue ?: PredefinedEVoidTypeSP;
+					break;
+					case AccessMode::Delete:
+						if(!overload->observers.delete_) {
+							candidate.rank = -1;
+
+							continue;
+						}
+
+						if(!arguments) {
+							accepting = getType ?: SP<NillableType>(PredefinedEAnyTypeSP);
+							accepted = overload->value ?: overload->type;
+						} else {
+							accepting = overload->value ?: overload->type;
+							accepted = SP<FunctionType>(vector<TypeSP>(), arguments, SP<NillableType>(PredefinedEAnyTypeSP), FunctionType::Modifiers());
+						}
+					break;
+				}
+
+				candidate.rank = accepting->acceptsA(accepted);	// candidate.overload->observers->[g/s]et->returnType
+				search.candidates.insert(move(node));
 			}
-			*/
 
 			return *search.candidates.begin();
 		}
@@ -1541,6 +1588,10 @@ namespace Interpreter {
 		 *
 		 * The function automatically marks composites that have already been processed
 		 * and/or do not require further processing as specific branches.
+		 *
+		 * NOTE:
+		 * When accessing subscripts, we should collect all named overloads first without differentiating by their subscript support.
+		 * Checking for subscript support should be done at ranking stage, including additional search for composites.
 		 */
 		void findOverloads(
 			const string& identifier,
@@ -1592,10 +1643,10 @@ namespace Interpreter {
 						search.candidates.insert(OverloadCandidate(search.candidates.size(), composite, overload));
 					}
 
-					if(mode == AccessMode::Get    && composite->observers.get ||
-					   mode == AccessMode::Set    && composite->observers.set ||
-					   mode == AccessMode::Delete && composite->observers.delete_) {
-						search.observers = composite->observers;
+					if(mode == AccessMode::Get    && composite->chainObservers.get ||
+					   mode == AccessMode::Set    && composite->chainObservers.set ||
+					   mode == AccessMode::Delete && composite->chainObservers.delete_) {
+						search.observers = composite->chainObservers;
 					}
 				} else
 				if(CompositeTypeSP chainedComposite = composite->getHierarchy(b)) {
@@ -1665,12 +1716,6 @@ namespace Interpreter {
 		}
 
 		/**
-		 * Collects all possible overloads and uses the one that did match.
-		 *
-		 * Modes:
-		 * - Get/Delete: uses overload value type for matching.
-		 * - Set: uses overload own type for matching.
-		 *
 		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
 		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
 		 * delete a
@@ -1683,34 +1728,20 @@ namespace Interpreter {
 		 * 		  a[...] = b	Syntax sugar for 		a.subscript(...) = b
 		 * delete a[...]		Syntax sugar for delete a.subscript(...)
 		 *
-		 * "a" can be an identifier, chain or another expression, but its evaluated value should be:
-		 * - Function composite if arguments specified.
-		 * -
+		 * "a" can be an identifier, chain or another expression, but its evaluated value should be string.
+		 * If "a" is not string, it should be composite
 		*/
 		TypeSP accessOverload(
-			AccessMode mode,
 			const string& identifier,
+			AccessMode mode,
 			optional<vector<TypeSP>> arguments = nullopt,
 			TypeSP getType = nullptr,
 			TypeSP setValue = nullptr,
 			bool internal = false
 		) {
-			TypeSP accepting;
-
-			if(mode == AccessMode::Get) {
-				if(!arguments) {
-					accepting = getType;
-				} else {
-					accepting = SP<FunctionType>(vector<TypeSP>(), arguments, getType, FunctionType::Modifiers());
-				}
-			} else
-			if(mode == AccessMode::Set) {
-				accepting = setValue;
-			}
-
 			OverloadSearch search;
 			findOverloads(identifier, search, "scope", mode, !arguments, internal);
-			optional<OverloadCandidate> candidate = matchOverload(search, accepting);
+			optional<OverloadCandidate> candidate = matchOverload(search, mode, arguments, getType, setValue);
 
 			if(candidate) {
 
@@ -2773,7 +2804,7 @@ namespace Interpreter {
 			//	removeContext();
 
 				scope()->addOverload(identifier, CompositeType::Overload::Modifiers(), type);
-				scope()->accessOverload(AccessMode::Set, identifier, nullopt, nullptr, value, true);
+				scope()->accessOverload(identifier, AccessMode::Set, nullopt, nullptr, value, true);
 			}
 		} else
 		if(type == "whileStatement") {
