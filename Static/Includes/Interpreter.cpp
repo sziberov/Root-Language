@@ -1416,26 +1416,22 @@ namespace Interpreter {
 		}
 
 		struct OverloadCandidate {
-			isize ID;
 			CompositeTypeSP composite;
 			OverloadSP overload;
 			usize rank;
 
 			bool operator<(const OverloadCandidate& candidate) const {
-				return rank != candidate.rank ?
-					   rank <  candidate.rank :
-						 ID <  candidate.ID;
+				return rank < candidate.rank;
 			}
 
 			bool operator==(const OverloadCandidate& candidate) const {
-				return		  ID == candidate.ID ||
-					   composite == candidate.composite &&
+				return composite == candidate.composite &&
 						overload == candidate.overload;
 			}
 		};
 
 		struct OverloadSearch {
-			set<OverloadCandidate> candidates;
+			deque<OverloadCandidate> candidates;
 			optional<Observers> observers;
 		};
 
@@ -1463,16 +1459,10 @@ namespace Interpreter {
 			if(!search.candidates.size()) {
 				return nullopt;
 			}
-			/*
-			if(mode == AccessMode::Get    && !arguments && !getType ||
-			   mode == AccessMode::Delete && !arguments) {
-				return *search.candidates.begin();
-			}
-			*/
 
-			for(auto it = search.candidates.begin(); it != search.candidates.end();) {
-				auto node = search.candidates.extract(it++);
-				OverloadCandidate& candidate = node.value();
+			search.candidates.erase(unique(search.candidates.begin(), search.candidates.end()), search.candidates.end());
+
+			for(OverloadCandidate& candidate : search.candidates) {
 				OverloadSP& overload = candidate.overload;
 				TypeSP accepting,
 					   accepted;
@@ -1506,10 +1496,9 @@ namespace Interpreter {
 				}
 
 				candidate.rank = accepting->acceptsA(accepted);	// candidate.overload->observers->[g/s]et->returnType
-				search.candidates.insert(move(node));
 			}
 
-			return *search.candidates.begin();
+			return *min_element(search.candidates.begin(), search.candidates.end());
 		}
 
 		/**
@@ -1522,7 +1511,7 @@ namespace Interpreter {
 		 * eventually aren't inheritable nor instantiable themself, but they are still used as members storage
 		 * and can participate in plain scope chains.
 		 */
-		Member findOverloadsInComposite(const string& identifier) {
+		Member findLocalOverloads(const string& identifier) {
 			Member overloads;
 
 			// Member
@@ -1567,6 +1556,35 @@ namespace Interpreter {
 			return overloads;
 		}
 
+		void findSubscriptOverloads(OverloadSearch& search, AccessMode mode) {
+			if(!search.candidates.size()) {
+				return;
+			}
+
+			OverloadSearch search_;
+
+			for(OverloadCandidate& candidate : search.candidates) {
+				if(candidate.overload->observers.get) {
+					continue;
+				}
+
+				if(TypeSP& value = candidate.overload->value) {
+					switch(value->ID) {
+						case TypeID::Dictionary:
+							search_.candidates.push_back(candidate);
+						break;
+						case TypeID::Composite:
+							auto compValue = static_pointer_cast<CompositeType>(value);
+
+							compValue->findOverloads("subscript", search_, "scope", mode, false, true);
+						break;
+					}
+				}
+			}
+
+			search.candidates = search_.candidates;
+		}
+
 		using VisitedBranches = unordered_map<CompositeTypeSP, unordered_set<string>>;
 
 		/**
@@ -1591,7 +1609,8 @@ namespace Interpreter {
 		 *
 		 * NOTE:
 		 * When accessing subscripts, we should collect all named overloads first without differentiating by their subscript support.
-		 * Checking for subscript support should be done at ranking stage, including additional search for composites.
+		 * Checking for subscript support should be done at ranking stage, including additional "subscript" search for composites.
+		 * First overload candidates list should be transformed into another, containing only dictionaries and "subscript" overload candidates.
 		 */
 		void findOverloads(
 			const string& identifier,
@@ -1611,7 +1630,7 @@ namespace Interpreter {
 				return;
 			}
 
-			Member overloads = findOverloadsInComposite(identifier);
+			Member overloads = findLocalOverloads(identifier);
 			bool hasVirtual = some(overloads, [](auto& v) { return v.modifiers.virtual_; });
 			vector<string> branches = {""};
 
@@ -1640,7 +1659,7 @@ namespace Interpreter {
 			for(const string& b : branches) {
 				if(b == "") {
 					for(auto& overload : overloads) {
-						search.candidates.insert(OverloadCandidate(search.candidates.size(), composite, overload));
+						search.candidates.push_back(OverloadCandidate(composite, overload));
 					}
 
 					if(mode == AccessMode::Get    && composite->chainObservers.get ||
@@ -1735,12 +1754,19 @@ namespace Interpreter {
 			const string& identifier,
 			AccessMode mode,
 			optional<vector<TypeSP>> arguments = nullopt,
+			bool subscript = false,
 			TypeSP getType = nullptr,
 			TypeSP setValue = nullptr,
 			bool internal = false
 		) {
 			OverloadSearch search;
-			findOverloads(identifier, search, "scope", mode, !arguments, internal);
+
+			findOverloads(identifier, search, "scope", mode, !arguments && !subscript, internal);
+
+			if(subscript) {
+				findSubscriptOverloads(search, mode);
+			}
+
 			optional<OverloadCandidate> candidate = matchOverload(search, mode, arguments, getType, setValue);
 
 			if(candidate) {
@@ -2052,9 +2078,19 @@ namespace Interpreter {
 	};
 
 	struct InoutType : Type {
+		bool implicit;
 		TypeSP innerType;
+		CompositeTypeSP composite;
+		string title;
 
-		InoutType(const TypeSP& innerType) : Type(TypeID::Inout), innerType(innerType) {}
+		InoutType(bool implicit,
+				  TypeSP& innerType,
+				  CompositeTypeSP& composite,
+				  string& title) : Type(TypeID::Inout),
+								   implicit(implicit),
+								   innerType(innerType),
+								   composite(composite),
+								   title(title) {}
 
 		bool acceptsA(const TypeSP& type) override {
 			return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
@@ -2576,6 +2612,7 @@ namespace Interpreter {
 			return getValueWrapper(n->get<double>("value"), "Float");
 		} else
 		if(type == "identifier") {
+			/*
 			string identifier = n->get("value");
 			auto overload = scope()->findOverload(identifier).overload;
 
@@ -2586,6 +2623,9 @@ namespace Interpreter {
 			}
 
 			return overload->value;
+			*/
+
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), scope(), n->get("value"));
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
@@ -2804,7 +2844,7 @@ namespace Interpreter {
 			//	removeContext();
 
 				scope()->addOverload(identifier, CompositeType::Overload::Modifiers(), type);
-				scope()->accessOverload(identifier, AccessMode::Set, nullopt, nullptr, value, true);
+				scope()->accessOverload(identifier, AccessMode::Set, nullopt, false, nullptr, value, true);
 			}
 		} else
 		if(type == "whileStatement") {
