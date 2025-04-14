@@ -104,7 +104,6 @@ static string tolower(string_view string) {
 	return result;
 }
 
-/*
 template <typename T>
 optional<T> any_optcast(const any& value) {
 	if(const optional<T>* v = any_cast<optional<T>>(&value)) {
@@ -128,4 +127,3 @@ shared_ptr<T> any_spcast(const any& value) {
 
 	return nullptr;
 }
-*/

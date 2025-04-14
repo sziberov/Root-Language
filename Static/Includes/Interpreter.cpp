@@ -247,21 +247,26 @@ namespace Interpreter {
 		virtual operator double() const { return double(); }
 		virtual operator int() const { return operator double(); }
 		virtual operator string() const { return string(); }  // Machine-friendly representation
-		virtual TypeSP operator=(TypeSP type) { return shared_from_this(); }
-		virtual TypeSP operator+() const { return SP<Type>(); }
-		virtual TypeSP operator-() const { return SP<Type>(); }
-		virtual TypeSP operator+(TypeSP type) const { return SP<Type>(); }
-		virtual TypeSP operator-(TypeSP type) const { return operator+(static_pointer_cast<Type>(type)->operator-()); }
-		virtual TypeSP operator++() { return shared_from_this(); }  // Prefix
-		virtual TypeSP operator--() { return shared_from_this(); }  // Prefix
-		virtual TypeSP operator++(int) { return SP<Type>(); }  // Postfix
-		virtual TypeSP operator--(int) { return SP<Type>(); }  // Postfix
-		virtual TypeSP operator*(TypeSP type) const { return SP<Type>(); }
-		virtual TypeSP operator/(TypeSP type) const { return SP<Type>(); }
-		virtual bool operator!() const { return !operator bool(); }
-		virtual bool operator==(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
-		virtual bool operator!=(const TypeSP& type) { return !operator==(type); }
-	//	virtual TypeSP operator()(vector<TypeSP> arguments) { return SP<Type>(); }
+		virtual TypeSP get(TypeSP getType = nullptr) { return SP<Type>(); }
+		virtual TypeSP set(TypeSP setValue = nullptr) { return SP<Type>(); }
+		virtual TypeSP delete_() { return SP<Type>(); }
+		virtual TypeSP getFunction(vector<TypeSP> arguments, bool subscript, TypeSP getType) { return SP<Type>(); }
+		virtual TypeSP setFunction(vector<TypeSP> arguments, bool subscript, TypeSP setValue) { return SP<Type>(); }
+		virtual TypeSP deleteFunction(vector<TypeSP> arguments, bool subscript) { return SP<Type>(); }
+		virtual TypeSP call(vector<TypeSP> arguments, bool subscript = false, TypeSP getType = nullptr) { return SP<Type>(); }
+		virtual TypeSP positive() const { return SP<Type>(); }
+		virtual TypeSP negative() const { return SP<Type>(); }
+		virtual TypeSP plus(TypeSP type) const { return SP<Type>(); }
+		virtual TypeSP minus(TypeSP type) const { return plus(static_pointer_cast<Type>(type)->negative()); }
+		virtual TypeSP preIncrement() { return shared_from_this(); }
+		virtual TypeSP preDecrement() { return shared_from_this(); }
+		virtual TypeSP postIncrement(int) { return SP<Type>(); }
+		virtual TypeSP postDecrement(int) { return SP<Type>(); }
+		virtual TypeSP multiply(TypeSP type) const { return SP<Type>(); }
+		virtual TypeSP divide(TypeSP type) const { return SP<Type>(); }
+		virtual bool not_() const { return !operator bool(); }
+		virtual bool equalsTo(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
+		virtual bool notEqualsTo(const TypeSP& type) { return !equalsTo(type); }
 
 		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
@@ -565,7 +570,7 @@ namespace Interpreter {
 			}
 		}
 
-		TypeSP operator=(TypeSP type) override {
+		TypeSP set(TypeSP type) override {
 			if(type->ID == TypeID::Primitive) {
 				auto primType = static_pointer_cast<PrimitiveType>(type);
 
@@ -577,21 +582,21 @@ namespace Interpreter {
 			return shared_from_this();
 		}
 
-		TypeSP operator+() const override {
+		TypeSP positive() const override {
 			return subID == PrimitiveTypeID::Type
 				 ? SP<PrimitiveType>(any_cast<TypeSP>(value))
 				 : SP<PrimitiveType>(operator double());
 		}
 
-		TypeSP operator-() const override {
+		TypeSP negative() const override {
 			return subID == PrimitiveTypeID::Type
 				 ? SP<PrimitiveType>(any_cast<TypeSP>(value))
 				 : SP<PrimitiveType>(-operator double());
 		}
 
-		TypeSP operator+(TypeSP type) const override {
+		TypeSP plus(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
-				return Type::operator+();
+				return Type::positive();
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
@@ -603,9 +608,9 @@ namespace Interpreter {
 			return SP<PrimitiveType>(operator double()+primType->operator double());
 		}
 
-		TypeSP operator-(TypeSP type) const override {
+		TypeSP minus(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
-				return Type::operator-();
+				return Type::negative();
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
@@ -629,25 +634,25 @@ namespace Interpreter {
 		//
 		// And to contrast that two, there is idea where no special mechanism exist. This is no go, as changes can't be observed at all.
 
-		TypeSP operator++() override {  // Prefix
+		TypeSP preIncrement() override {  // Prefix
 			return shared_from_this();
 		}
 
-		TypeSP operator--() override {  // Prefix
+		TypeSP preDecrement() override {  // Prefix
 			return shared_from_this();
 		}
 
-		TypeSP operator++(int) override {  // Postfix
+		TypeSP postIncrement(int) override {  // Postfix
 			return SP<Type>();
 		}
 
-		TypeSP operator--(int) override {  // Postfix
+		TypeSP postDecrement(int) override {  // Postfix
 			return SP<Type>();
 		}
 
-		TypeSP operator*(TypeSP type) const override {
+		TypeSP multiply(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
-				return Type::operator*(type);
+				return Type::multiply(type);
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
@@ -655,9 +660,9 @@ namespace Interpreter {
 			return SP<PrimitiveType>(operator double()*primType->operator double());
 		}
 
-		TypeSP operator/(TypeSP type) const override {
+		TypeSP divide(TypeSP type) const override {
 			if(type->ID != TypeID::Primitive) {
-				return Type::operator/(type);
+				return Type::divide(type);
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
@@ -665,9 +670,9 @@ namespace Interpreter {
 			return SP<PrimitiveType>(operator double()/primType->operator double());
 		}
 
-		bool operator==(const TypeSP& type) override {
+		bool equalsTo(const TypeSP& type) override {
 			if(type->ID != TypeID::Primitive) {
-				return Type::operator==(type);
+				return Type::equalsTo(type);
 			}
 
 			auto primType = static_pointer_cast<PrimitiveType>(type);
@@ -678,7 +683,7 @@ namespace Interpreter {
 				case PrimitiveTypeID::Integer:	return any_cast<int>(value) == primType->operator int();
 				case PrimitiveTypeID::String:	return any_cast<string>(value) == primType->operator string();
 				case PrimitiveTypeID::Type:		return acceptsA(primType) && conformsTo(primType);
-				default:						return Type::operator==(type);
+				default:						return Type::equalsTo(type);
 			}
 		}
 	};
@@ -692,7 +697,7 @@ namespace Interpreter {
 
 		struct Comparator {
 			bool operator()(const TypeSP& lhs, const TypeSP& rhs) const {
-				return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->operator==(rhs);
+				return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->equalsTo(rhs);
 			}
 		};
 
@@ -744,7 +749,7 @@ namespace Interpreter {
 			return result;
 		}
 
-		bool operator==(const TypeSP& type) override {
+		bool equalsTo(const TypeSP& type) override {
 			return false;  // TODO
 		}
 
@@ -916,7 +921,7 @@ namespace Interpreter {
 		};
 		unordered_map<int, Retention> retentions;  // Another ID : Retention
 		int life = 1;  // 0 - Creation (, Initialization?), 1 - Idle (, Deinitialization?), 2 - Destruction
-		set<TypeSP> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
+		std::set<TypeSP> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
 		vector<TypeSP> genericParametersTypes;
 		NodeArraySP statements;
 		unordered_map<string, CompositeTypeSP> imports;
@@ -926,7 +931,7 @@ namespace Interpreter {
 
 		CompositeType(CompositeTypeID subID,
 					  const string& title,
-					  const set<TypeSP>& inheritedTypes = {},
+					  const std::set<TypeSP>& inheritedTypes = {},
 					  const vector<TypeSP>& genericParametersTypes = {}) : Type(TypeID::Composite, true),
 																		   subID(subID),
 																		   title(title),
@@ -936,7 +941,7 @@ namespace Interpreter {
 			// TODO: Statically retain inherited types
 		}
 
-		set<TypeSP> getFullInheritanceChain() const;
+		std::set<TypeSP> getFullInheritanceChain() const;
 
 		static bool checkConformance(const CompositeTypeSP& base, const CompositeTypeSP& candidate, const optional<vector<TypeSP>>& candidateGenericArgumentsTypes = {}) {
 			if(candidate != base && !candidate->getFullInheritanceChain().contains(base)) {
@@ -989,7 +994,7 @@ namespace Interpreter {
 			}
 
 			if(!inheritedTypes.empty()) {
-				set<TypeSP> chain = getFullInheritanceChain();
+				std::set<TypeSP> chain = getFullInheritanceChain();
 				bool first = true;
 
 				result += ": ";
@@ -1246,7 +1251,7 @@ namespace Interpreter {
 
 			if(NV && (!self || NV->ownID != ownID)) {  // Chains should not be cyclic, empty values can't create cycles
 				auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-				set<CompositeTypeSP> composites;
+				std::set<CompositeTypeSP> composites;
 
 				while(composite) {
 					if(!composites.insert(composite).second) {
@@ -1631,7 +1636,7 @@ namespace Interpreter {
 			}
 
 			Member overloads = findLocalOverloads(identifier);
-			bool hasVirtual = some(overloads, [](auto& v) { return v.modifiers.virtual_; });
+			bool hasVirtual = some(overloads, [](auto& v) { return v->modifiers.virtual_; });
 			vector<string> branches = {""};
 
 			if(branch == "scope") {
@@ -1734,160 +1739,7 @@ namespace Interpreter {
 			*/
 		}
 
-		/**
-		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
-		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
-		 * delete a
-		 *
-		 * 		  a(b, c)		Find "a" function overload and call *get observers or get
-		 * 		  a(b, c) = d	Find "a" function overload and call *set observers or set
-		 * delete a(b, c)
-		 *
-		 * 		  a[...]		Syntax sugar for 		a.subscript(...)
-		 * 		  a[...] = b	Syntax sugar for 		a.subscript(...) = b
-		 * delete a[...]		Syntax sugar for delete a.subscript(...)
-		 *
-		 * "a" can be an identifier, chain or another expression, but its evaluated value should be string.
-		 * If "a" is not string, it should be composite
-		*/
-		TypeSP accessOverload(
-			const string& identifier,
-			AccessMode mode,
-			optional<vector<TypeSP>> arguments = nullopt,
-			bool subscript = false,
-			TypeSP getType = nullptr,
-			TypeSP setValue = nullptr,
-			bool internal = false
-		) {
-			OverloadSearch search;
-
-			findOverloads(identifier, search, "scope", mode, !arguments && !subscript, internal);
-
-			if(subscript) {
-				findSubscriptOverloads(search, mode);
-			}
-
-			optional<OverloadCandidate> candidate = matchOverload(search, mode, arguments, getType, setValue);
-
-			if(candidate) {
-
-			} else
-			if(search.observers) {
-
-			}
-
-			if(mode == AccessMode::Get) {
-				TypeSP value = candidate->overload->value;
-
-				if(!arguments) {
-					return value;
-				} else
-				if(value->ID == TypeID::Composite) {
-					auto compValue = static_pointer_cast<CompositeType>(value);
-
-					if(compValue->isCallable()) {
-						return compValue->call();
-					}
-				}
-			} else
-			if(mode == AccessMode::Set) {
-
-			} else
-			if(mode == AccessMode::Delete) {
-
-			}
-
-			return nullptr;
-		}
-
-		/**
-		 * var a: A {
-		 *		willGet
-		 *			get -> A
-		 *		 didGet
-		 *
-		 *		willSet(A)
-		 *			set(A)
-		 *		 didSet(A)
-		 *
-		 *		willDelete
-		 *			delete
-		 *		 didDelete
-		 * }
-		 *
-		 * chain {
-		 *		willGet(string)
-		 *			get(string) -> _?
-		 *		 didGet(string)
-		 *
-		 *		willSet(string, _?)
-		 *			set(string, _?)
-		 *		 didSet(string, _?)
-		 *
-		 *		willDelete(string)
-		 *			delete(string)
-		 *		 didDelete(string)
-		 * }
-		 *
-		 * subscript(A, B) -> C {
-		 *		willGet(A, B)
-		 *			get(A, B) -> C
-		 *		 didGet(A, B)
-		 *
-		 *		willSet(A, B, C)
-		 *			set(A, B, C)
-		 *		 didSet(A, B, C)
-		 *
-		 *		willDelete(A, B)
-		 *			delete(A, B)
-		 *		 didDelete(A, B)
-		 * }
-		 */
-		TypeSP callObservers(const Observers& observers, AccessMode mode, vector<TypeSP> arguments = vector<TypeSP>(), TypeSP setValue = nullptr) {
-			TypeSP value;
-
-			switch(mode) {
-				case AccessMode::Get:
-					if(observers.willGet) {
-						observers.willGet->call();
-					}
-					if(observers.get) {
-						value = observers.get->call();
-					}
-					if(observers.didGet) {
-						observers.didGet->call();
-					}
-				break;
-				case AccessMode::Set:
-					if(observers.willSet) {
-						observers.willSet->call();
-					}
-					if(observers.set) {
-						value = observers.set->call();
-					}
-					if(observers.didSet) {
-						observers.didSet->call();
-					}
-				break;
-				case AccessMode::Delete:
-					if(observers.willDelete) {
-						observers.willDelete->call();
-					}
-					if(observers.delete_) {
-						value = observers.delete_->call();
-					}
-					if(observers.didDelete) {
-						observers.didDelete->call();
-					}
-				break;
-			}
-
-			return value;
-		}
-
-		TypeSP call(vector<TypeSP> arguments = vector<TypeSP>()) {
-			return nullptr;
-		}
+		TypeSP call(vector<TypeSP> arguments, bool subscript = false, TypeSP getType = nullptr) override;
 	};
 
 	struct ReferenceType : Type {
@@ -1946,7 +1798,7 @@ namespace Interpreter {
 		}
 	};
 
-	set<TypeSP> CompositeType::getFullInheritanceChain() const {
+	std::set<TypeSP> CompositeType::getFullInheritanceChain() const {
 		auto chain = inheritedTypes;
 
 		for(const TypeSP& parentType : inheritedTypes) {
@@ -1960,7 +1812,7 @@ namespace Interpreter {
 			}
 
 			if(compType) {
-				set<TypeSP> parentChain = compType->getFullInheritanceChain();
+				std::set<TypeSP> parentChain = compType->getFullInheritanceChain();
 
 				chain.insert(parentChain.begin(), parentChain.end());
 			}
@@ -2078,19 +1930,28 @@ namespace Interpreter {
 	};
 
 	struct InoutType : Type {
+		using Observers = CompositeType::Observers;
+		using OverloadSP = CompositeType::OverloadSP;
+		using OverloadCandidate = CompositeType::OverloadCandidate;
+		using OverloadSearch = CompositeType::OverloadSearch;
+		using AccessMode = CompositeType::AccessMode;
+
 		bool implicit;
 		TypeSP innerType;
 		CompositeTypeSP composite;
-		string title;
+		string identifier;
+		bool internal;
 
 		InoutType(bool implicit,
 				  TypeSP& innerType,
 				  CompositeTypeSP& composite,
-				  string& title) : Type(TypeID::Inout),
+				  string& identifier,
+				  bool internal) : Type(TypeID::Inout),
 								   implicit(implicit),
 								   innerType(innerType),
 								   composite(composite),
-								   title(title) {}
+								   identifier(identifier),
+								   internal(internal) {}
 
 		bool acceptsA(const TypeSP& type) override {
 			return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
@@ -2103,13 +1964,191 @@ namespace Interpreter {
 				return normInner;
 			}
 
-			return SP<InoutType>(normInner);
+			return SP<InoutType>(implicit, normInner, composite, identifier, internal);
 		}
 
 		string toString() const override {
 			return "inout "+innerType->toString();
 		}
+
+		TypeSP get(TypeSP getType = nullptr) override {
+			return accessOverload(AccessMode::Get, internal, nullopt, false, getType);
+		}
+
+		TypeSP set(TypeSP setValue = nullptr) override {
+			return accessOverload(AccessMode::Set, internal, nullopt, false, nullptr, setValue);
+		}
+
+		TypeSP delete_() override {
+			return accessOverload(AccessMode::Delete, internal);
+		}
+
+		TypeSP getFunction(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
+			return accessOverload(AccessMode::Get, internal, arguments, subscript, getType);
+		}
+
+		TypeSP setFunction(vector<TypeSP> arguments, bool subscript, TypeSP setValue) override {
+			return accessOverload(AccessMode::Set, internal, arguments, subscript, nullptr, setValue);
+		}
+
+		TypeSP deleteFunction(vector<TypeSP> arguments, bool subscript) override {
+			return accessOverload(AccessMode::Delete, internal, arguments, subscript);
+		}
+
+		TypeSP call(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
+			if(TypeSP type = getFunction(arguments, subscript, getType)) {
+				return type->call(arguments, subscript, getType);
+			}
+		}
+
+		/**
+		 * var a: A {
+		 *		willGet
+		 *			get -> A
+		 *		 didGet
+		 *
+		 *		willSet(A)
+		 *			set(A)
+		 *		 didSet(A)
+		 *
+		 *		willDelete
+		 *			delete
+		 *		 didDelete
+		 * }
+		 *
+		 * chain {
+		 *		willGet(string)
+		 *			get(string) -> _?
+		 *		 didGet(string)
+		 *
+		 *		willSet(string, _?)
+		 *			set(string, _?)
+		 *		 didSet(string, _?)
+		 *
+		 *		willDelete(string)
+		 *			delete(string)
+		 *		 didDelete(string)
+		 * }
+		 *
+		 * subscript(A, B) -> C {
+		 *		willGet(A, B)
+		 *			get(A, B) -> C
+		 *		 didGet(A, B)
+		 *
+		 *		willSet(A, B, C)
+		 *			set(A, B, C)
+		 *		 didSet(A, B, C)
+		 *
+		 *		willDelete(A, B)
+		 *			delete(A, B)
+		 *		 didDelete(A, B)
+		 * }
+		 */
+		TypeSP callObservers(const Observers& observers, OverloadSP overload, AccessMode mode, vector<TypeSP> arguments, TypeSP setValue = nullptr) {
+			TypeSP value;
+
+			switch(mode) {
+				case AccessMode::Get:
+					if(observers.willGet) {
+						observers.willGet->call(arguments);
+					}
+					if(observers.get) {
+						value = observers.get->call(arguments);
+					} else
+					if(overload) {
+						value = overload->value;
+					}
+					if(observers.didGet) {
+						observers.didGet->call(arguments);
+					}
+				break;
+				case AccessMode::Set:
+					if(observers.willSet) {
+						observers.willSet->call(arguments);
+					}
+					if(observers.set) {
+						observers.set->call(arguments);
+					} else
+					if(overload) {
+						overload->value = setValue;
+					}
+					if(observers.didSet) {
+						observers.didSet->call(arguments);
+					}
+				break;
+				case AccessMode::Delete:
+					if(observers.willDelete) {
+						observers.willDelete->call(arguments);
+					}
+					if(observers.delete_) {
+						observers.delete_->call(arguments);
+					}
+					if(observers.didDelete) {
+						observers.didDelete->call(arguments);
+					}
+				break;
+			}
+
+			return value;
+		}
+
+		/**
+		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
+		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
+		 * delete a
+		 *
+		 * 		  a(b, c)		Find "a" function overload and call *get observers or get
+		 * 		  a(b, c) = d	Find "a" function overload and call *set observers or set
+		 * delete a(b, c)
+		 *
+		 * 		  a[...]		Syntax sugar for 		a.subscript(...)
+		 * 		  a[...] = b	Syntax sugar for 		a.subscript(...) = b
+		 * delete a[...]		Syntax sugar for delete a.subscript(...)
+		*/
+		TypeSP accessOverload(
+			AccessMode mode,
+			bool internal = false,
+			optional<vector<TypeSP>> arguments = nullopt,
+			bool subscript = false,
+			TypeSP getType = nullptr,
+			TypeSP setValue = nullptr
+		) {
+			OverloadSearch search;
+
+			composite->findOverloads(identifier, search, "scope", mode, !arguments && !subscript, internal);
+
+			if(subscript) {
+				composite->findSubscriptOverloads(search, mode);
+			}
+
+			optional<OverloadCandidate> candidate = composite->matchOverload(search, mode, arguments, getType, setValue);
+
+			if(candidate) {
+				return callObservers(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
+			} else
+			if(search.observers) {
+				return callObservers(*search.observers, nullptr, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
+			}
+
+			return nullptr;
+		}
 	};
+
+	TypeSP CompositeType::call(vector<TypeSP> arguments, bool subscript, TypeSP getType) {
+		if(subscript) {
+			throw invalid_argument("Cannot call composite as subscript");
+		}
+		if(!isCallable()) {
+			throw invalid_argument("Composite is not callable");
+		}
+		if(subID != CompositeTypeID::Function) {
+			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
+
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), composite, "init", true)->call(arguments, false, getType);
+		}
+
+		return nullptr;
+	}
 
 	struct VariadicType : Type {
 		TypeSP innerType;
@@ -2625,7 +2664,7 @@ namespace Interpreter {
 			return overload->value;
 			*/
 
-			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), scope(), n->get("value"));
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), scope(), n->get("value"), false);
 		} else
 		if(type == "ifStatement") {
 			if(n->empty("condition")) {
@@ -2692,14 +2731,14 @@ namespace Interpreter {
 
 			if(value->ID == TypeID::Primitive && !n->empty("operator")) {
 				if(n->get<Node&>("operator").get("value") == "++") {
-					*value = value->operator+()->operator+(SP<PrimitiveType>(1));
+					value->set(value->positive()->plus(SP<PrimitiveType>(1)));
 
-					return value->operator-(SP<PrimitiveType>(1));
+					return value->minus(SP<PrimitiveType>(1));
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					*value = value->operator+()->operator-(SP<PrimitiveType>(1));
+					value->set(value->positive()->minus(SP<PrimitiveType>(1)));
 
-					return value->operator+(SP<PrimitiveType>(1));
+					return value->plus(SP<PrimitiveType>(1));
 				}
 			}
 
@@ -2741,18 +2780,18 @@ namespace Interpreter {
 
 			if(value->ID == TypeID::Primitive && !n->empty("operator") ) {
 				if(n->get<Node&>("operator").get("value") == "!") {
-					return SP<PrimitiveType>(value->operator!());
+					return SP<PrimitiveType>(value->not_());
 				}
 				if(n->get<Node&>("operator").get("value") == "-") {
-					return value->operator-();
+					return value->negative();
 				}
 				if(n->get<Node&>("operator").get("value") == "++") {
-					*value = value->operator+()->operator+(SP<PrimitiveType>(1));
+					value->set(value->positive()->plus(SP<PrimitiveType>(1)));
 
 					return value;
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					*value = value->operator+()->operator-(SP<PrimitiveType>(1));
+					value->set(value->positive()->minus(SP<PrimitiveType>(1)));
 
 					return value;
 				}
@@ -2844,7 +2883,7 @@ namespace Interpreter {
 			//	removeContext();
 
 				scope()->addOverload(identifier, CompositeType::Overload::Modifiers(), type);
-				scope()->accessOverload(identifier, AccessMode::Set, nullopt, false, nullptr, value, true);
+			//	scope()->accessOverload(identifier, AccessMode::Set, true, nullopt, false, nullptr, value);
 			}
 		} else
 		if(type == "whileStatement") {
