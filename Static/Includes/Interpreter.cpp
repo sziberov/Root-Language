@@ -243,17 +243,29 @@ namespace Interpreter {
 		virtual TypeSP normalized() { return shared_from_this(); }
 		virtual string toString() const { return string(); }  // User-friendly representation
 
+		// Cast
 		virtual operator bool() const { return bool(); }
 		virtual operator double() const { return double(); }
 		virtual operator int() const { return operator double(); }
 		virtual operator string() const { return string(); }  // Machine-friendly representation
-		virtual TypeSP get(TypeSP getType = nullptr) { return SP<Type>(); }
-		virtual TypeSP set(TypeSP setValue = nullptr) { return SP<Type>(); }
-		virtual TypeSP delete_() { return SP<Type>(); }
-		virtual TypeSP getFunction(vector<TypeSP> arguments, bool subscript, TypeSP getType) { return SP<Type>(); }
-		virtual TypeSP setFunction(vector<TypeSP> arguments, bool subscript, TypeSP setValue) { return SP<Type>(); }
-		virtual TypeSP deleteFunction(vector<TypeSP> arguments, bool subscript) { return SP<Type>(); }
-		virtual TypeSP call(vector<TypeSP> arguments, bool subscript = false, TypeSP getType = nullptr) { return SP<Type>(); }
+
+		// Direct access
+		virtual TypeSP get(TypeSP getType = nullptr) { return shared_from_this(); }
+		virtual TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) { return nullptr; }
+		virtual void set(TypeSP setValue = nullptr) {}
+		virtual void delete_() {}
+
+		// Subscript access
+		virtual TypeSP get(vector<TypeSP> arguments, TypeSP getType = nullptr) { return nullptr; }
+		virtual void set(vector<TypeSP> arguments, TypeSP setValue = nullptr) {}
+		virtual void delete_(vector<TypeSP> arguments) {}
+
+		// Member access (for InoutType internal use only)
+		virtual TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP getType = nullptr) { return nullptr; }
+		virtual void set(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP setValue = nullptr) {}
+		virtual void delete_(TypeSP key, optional<vector<TypeSP>> arguments) {}
+
+		// Operators
 		virtual TypeSP positive() const { return SP<Type>(); }
 		virtual TypeSP negative() const { return SP<Type>(); }
 		virtual TypeSP plus(TypeSP type) const { return SP<Type>(); }
@@ -696,8 +708,8 @@ namespace Interpreter {
 		};
 
 		struct Comparator {
-			bool operator()(const TypeSP& lhs, const TypeSP& rhs) const {
-				return lhs == rhs || !lhs && !rhs || lhs && rhs && lhs->equalsTo(rhs);
+			bool operator()(const TypeSP& LHS, const TypeSP& RHS) const {
+				return LHS == RHS || !LHS && !RHS || LHS && RHS && LHS->equalsTo(RHS);
 			}
 		};
 
@@ -1739,7 +1751,7 @@ namespace Interpreter {
 			*/
 		}
 
-		TypeSP call(vector<TypeSP> arguments, bool subscript = false, TypeSP getType = nullptr) override;
+		TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) override;
 	};
 
 	struct ReferenceType : Type {
@@ -1937,20 +1949,20 @@ namespace Interpreter {
 		using AccessMode = CompositeType::AccessMode;
 
 		bool implicit;
-		TypeSP innerType;
-		CompositeTypeSP composite;
-		string identifier;
+		TypeSP innerType,
+			   LHS,  // Dictionary/Composite/Inout
+			   RHS;  // Primitive(string) for Composite
 		bool internal;
 
 		InoutType(bool implicit,
 				  TypeSP& innerType,
-				  CompositeTypeSP& composite,
-				  string& identifier,
+				  TypeSP& LHS,
+				  TypeSP& RHS,
 				  bool internal) : Type(TypeID::Inout),
 								   implicit(implicit),
 								   innerType(innerType),
-								   composite(composite),
-								   identifier(identifier),
+								   LHS(LHS),
+								   RHS(RHS),
 								   internal(internal) {}
 
 		bool acceptsA(const TypeSP& type) override {
@@ -1964,42 +1976,110 @@ namespace Interpreter {
 				return normInner;
 			}
 
-			return SP<InoutType>(implicit, normInner, composite, identifier, internal);
+			return SP<InoutType>(implicit, normInner, LHS, RHS, internal);
 		}
 
 		string toString() const override {
-			return "inout "+innerType->toString();
+			return "inout "+innerType->toString();  // TODO: Prepend "inout" only when explicit
 		}
 
+		// Direct access
+
+		TypeSP get(TypeSP getType = nullptr) override {
+			return LHS->get(RHS, nullopt, getType);
+		}
+
+		TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) override {
+			if(TypeSP function = LHS->get(RHS, arguments, getType)) {
+				return function->call(arguments, getType);
+			}
+
+			return nullptr;
+		}
+
+		void set(TypeSP setValue = nullptr) override {
+			LHS->set(RHS, nullopt, setValue);
+		}
+
+		void delete_() {
+			LHS->delete_(RHS, nullopt);
+		}
+
+		// Subscript access
+
+		TypeSP get(vector<TypeSP> arguments, TypeSP getType = nullptr) override {
+			return LHS->get(RHS, arguments, getType);
+		}
+
+		void set(vector<TypeSP> arguments, TypeSP setValue = nullptr) override {
+			LHS->set(RHS, arguments, setValue);
+		}
+
+		void delete_(vector<TypeSP> arguments) override {
+			LHS->delete_(RHS, arguments);
+		}
+
+		// Member access (support for inner inouts)
+
+		TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP getType = nullptr) override {
+			if(TypeSP normLHS = normalizedLHS()) {
+				return normLHS->get(key, arguments, getType);
+			}
+
+			return nullptr;
+		}
+
+		void set(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP setValue = nullptr) override {
+			if(TypeSP normLHS = normalizedLHS()) {
+				normLHS->set(key, arguments, setValue);
+			}
+		}
+
+		void delete_(TypeSP key, optional<vector<TypeSP>> arguments) override {
+			if(TypeSP normLHS = normalizedLHS()) {
+				normLHS->delete_(key, arguments);
+			}
+		}
+
+		TypeSP normalizedLHS() {
+			if(LHS && LHS->ID == TypeID::Inout) {
+				return static_pointer_cast<InoutType>(LHS)->get();
+			}
+
+			return LHS;
+		}
+
+		/*
 		TypeSP get(TypeSP getType = nullptr) override {
 			return accessOverload(AccessMode::Get, internal, nullopt, false, getType);
+		}
+
+		TypeSP get(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
+			return accessOverload(AccessMode::Get, internal, arguments, subscript, getType);
 		}
 
 		TypeSP set(TypeSP setValue = nullptr) override {
 			return accessOverload(AccessMode::Set, internal, nullopt, false, nullptr, setValue);
 		}
 
+		TypeSP set(vector<TypeSP> arguments, bool subscript, TypeSP setValue) override {
+			return accessOverload(AccessMode::Set, internal, arguments, subscript, nullptr, setValue);
+		}
+
 		TypeSP delete_() override {
 			return accessOverload(AccessMode::Delete, internal);
 		}
 
-		TypeSP getFunction(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
-			return accessOverload(AccessMode::Get, internal, arguments, subscript, getType);
-		}
-
-		TypeSP setFunction(vector<TypeSP> arguments, bool subscript, TypeSP setValue) override {
-			return accessOverload(AccessMode::Set, internal, arguments, subscript, nullptr, setValue);
-		}
-
-		TypeSP deleteFunction(vector<TypeSP> arguments, bool subscript) override {
+		TypeSP delete_(vector<TypeSP> arguments, bool subscript) override {
 			return accessOverload(AccessMode::Delete, internal, arguments, subscript);
 		}
 
 		TypeSP call(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
-			if(TypeSP type = getFunction(arguments, subscript, getType)) {
-				return type->call(arguments, subscript, getType);
+			if(TypeSP type = accessOverload(AccessMode::Get, internal, arguments, false, getType)) {
+				return type->call(arguments, false, getType);
 			}
 		}
+		*/
 
 		/**
 		 * var a: A {
@@ -2063,6 +2143,8 @@ namespace Interpreter {
 					}
 				break;
 				case AccessMode::Set:
+					arguments.push_back(setValue);
+
 					if(observers.willSet) {
 						observers.willSet->call(arguments);
 					}
@@ -2092,19 +2174,6 @@ namespace Interpreter {
 			return value;
 		}
 
-		/**
-		 * 		  a				Find "a" first overload and call *get observers or get, or call composite *get observers
-		 * 		  a = b			Find "a" first overload and call *set obversers or set, or call composite *set observers
-		 * delete a
-		 *
-		 * 		  a(b, c)		Find "a" function overload and call *get observers or get
-		 * 		  a(b, c) = d	Find "a" function overload and call *set observers or set
-		 * delete a(b, c)
-		 *
-		 * 		  a[...]		Syntax sugar for 		a.subscript(...)
-		 * 		  a[...] = b	Syntax sugar for 		a.subscript(...) = b
-		 * delete a[...]		Syntax sugar for delete a.subscript(...)
-		*/
 		TypeSP accessOverload(
 			AccessMode mode,
 			bool internal = false,
@@ -2115,36 +2184,31 @@ namespace Interpreter {
 		) {
 			OverloadSearch search;
 
-			composite->findOverloads(identifier, search, "scope", mode, !arguments && !subscript, internal);
+			LHS->findOverloads(RHS, search, "scope", mode, !arguments && !subscript, internal);
 
 			if(subscript) {
-				composite->findSubscriptOverloads(search, mode);
+				LHS->findSubscriptOverloads(search, mode);
 			}
 
-			optional<OverloadCandidate> candidate = composite->matchOverload(search, mode, arguments, getType, setValue);
+			optional<OverloadCandidate> candidate = LHS->matchOverload(search, mode, arguments, getType, setValue);
 
 			if(candidate) {
 				return callObservers(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
 			} else
 			if(search.observers) {
-				return callObservers(*search.observers, nullptr, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
+				return callObservers(*search.observers, nullptr, mode, vector<TypeSP> { SP<PrimitiveType>(RHS) }, setValue);
 			}
 
 			return nullptr;
 		}
 	};
 
-	TypeSP CompositeType::call(vector<TypeSP> arguments, bool subscript, TypeSP getType) {
-		if(subscript) {
-			throw invalid_argument("Cannot call composite as subscript");
-		}
+	TypeSP CompositeType::call(vector<TypeSP> arguments, TypeSP getType) {
 		if(!isCallable()) {
 			throw invalid_argument("Composite is not callable");
 		}
 		if(subID != CompositeTypeID::Function) {
-			auto composite = static_pointer_cast<CompositeType>(shared_from_this());
-
-			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), composite, "init", true)->call(arguments, false, getType);
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), shared_from_this(), SP<PrimitiveType>("init"), true)->call(arguments, getType);
 		}
 
 		return nullptr;
