@@ -244,28 +244,48 @@ namespace Interpreter {
 		virtual string toString() const { return string(); }  // User-friendly representation
 
 		// Cast
+
 		virtual operator bool() const { return bool(); }
 		virtual operator double() const { return double(); }
 		virtual operator int() const { return operator double(); }
 		virtual operator string() const { return string(); }  // Machine-friendly representation
 
-		// Direct access
-		virtual TypeSP get(TypeSP getType = nullptr) { return shared_from_this(); }
-		virtual TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) { return nullptr; }
-		virtual void set(TypeSP setValue = nullptr) {}
-		virtual void delete_() {}
+		// Self access
 
-		// Subscript access
-		virtual TypeSP get(vector<TypeSP> arguments, TypeSP getType = nullptr) { return nullptr; }
-		virtual void set(vector<TypeSP> arguments, TypeSP setValue = nullptr) {}
-		virtual void delete_(vector<TypeSP> arguments) {}
+		// var a: getType = self
+		// var a: getType = self(...arguments)
+		// var a: getType = self[...arguments]
+		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false) { return shared_from_this(); }
 
-		// Member access (for InoutType internal use only)
-		virtual TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP getType = nullptr) { return nullptr; }
-		virtual void set(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP setValue = nullptr) {}
-		virtual void delete_(TypeSP key, optional<vector<TypeSP>> arguments) {}
+		// self = setValue
+		// self(...arguments) = setValue
+		// self[...arguments] = setValue
+		virtual void set(optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false) {}
+
+		// delete self
+		// delete self(...arguments)
+		// delete self[...arguments]
+		virtual void delete_(optional<vector<TypeSP>> arguments = nullopt, bool subscript = false) {}
+
+		// Member access
+
+		// var a: getType = self.key
+		// var a: getType = self.key(...arguments)
+		// var a: getType = self.key[...arguments]
+		virtual TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false, bool internal = false) { return nullptr; }
+
+		// self.key = setValue
+		// self.key(...arguments) = setValue
+		// self.key[...arguments] = setValue
+		virtual void set(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false, bool internal = false) {}
+
+		// delete self.key
+		// delete self.key(...arguments)
+		// delete self.key[...arguments]
+		virtual void delete_(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, bool subscript = false, bool internal = false) {}
 
 		// Operators
+
 		virtual TypeSP positive() const { return SP<Type>(); }
 		virtual TypeSP negative() const { return SP<Type>(); }
 		virtual TypeSP plus(TypeSP type) const { return SP<Type>(); }
@@ -582,16 +602,14 @@ namespace Interpreter {
 			}
 		}
 
-		TypeSP set(TypeSP type) override {
-			if(type->ID == TypeID::Primitive) {
-				auto primType = static_pointer_cast<PrimitiveType>(type);
+		void set(optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false) override {
+			if(setValue->ID == TypeID::Primitive) {
+				auto primType = static_pointer_cast<PrimitiveType>(setValue);
 
 				if(primType->subID == subID) {
 					value = primType->value;
 				}
 			}
-
-			return shared_from_this();
 		}
 
 		TypeSP positive() const override {
@@ -759,6 +777,68 @@ namespace Interpreter {
 			result += "]";
 
 			return result;
+		}
+
+		// var a: getType = this
+		// var a: getType = this[arguments[0]]
+		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false) override {
+			if(arguments) {
+				if(subscript && arguments->size() == 1) {
+					return get(arguments->at(0), nullopt, getType, true);
+				} else {
+					throw invalid_argument("Only one subscripted argument is allowed");
+				}
+			}
+
+			return shared_from_this();
+		}
+
+		// this[arguments[0]] = setValue
+		virtual void set(optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false) override {
+			if(arguments) {
+				if(subscript && arguments->size() == 1) {
+					return set(arguments->at(0), nullopt, setValue, true);
+				} else {
+					throw invalid_argument("Only one subscripted argument is allowed");
+				}
+			}
+
+			throw invalid_argument("Can't directly set a dictionary");
+		}
+
+		// delete this[arguments[0]]
+		virtual void delete_(optional<vector<TypeSP>> arguments = nullopt, bool subscript = false) override {
+			if(arguments) {
+				if(subscript && arguments->size() == 1) {
+					return delete_(arguments->at(0), nullopt, true);
+				} else {
+					throw invalid_argument("Only one subscripted argument is allowed");
+				}
+			}
+
+			throw invalid_argument("Can't directly delete a dictionary");
+		}
+
+		// var a: getType = this[key]
+		// var a: getType = this[key](...arguments)
+		virtual TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false, bool internal = false) override {
+			if(!subscript) {
+				throw invalid_argument("Only subscripted get is allowed");
+			}
+		}
+
+		// this[key] = setValue
+		virtual void set(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false, bool internal = false) override {
+
+		}
+
+		// delete this[key]
+		virtual void delete_(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, bool subscript = false, bool internal = false) override {
+			if(!subscript) {
+				throw invalid_argument("Only subscripted delete is allowed");
+			}
+
+			removeLast(key);
 		}
 
 		bool equalsTo(const TypeSP& type) override {
@@ -1027,6 +1107,29 @@ namespace Interpreter {
 		operator double() const override {
 			return ownID;
 		}
+
+		// var a: getType = this
+		// var a: getType = this[...arguments]
+		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false) override;
+
+		// this[...arguments] = setValue
+		virtual void set(optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false) override {}
+
+		// delete this[...arguments]
+		virtual void delete_(optional<vector<TypeSP>> arguments = nullopt, bool subscript = false) override {}
+
+		// var a: getType = this.key
+		// var a: getType = this.key(...arguments)
+		// var a: getType = this.key[...arguments]
+		virtual TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false, bool internal = false) override { return nullptr; }
+
+		// this.key = setValue
+		// this.key[...arguments] = setValue
+		virtual void set(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false, bool internal = false) override {}
+
+		// delete this.key
+		// delete this.key[...arguments]
+		virtual void delete_(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, bool subscript = false, bool internal = false) override {}
 
 		void destroy() {
 			cout << "destroyComposite("+getTitle()+")" << endl;
@@ -1751,7 +1854,126 @@ namespace Interpreter {
 			*/
 		}
 
-		TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) override;
+		/**
+		 * var a: A {
+		 *		willGet
+		 *			get -> A
+		 *		 didGet
+		 *
+		 *		willSet(A)
+		 *			set(A)
+		 *		 didSet(A)
+		 *
+		 *		willDelete
+		 *			delete
+		 *		 didDelete
+		 * }
+		 *
+		 * chain {
+		 *		willGet(string)
+		 *			get(string) -> _?
+		 *		 didGet(string)
+		 *
+		 *		willSet(string, _?)
+		 *			set(string, _?)
+		 *		 didSet(string, _?)
+		 *
+		 *		willDelete(string)
+		 *			delete(string)
+		 *		 didDelete(string)
+		 * }
+		 *
+		 * subscript(A, B) -> C {
+		 *		willGet(A, B)
+		 *			get(A, B) -> C
+		 *		 didGet(A, B)
+		 *
+		 *		willSet(A, B, C)
+		 *			set(A, B, C)
+		 *		 didSet(A, B, C)
+		 *
+		 *		willDelete(A, B)
+		 *			delete(A, B)
+		 *		 didDelete(A, B)
+		 * }
+		 */
+		TypeSP callObservers(const Observers& observers, OverloadSP overload, AccessMode mode, vector<TypeSP> arguments, TypeSP setValue = nullptr) {
+			TypeSP value;
+
+			switch(mode) {
+				case AccessMode::Get:
+					if(observers.willGet) {
+						observers.willGet->call(arguments);
+					}
+					if(observers.get) {
+						value = observers.get->call(arguments);
+					} else
+					if(overload) {
+						value = overload->value;
+					}
+					if(observers.didGet) {
+						observers.didGet->call(arguments);
+					}
+				break;
+				case AccessMode::Set:
+					arguments.push_back(setValue);
+
+					if(observers.willSet) {
+						observers.willSet->call(arguments);
+					}
+					if(observers.set) {
+						observers.set->call(arguments);
+					} else
+					if(overload) {
+						overload->value = setValue;
+					}
+					if(observers.didSet) {
+						observers.didSet->call(arguments);
+					}
+				break;
+				case AccessMode::Delete:
+					if(observers.willDelete) {
+						observers.willDelete->call(arguments);
+					}
+					if(observers.delete_) {
+						observers.delete_->call(arguments);
+					}
+					if(observers.didDelete) {
+						observers.didDelete->call(arguments);
+					}
+				break;
+			}
+
+			return value;
+		}
+
+		TypeSP accessOverload(
+			AccessMode mode,
+			bool internal = false,
+			optional<vector<TypeSP>> arguments = nullopt,
+			bool subscript = false,
+			TypeSP getType = nullptr,
+			TypeSP setValue = nullptr
+		) {
+			OverloadSearch search;
+
+			LHS->findOverloads(RHS, search, "scope", mode, !arguments && !subscript, internal);
+
+			if(subscript) {
+				LHS->findSubscriptOverloads(search, mode);
+			}
+
+			optional<OverloadCandidate> candidate = LHS->matchOverload(search, mode, arguments, getType, setValue);
+
+			if(candidate) {
+				return callObservers(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
+			} else
+			if(search.observers) {
+				return callObservers(*search.observers, nullptr, mode, vector<TypeSP> { SP<PrimitiveType>(RHS) }, setValue);
+			}
+
+			return nullptr;
+		}
 	};
 
 	struct ReferenceType : Type {
@@ -1942,12 +2164,6 @@ namespace Interpreter {
 	};
 
 	struct InoutType : Type {
-		using Observers = CompositeType::Observers;
-		using OverloadSP = CompositeType::OverloadSP;
-		using OverloadCandidate = CompositeType::OverloadCandidate;
-		using OverloadSearch = CompositeType::OverloadSearch;
-		using AccessMode = CompositeType::AccessMode;
-
 		bool implicit;
 		TypeSP innerType,
 			   LHS,  // Dictionary/Composite/Inout
@@ -1983,61 +2199,53 @@ namespace Interpreter {
 			return "inout "+innerType->toString();  // TODO: Prepend "inout" only when explicit
 		}
 
-		// Direct access
-
-		TypeSP get(TypeSP getType = nullptr) override {
-			return LHS->get(RHS, nullopt, getType);
+		// var a: getType = LHS.RHS
+		// var a: getType = LHS.RHS(...arguments)
+		// var a: getType = LHS.RHS[...arguments]
+		TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false) override {
+			return get(RHS, arguments, getType, subscript, internal);
 		}
 
-		TypeSP call(vector<TypeSP> arguments, TypeSP getType = nullptr) override {
-			if(TypeSP function = LHS->get(RHS, arguments, getType)) {
-				return function->call(arguments, getType);
+		// LHS.RHS = setValue
+		// LHS.RHS(...arguments) = setValue
+		// LHS.RHS[...arguments] = setValue
+		void set(optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false) override {
+			set(RHS, arguments, setValue, subscript, internal);
+		}
+
+		// delete LHS.RHS
+		// delete LHS.RHS(...arguments)
+		// delete LHS.RHS[...arguments]
+		void delete_(optional<vector<TypeSP>> arguments = nullopt, bool subscript = false) override {
+			delete_(RHS, arguments, subscript, internal);
+		}
+
+		// var a: getType = LHS.key
+		// var a: getType = LHS.key(...arguments)
+		// var a: getType = LHS.key[...arguments]
+		TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool subscript = false, bool internal = false) override {
+			if(TypeSP normLHS = normalizedLHS()) {
+				return normLHS->get(key, arguments, getType, subscript, internal);
 			}
 
 			return nullptr;
 		}
 
-		void set(TypeSP setValue = nullptr) override {
-			LHS->set(RHS, nullopt, setValue);
-		}
-
-		void delete_() {
-			LHS->delete_(RHS, nullopt);
-		}
-
-		// Subscript access
-
-		TypeSP get(vector<TypeSP> arguments, TypeSP getType = nullptr) override {
-			return LHS->get(RHS, arguments, getType);
-		}
-
-		void set(vector<TypeSP> arguments, TypeSP setValue = nullptr) override {
-			LHS->set(RHS, arguments, setValue);
-		}
-
-		void delete_(vector<TypeSP> arguments) override {
-			LHS->delete_(RHS, arguments);
-		}
-
-		// Member access (support for inner inouts)
-
-		TypeSP get(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP getType = nullptr) override {
+		// LHS.key = setValue
+		// LHS.key(...arguments) = setValue
+		// LHS.key[...arguments] = setValue
+		void set(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, TypeSP setValue = nullptr, bool subscript = false, bool internal = false) override {
 			if(TypeSP normLHS = normalizedLHS()) {
-				return normLHS->get(key, arguments, getType);
-			}
-
-			return nullptr;
-		}
-
-		void set(TypeSP key, optional<vector<TypeSP>> arguments, TypeSP setValue = nullptr) override {
-			if(TypeSP normLHS = normalizedLHS()) {
-				normLHS->set(key, arguments, setValue);
+				normLHS->set(key, arguments, setValue, subscript, internal);
 			}
 		}
 
-		void delete_(TypeSP key, optional<vector<TypeSP>> arguments) override {
+		// delete LHS.key
+		// delete LHS.key(...arguments)
+		// delete LHS.key[...arguments]
+		void delete_(TypeSP key, optional<vector<TypeSP>> arguments = nullopt, bool subscript = false, bool internal = false) override {
 			if(TypeSP normLHS = normalizedLHS()) {
-				normLHS->delete_(key, arguments);
+				normLHS->delete_(key, arguments, subscript, internal);
 			}
 		}
 
@@ -2048,167 +2256,20 @@ namespace Interpreter {
 
 			return LHS;
 		}
-
-		/*
-		TypeSP get(TypeSP getType = nullptr) override {
-			return accessOverload(AccessMode::Get, internal, nullopt, false, getType);
-		}
-
-		TypeSP get(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
-			return accessOverload(AccessMode::Get, internal, arguments, subscript, getType);
-		}
-
-		TypeSP set(TypeSP setValue = nullptr) override {
-			return accessOverload(AccessMode::Set, internal, nullopt, false, nullptr, setValue);
-		}
-
-		TypeSP set(vector<TypeSP> arguments, bool subscript, TypeSP setValue) override {
-			return accessOverload(AccessMode::Set, internal, arguments, subscript, nullptr, setValue);
-		}
-
-		TypeSP delete_() override {
-			return accessOverload(AccessMode::Delete, internal);
-		}
-
-		TypeSP delete_(vector<TypeSP> arguments, bool subscript) override {
-			return accessOverload(AccessMode::Delete, internal, arguments, subscript);
-		}
-
-		TypeSP call(vector<TypeSP> arguments, bool subscript, TypeSP getType) override {
-			if(TypeSP type = accessOverload(AccessMode::Get, internal, arguments, false, getType)) {
-				return type->call(arguments, false, getType);
-			}
-		}
-		*/
-
-		/**
-		 * var a: A {
-		 *		willGet
-		 *			get -> A
-		 *		 didGet
-		 *
-		 *		willSet(A)
-		 *			set(A)
-		 *		 didSet(A)
-		 *
-		 *		willDelete
-		 *			delete
-		 *		 didDelete
-		 * }
-		 *
-		 * chain {
-		 *		willGet(string)
-		 *			get(string) -> _?
-		 *		 didGet(string)
-		 *
-		 *		willSet(string, _?)
-		 *			set(string, _?)
-		 *		 didSet(string, _?)
-		 *
-		 *		willDelete(string)
-		 *			delete(string)
-		 *		 didDelete(string)
-		 * }
-		 *
-		 * subscript(A, B) -> C {
-		 *		willGet(A, B)
-		 *			get(A, B) -> C
-		 *		 didGet(A, B)
-		 *
-		 *		willSet(A, B, C)
-		 *			set(A, B, C)
-		 *		 didSet(A, B, C)
-		 *
-		 *		willDelete(A, B)
-		 *			delete(A, B)
-		 *		 didDelete(A, B)
-		 * }
-		 */
-		TypeSP callObservers(const Observers& observers, OverloadSP overload, AccessMode mode, vector<TypeSP> arguments, TypeSP setValue = nullptr) {
-			TypeSP value;
-
-			switch(mode) {
-				case AccessMode::Get:
-					if(observers.willGet) {
-						observers.willGet->call(arguments);
-					}
-					if(observers.get) {
-						value = observers.get->call(arguments);
-					} else
-					if(overload) {
-						value = overload->value;
-					}
-					if(observers.didGet) {
-						observers.didGet->call(arguments);
-					}
-				break;
-				case AccessMode::Set:
-					arguments.push_back(setValue);
-
-					if(observers.willSet) {
-						observers.willSet->call(arguments);
-					}
-					if(observers.set) {
-						observers.set->call(arguments);
-					} else
-					if(overload) {
-						overload->value = setValue;
-					}
-					if(observers.didSet) {
-						observers.didSet->call(arguments);
-					}
-				break;
-				case AccessMode::Delete:
-					if(observers.willDelete) {
-						observers.willDelete->call(arguments);
-					}
-					if(observers.delete_) {
-						observers.delete_->call(arguments);
-					}
-					if(observers.didDelete) {
-						observers.didDelete->call(arguments);
-					}
-				break;
-			}
-
-			return value;
-		}
-
-		TypeSP accessOverload(
-			AccessMode mode,
-			bool internal = false,
-			optional<vector<TypeSP>> arguments = nullopt,
-			bool subscript = false,
-			TypeSP getType = nullptr,
-			TypeSP setValue = nullptr
-		) {
-			OverloadSearch search;
-
-			LHS->findOverloads(RHS, search, "scope", mode, !arguments && !subscript, internal);
-
-			if(subscript) {
-				LHS->findSubscriptOverloads(search, mode);
-			}
-
-			optional<OverloadCandidate> candidate = LHS->matchOverload(search, mode, arguments, getType, setValue);
-
-			if(candidate) {
-				return callObservers(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
-			} else
-			if(search.observers) {
-				return callObservers(*search.observers, nullptr, mode, vector<TypeSP> { SP<PrimitiveType>(RHS) }, setValue);
-			}
-
-			return nullptr;
-		}
 	};
 
-	TypeSP CompositeType::call(vector<TypeSP> arguments, TypeSP getType) {
+	TypeSP CompositeType::get(optional<vector<TypeSP>> arguments, TypeSP getType, bool subscript) {
+		if(!arguments) {
+			return shared_from_this();
+		}
+		if(subscript) {
+			return nullptr;
+		}
 		if(!isCallable()) {
 			throw invalid_argument("Composite is not callable");
 		}
 		if(subID != CompositeTypeID::Function) {
-			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), shared_from_this(), SP<PrimitiveType>("init"), true)->call(arguments, getType);
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), shared_from_this(), SP<PrimitiveType>("init"), true)->get(arguments, getType);
 		}
 
 		return nullptr;

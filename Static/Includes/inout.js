@@ -10,47 +10,32 @@ class Dictionary {
 	// Self
 
 	// var a: getType = this
-	// var a: getType = this[args[0]]
-	get(args, getType, subscript) {
+	get(args, getType) {
 		if(args) {
-			if(subscript && args.length === 1) {
-				return this.getMember(args[0], null, getType, true);
-			} else {
-				throw 'Only single subscripted argument is allowed';
-			}
+			throw 'Can\'t directly call a dictionary';
 		}
 
 		return this;
 	}
 
-	// this[args[0]] = setValue
-	set(args, setValue, subscript) {
-		if(!subscript || !args || args.length !== 1) {
-			throw 'Only subscripted set with single key is allowed';
-		}
-
-		this.setMember(args[0], null, setValue, true);
+	set(setValue) {
+		throw 'Can\'t directly set a dictionary';
 	}
 
-	// delete this[args[0]]
-	delete_(args, subscript) {
-		if(!subscript || !args || args.length !== 1) {
-			throw 'Only subscripted delete with single key is allowed';
-		}
-
-		this.deleteMember(args[0], null, true);
+	delete_() {
+		throw 'Can\'t directly delete a dictionary';
 	}
 
 	// Member
 
-	// var a: getType = this[key]
-	// var a: getType = this[key](...args)
-	getMember(key, args, getType, subscript) {
-		if(!subscript) {
-			throw 'Only subscripted get is allowed';
+	// var a: getType = this[key[0]]
+	// var a: getType = this[key[0]](...args)
+	getMember(key, args, getType) {
+		if(!Array.isArray(key) || key.length !== 1) {
+			throw 'Only single-argument subscripted get is allowed';
 		}
 
-		const values = this.items.get(key);
+		const values = this.items.get(key[0]);
 		if(!values) return undefined;
 
 		if(args && Array.isArray(values)) {
@@ -59,6 +44,7 @@ class Dictionary {
 					return fn(...args);
 				}
 			}
+
 			return undefined;
 		}
 
@@ -69,90 +55,59 @@ class Dictionary {
 		return values;
 	}
 
-	// this[key] = setValue
-	// this[key](...args) = setValue
-	setMember(key, args, setValue, subscript) {
-		if(!subscript) {
-			throw 'Only subscripted set is allowed';
+	// this[key[0]] = setValue
+	setMember(key, setValue) {
+		if(!Array.isArray(key) || key.length !== 1) {
+			throw 'Only single-argument subscripted set is allowed';
 		}
 
-		const existing = this.items.get(key);
+		const existing = this.items.get(key[0]);
 
 		if(typeof setValue === 'function') {
 			if(!existing) {
-				this.items.set(key, [setValue]);
+				this.items.set(key[0], [setValue]);
 			} else
 			if(Array.isArray(existing)) {
 				existing.push(setValue);
 			} else {
-				this.items.set(key, [existing, setValue]);
+				this.items.set(key[0], [existing, setValue]);
 			}
 		} else {
-			this.items.set(key, setValue);
+			this.items.set(key[0], setValue);
 		}
 	}
 
-	// delete this[key]
-	// delete this[key](...args)
-	deleteMember(key, args, subscript) {
-		if(!subscript) {
-			throw 'Only subscripted delete is allowed';
+	// delete this[key[0]]
+	deleteMember(key) {
+		if(!Array.isArray(key) || key.length !== 1) {
+			throw 'Only single-argument subscripted delete is allowed';
 		}
 
-		this.items.delete(key);
+		this.items.delete(key[0]);
 	}
 }
 
 class Composite {
 	constructor() {
-		this.fields = new Map();
-		this.subscripts = new Map();
+		this.fields = {}
 	}
 
 	// Self
 
 	// var a: getType = this
-	// var a: getType = this(...args)
-	// var a: getType = this[...args]
-	get(args, getType, subscript) {
+	get(args, getType) {
 		if(args) {
-			if(subscript) {
-				return this.subscripts.get(JSON.stringify(args));
-			} else {
-				throw 'Can\'t directly call a composite';
-			}
+			throw 'Can\'t directly call a composite';
 		}
 
 		return this;
 	}
 
-	// this = setValue
-	// this(...args) = setValue
-	// this[...args] = setValue
-	set(args, setValue, subscript) {
-		if(args) {
-			if(subscript) {
-				return this.subscripts.set(JSON.stringify(args), setValue);
-			} else {
-				throw 'Can\'t replace a function';
-			}
-		}
-
+	set(setValue) {
 		throw 'Can\'t directly set a composite';
 	}
 
-	// delete this
-	// delete this(...args)
-	// delete this[...args]
-	delete_(args, subscript) {
-		if(args) {
-			if(subscript) {
-				return this.subscripts.delete(JSON.stringify(args));
-			} else {
-				throw 'Can\'t delete a function';
-			}
-		}
-
+	delete_() {
 		throw 'Can\'t directly delete a composite';
 	}
 
@@ -160,160 +115,178 @@ class Composite {
 
 	// var a: getType = this.key
 	// var a: getType = this.key(...args)
-	// var a: getType = this.key[...args]
-	getMember(key, args, getType, subscript) {
-		return this.accessMember(key, args, getType, undefined, false, subscript);
+	// var a: getType = this[...key]
+	// var a: getType = this[...key](...args)
+	getMember(key, args, getType) {
+		return this.accessMember(key, args, getType, undefined, false);
 	}
 
 	// this.key = setValue
-	// this.key(...args) = setValue
-	// this.key[...args] = setValue
-	setMember(key, args, setValue, subscript) {
-		this.accessMember(key, args, undefined, setValue, false, subscript);
+	// this[...key] = setValue
+	setMember(key, setValue) {
+		this.accessMember(key, undefined, undefined, setValue, false);
 	}
 
 	// delete this.key
-	// delete this.key(...args)
-	// delete this.key[...args]
-	deleteMember(key, args, subscript) {
-		this.accessMember(key, args, undefined, undefined, true, subscript);
+	// delete this[...key]
+	deleteMember(key) {
+		this.accessMember(key, undefined, undefined, undefined, true);
 	}
 
 	// Helpers
 
-	accessMember(key, args, getType, setValue, delete_, subscript) {
-	  const candidates = this.fields.get(key) || []
+	accessMember(key, args, getType, setValue, delete_) {
+		if(Array.isArray(key)) {
+			if(delete_) {
+				delete this.fields[JSON.stringify(key)]
+				return;
+			}
 
-	  // ——— САБСКРИПТ-ВЕТКА ———
-	  if (subscript) {
-	    // удаление
-	    if (delete_) {
-	      for (let obj of candidates) {
-	        if (obj instanceof Composite || obj instanceof Inout) {
-	          return obj.delete_(args, true);
-	        }
-	      }
-	      return;
-	    }
-	    // присвоение
-	    if (setValue !== undefined) {
-	      for (let obj of candidates) {
-	        if (obj instanceof Composite || obj instanceof Inout) {
-	          return obj.set(args, setValue, true);
-	        }
-	      }
-	      return;
-	    }
-	    // чтение / вызов сабскрипта
-	    for (let obj of candidates) {
-	      if (obj instanceof Composite || obj instanceof Inout) {
-	        const res = obj.get(args, getType, true);
-	        if (res !== undefined) return res;
-	      }
-	    }
-	    return undefined;
-	  }
+			if(setValue !== undefined) {
+				this.fields[JSON.stringify(key)] = setValue;
+				return;
+			}
 
-	  // ——— MEMBER / METHOD-ВЕТКА ———
-	  // удаление поля/методов
-	  if (delete_) {
-	    return this.fields.delete(key);
-	  }
-	  // присвоение нового «члена»
-	  if (setValue !== undefined) {
-	    const arr = candidates;
-	    arr.push(setValue);
-	    this.fields.set(key, arr);
-	    return;
-	  }
-	  // вызов метода
-	  if (args) {
-	    for (let fn of candidates) {
-	      if (typeof fn === 'function') {
-	        return fn(...args);
-	      }
-	    }
-	    return undefined;
-	  }
-	  // чтение поля
-	  return candidates.length
-	    ? candidates[candidates.length - 1]
-	    : undefined;
+			return this.fields[JSON.stringify(key)]
+		}
+
+		let candidates = this.fields[key] ?? []
+
+		if(delete_) {
+			delete this.fields[key]
+			return;
+		}
+
+		if(setValue !== undefined) {
+			const arr = candidates;
+			arr.push(setValue);
+			this.fields[key] = arr;
+			return;
+		}
+
+		if(args) {
+			for(let fn of candidates) {
+				if(typeof fn === 'function') {
+					return fn(...args);
+				}
+			}
+			return;
+		}
+
+		for(let i = candidates.length-1; i >= 0; i--) {
+			if(!getType || candidates[i] instanceof getType) {
+				return candidates[i]
+			}
+		}
 	}
 }
 
 class Inout {
-	constructor(LHS, RHS) {
-		this.LHS = LHS; // Composite / Inout
-		this.RHS = RHS; // key (usually string)
+	constructor(...path) {
+		this.path = this.flatten(path);
+	}
+
+	flatten(path) {
+		let result = []
+
+		for(let part of path) {
+			if(part instanceof Inout) {
+				result.push(...part.path);
+			} else {
+				result.push(part);
+			}
+		}
+
+		return result;
 	}
 
 	// Self
 
-	// var a: getType = LHS.RHS
-	// var a: getType = LHS.RHS(...args)
-	// var a: getType = LHS.RHS[...args]
-	get(args, getType, subscript) {
-		return this.getMember(this.RHS, args, getType, subscript);
+	// var a: getType = path
+	// var a: getType = path(...args)
+	get(args, getType) {
+		let target = this.evaluatedPath(this.path.slice(0, -1));
+
+		if(target) {
+			return target.getMember(this.path.at(-1), args, getType);
+		}
 	}
 
-	// LHS.RHS = setValue
-	// LHS.RHS(...args) = setValue
-	// LHS.RHS[...args] = setValue
-	set(args, setValue, subscript) {
-		this.setMember(this.RHS, args, setValue, subscript);
+	// path = setValue
+	set(setValue) {
+		let target = this.evaluatedPath(this.path.slice(0, -1));
+
+		if(target) {
+			return target.setMember(this.path.at(-1), setValue);
+		}
 	}
 
-	// delete LHS.RHS
-	// delete LHS.RHS(...args)
-	// delete LHS.RHS[...args]
-	delete_(args, subscript) {
-		this.deleteMember(this.RHS, args, subscript);
+	// delete path
+	delete_() {
+		let target = this.evaluatedPath(this.path.slice(0, -1));
+
+		if(target) {
+			return target.deleteMember(this.path.at(-1));
+		}
 	}
 
 	// Member
 
-	// var a: getType = LHS.key
-	// var a: getType = LHS.key(...args)
-	// var a: getType = LHS.key[...args]
-	getMember(key, args, getType, subscript) {
-		let LHS = this.normalizedLHS();
-		if(LHS) return LHS.getMember(key, args, getType, subscript);
+	// var a: getType = path.key
+	// var a: getType = path.key(...args)
+	// var a: getType = path[...key]
+	// var a: getType = path[...key](...args)
+	getMember(key, args, getType) {
+		let target = this.evaluatedPath(this.path);
+
+		if(target) {
+			return target.getMember(key, args, getType);
+		}
 	}
 
-	// LHS.key = setValue
-	// LHS.key(...args) = setValue
-	// LHS.key[...args] = setValue
-	setMember(key, args, setValue, subscript) {
-		let LHS = this.normalizedLHS();
-		if(LHS) LHS.setMember(key, args, setValue, subscript);
+	// path.key = setValue
+	// path[...key] = setValue
+	setMember(key, setValue) {
+		let target = this.evaluatedPath(this.path);
+
+		if(target) {
+			target.setMember(key, setValue);
+		}
 	}
 
-	// delete LHS.key
-	// delete LHS.key(...args)
-	// delete LHS.key[...args]
-	deleteMember(key, args, subscript) {
-		let LHS = this.normalizedLHS();
-		if(LHS) LHS.deleteMember(key, args, subscript);
+	// delete path.key
+	// delete path[...key]
+	deleteMember(key) {
+		let target = this.evaluatedPath(this.path);
+
+		if(target) {
+			target.deleteMember(key);
+		}
 	}
 
 	// Helpers
 
-	normalizedLHS() {
-		if(this.LHS instanceof Inout) {
-			return this.LHS.get();
+	evaluatedPath(path) {
+		let target = path[0]
+
+		for(let i = 1; i < path.length; i++) {
+			if(!target) {
+				break;
+			}
+
+			target = target.getMember(path[i]);
 		}
 
-		return this.LHS;
+		return target;
 	}
 }
 
 let comp1 = new Composite();
-comp1.setMember('x', null, 123);
+comp1.setMember('x', 123);
 
 let comp1Inout = new Inout(comp1, 'x');
 console.log(comp1Inout.get());          // 123
-comp1Inout.set(null, 456);
+comp1Inout.set(456);
 console.log(comp1Inout.get());          // 456
 comp1Inout.delete_();
 console.log(comp1Inout.get());          // undefined
@@ -321,34 +294,32 @@ console.log(comp1Inout.get());          // undefined
 
 
 let comp2 = new Composite();
-comp2.setMember('field', null, 'hello');
+comp2.setMember('field', 'hello');
 
 let comp2_field = new Inout(comp2, 'field');
 console.log(comp2_field.get());           // hello
-comp2_field.set(null, 'world');
+comp2_field.set('world');
 console.log(comp2_field.get());           // world
 
 
 
 let comp2_field_length = new Inout(comp2_field, 'length');  // Inout(Inout(comp2, 'field'), 'length')
-// Simulate: comp2.field = "world" → "world".length
+// comp2.field = "world" -> "world".length
 console.log(comp2_field_length.get());    // 5
 
 
 
 let comp6 = new Composite();
-comp2.setMember('nest', null, comp6);
-comp6.setMember('test', null, 'string');
+comp2.setMember('nest', comp6);
+comp6.setMember('test', 'string');
 
-let comp2_nest = new Inout(comp2, 'nest');
-let comp2_nest_test = new Inout(comp2_nest, 'test');
-let comp2_nest_test_length = new Inout(comp2_nest_test, 'length');
+let comp2_nest_test_length = new Inout(comp2, 'nest', 'test', 'length');
 console.log(comp2_nest_test_length.get());    // 6
 
 
 
 let comp3 = new Composite();
-comp3.setMember('func', null, (a, b) => a+b);
+comp3.setMember('func', (a, b) => a+b);
 
 let comp3_func = new Inout(comp3, 'func');
 console.log(comp3_func.get([4, 8]));   // 12
@@ -357,48 +328,49 @@ console.log(comp3_func.get([4, 8]));   // 12
 
 let comp4 = new Composite();
 let comp5 = new Composite();
-let subArgs = ['a', 'b']
-comp4.setMember('x', null, comp5);
-comp5.set(subArgs, 'value123', true);
-
+comp4.setMember('x', comp5);
+comp5.setMember(['a', 'b'], 'value123');
 let comp4_x = new Inout(comp4, 'x');
-console.log(comp4_x.get(subArgs, null, true));    // value123
-comp4_x.set(subArgs, 'newVal', true);
-console.log(comp4_x.get(subArgs, null, true));    // newVal
+console.log(comp4_x.getMember(['a', 'b']));    // value123
+comp4_x.setMember(['a', 'b'], 'newVal');
+console.log(comp4_x.getMember(['a', 'b']));    // newVal
 
 
 let comp7 = new Composite();
-let comp8 = new Composite();
+let dict8 = new Dictionary();
 let comp9 = new Composite();
-comp7.setMember('subscripted', null, comp9);
-comp7.setMember('subscripted', null, comp8);
-let firstSubArgs = [1]
-let secondSubArgs = [1, 2]
-comp8.set(firstSubArgs, 'firstSubscript', true);
-comp9.set(secondSubArgs, 'secondSubscript', true);
+comp7.setMember('subscripted', comp9);
+comp7.setMember('subscripted', dict8);
+dict8.setMember([1], 'firstSubscript');
+comp9.setMember([1, 2], 'secondSubscript');
 
 let comp7_subscripted = new Inout(comp7, 'subscripted');
-console.log(comp7_subscripted.get(firstSubArgs, null, true));   // firstSubscript
-console.log(comp7_subscripted.get(secondSubArgs, null, true));  // secondSubscript
+let comp7_subscriptedArgs1 = new Inout(comp7, 'subscripted', [1]);
+let comp7_subscriptedArgs2 = new Inout(comp7, 'subscripted', [1, 2]);
+console.log(comp7_subscripted.getMember([1]));   // firstSubscript
+//console.log(comp7_subscripted.getMember([1, 2]));  // secondSubscript  <--  без приведения к getType перед subscript-обращением - не работает
+console.log(comp7_subscripted.get(undefined, Composite).getMember([1, 2]));  // secondSubscript
+console.log(comp7_subscriptedArgs1.get());   // firstSubscript
+//console.log(comp7_subscriptedArgs2.get());   // secondSubscript  <--  без приведения к getType перед subscript-обращением (невозможно в цельной цепочке) - не работает
 
 
 
 let dict = new Dictionary();
-let dict_foo = new Inout(dict, 'foo');
-dict_foo.set(null, 42, true);
-console.log(dict_foo.get(null, null, true)); // 42
-dict_foo.delete_(null, true);
-console.log(dict_foo.get(null, null, true)); // undefined
+let dict_foo = new Inout(dict, ['foo']);
+dict_foo.set(42);
+console.log(dict_foo.get()); // 42
+dict_foo.delete_();
+console.log(dict_foo.get()); // undefined
 
 
 
 let dict2 = new Dictionary();
 
-dict2.setMember('func', null, (a) => 0, true);
-dict2.setMember('func', null, (a, b) => 1, true);
+dict2.setMember(['func'], (a) => 0, true);
+dict2.setMember(['func'], (a, b) => 1, true);
 
-let dict2_func = new Inout(dict2, 'func');
+let dict2_func = new Inout(dict2, ['func']);
 
-console.log(dict2.getMember('func', [1], null, true));  // 0
-console.log(dict2_func.get([1, 2], null, true));        // 1
-console.log(dict2_func.get([1, 2, 3], null, true));     // undefined
+console.log(dict2.getMember(['func'], [1], null));  // 0
+console.log(dict2_func.get([1, 2], null));          // 1
+console.log(dict2_func.get([1, 2, 3], null));       // undefined
