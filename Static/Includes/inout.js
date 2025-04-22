@@ -371,6 +371,6 @@ dict2.setMember(['func'], (a, b) => 1, true);
 
 let dict2_func = new Inout(dict2, ['func']);
 
-console.log(dict2.getMember(['func'], [1], null));  // 0
-console.log(dict2_func.get([1, 2], null));          // 1
-console.log(dict2_func.get([1, 2, 3], null));       // undefined
+console.log(dict2.getMember(['func'], [1]));  // 0
+console.log(dict2_func.get([1, 2]));          // 1
+console.log(dict2_func.get([1, 2, 3]));       // undefined
