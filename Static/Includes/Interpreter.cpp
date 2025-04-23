@@ -714,7 +714,7 @@ namespace Interpreter {
 
 	struct DictionaryType : Type {
 		struct Hasher {
-			size_t operator()(const TypeSP& t) const {
+			usize operator()(const TypeSP& t) const {
 				return 0;  // TODO
 			}
 		};
@@ -729,7 +729,7 @@ namespace Interpreter {
 
 		TypeSP keyType,
 			   valueType;
-		unordered_map<TypeSP, vector<size_t>, Hasher, Comparator> kIndexes;	// key -> indexes
+		unordered_map<TypeSP, vector<usize>, Hasher, Comparator> kIndexes;	// key -> indexes
 		vector<Entry> iEntries;												// index -> entry
 
 		DictionaryType(const TypeSP& keyType = PredefinedEAnyTypeSP,
@@ -803,7 +803,9 @@ namespace Interpreter {
 				throw invalid_argument("Only single-argument subscripted get is allowed for a dictionary");
 			}
 
-			return get(std::get<1>(key)[0]);
+			cout << "getting: " << std::get<1>(key).at(0) << endl;
+
+			return get(std::get<1>(key).at(0));
 		}
 
 		// this[key[0]] = setValue
@@ -812,7 +814,7 @@ namespace Interpreter {
 				throw invalid_argument("Only single-argument subscripted set is allowed for a dictionary");
 			}
 
-			emplace(std::get<1>(key)[0], setValue);
+			emplace(std::get<1>(key).at(0), setValue);
 		}
 
 		// delete this[key[0]]
@@ -821,7 +823,7 @@ namespace Interpreter {
 				throw invalid_argument("Only single-argument subscripted delete is allowed for a dictionary");
 			}
 
-			removeLast(std::get<1>(key)[0]);
+			removeLast(std::get<1>(key).at(0));
 		}
 
 		bool equalsTo(const TypeSP& type) override {
@@ -850,7 +852,7 @@ namespace Interpreter {
 				iEntries.push_back(make_pair(key, value));
 			} else
 			if(auto it = kIndexes.find(key); it != kIndexes.end() && !it->second.empty()) {
-				size_t keepIndex = it->second[0];
+				usize keepIndex = it->second[0];
 				iEntries[keepIndex].second = value;
 
 				for(int j = static_cast<int>(it->second.size())-1; j >= 1; j--) {
@@ -865,11 +867,11 @@ namespace Interpreter {
 			emplace(key, value, true);
 		}
 
-		void removeAtIndex(size_t idxToRemove) {
+		void removeAtIndex(usize idxToRemove) {
 			iEntries.erase(begin()+idxToRemove);
 
 			for(auto& [key, indexes] : kIndexes) {
-				for(size_t& index : indexes) {
+				for(usize& index : indexes) {
 					if(index > idxToRemove) {
 						index--;
 					}
@@ -884,7 +886,7 @@ namespace Interpreter {
 				return;
 			}
 
-			size_t idxToRemove = it->second.front();
+			usize idxToRemove = it->second.front();
 			it->second.erase(it->second.begin());
 			removeAtIndex(idxToRemove);
 
@@ -900,7 +902,7 @@ namespace Interpreter {
 				return;
 			}
 
-			size_t idxToRemove = it->second.back();
+			usize idxToRemove = it->second.back();
 			it->second.pop_back();
 			removeAtIndex(idxToRemove);
 
@@ -914,7 +916,7 @@ namespace Interpreter {
 				auto it = kIndexes.find(key);
 
 				if(it != kIndexes.end() && !it->second.empty()) {
-					return iEntries[it->second.back()].second;
+					return iEntries.at(it->second.back()).second;
 				}
 			}
 
@@ -929,7 +931,7 @@ namespace Interpreter {
 			return iEntries.end();
 		}
 
-		size_t size() const {
+		usize size() const {
 			return iEntries.size();
 		}
 	};
@@ -2159,7 +2161,7 @@ namespace Interpreter {
 
 		bool implicit;
 		TypeSP innerType;
-		Path path;
+		const Path path;
 		bool internal;
 
 		InoutType(bool implicit,
@@ -2169,9 +2171,9 @@ namespace Interpreter {
 								   implicit(implicit),
 								   innerType(innerType),
 								   path(normalizedPath(path)),
-								   internal(internal) { cout << toString() << " type created\n"; }
+								   internal(internal) { cout << "inout type created\n"; }
 
-		~InoutType() { cout << toString() << " type destroyed\n"; }
+		~InoutType() { cout << "inout type destroyed\n"; }
 
 		bool acceptsA(const TypeSP& type) override {
 			return type->ID == TypeID::Inout && innerType->acceptsA(static_pointer_cast<InoutType>(type)->innerType);
@@ -2191,16 +2193,17 @@ namespace Interpreter {
 			if(!implicit) {
 				return "inout "+innerType->toString();
 			} else {
-			//	return get()->toString();
+				return to_string(const_cast<InoutType*>(this)->get());  // Unsafe cast
 			}
-
-			return "implicit inout...";
 		}
 
 		// var a: getType = path
 		// var a: getType = path(...arguments)
 		TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) override {
-			if(TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
+			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
+				return target->get(arguments, getType);
+			} else
+			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
 				return target->get(pathPartToKey(path.back()), arguments, getType);
 			}
 
@@ -2209,15 +2212,21 @@ namespace Interpreter {
 
 		// path = setValue
 		void set(TypeSP setValue = nullptr) override {
-			if(TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
-				return target->set(pathPartToKey(path.back()), setValue);
+			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
+				target->set(setValue);
+			} else
+			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
+				target->set(pathPartToKey(path.back()), setValue);
 			}
 		}
 
 		// delete path
 		void delete_() override {
-			if(TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
-				return target->delete_(pathPartToKey(path.back()));
+			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
+				target->delete_();
+			} else
+			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
+				target->delete_(pathPartToKey(path.back()));
 			}
 		}
 
@@ -2258,29 +2267,42 @@ namespace Interpreter {
 			}
 		}
 
-		Path normalizedPath(const Path& path) {
+		Path normalizedPath(const Path& path) const {
 			auto result = Path();
 
 			for(auto& part : path) {
 				if(part.index() != 2) {
 					result.push_back(part);
 				} else
-				if(TypeSP typePart = std::get<2>(part); typePart->ID == TypeID::Inout) {
-					auto inoutType = static_pointer_cast<InoutType>(typePart);
+				if(TypeSP typePart = std::get<2>(part)) {
+					if(typePart->ID != TypeID::Inout) {
+						result.push_back(part);
+					} else {
+						auto inoutType = static_pointer_cast<InoutType>(typePart);
 
-					result.insert(result.end(), inoutType->path.begin(), inoutType->path.end());
+						result.insert(result.end(), inoutType->path.begin(), inoutType->path.end());
+					}
+				} else {
+					throw invalid_argument("Inout path shouldn't contain nil-parts");
 				}
 			}
 
 			return result;
 		}
 
-		TypeSP evaluatedPath(const Path& path) {
-			if(path[0].index() != 2) {
+		TypeSP evaluatedPath(const Path& path) const {
+			if(path.empty()) {
+			//	throw invalid_argument("Can't evaluate empty inout path");  // TODO: Warning instead of error
+
 				return nullptr;
 			}
+			if(int index = path.at(0).index(); index != 2) {
+				string kind = index == 0 ? "chain" : "subscript";
 
-			TypeSP target = std::get<2>(path[0]);
+				throw invalid_argument("Inout path expected to start with a value/type, but a key ("+kind+") was given");
+			}
+
+			TypeSP target = std::get<2>(path.at(0));
 
 			for(int i = 1; i < path.size(); i++) {
 				if(!target) {
@@ -2633,7 +2655,7 @@ namespace Interpreter {
 			value = SP<PrimitiveType>(e.what());
 
 			setControlTransfer(value, "throw");
-		//	report(2, node, to_string(value));
+			report(2, node, to_string(value));  // TODO: Suppress catched errors
 		}
 
 		if(value && value->concrete != concrete) {  // Anonymous protocols are _now_ concrete, but this may change in the future
@@ -2678,6 +2700,9 @@ namespace Interpreter {
 	any any_rules(const string& type, NodeSP n) {
 		if(!n) {
 			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
+		}
+		if(n && n->get("type") != type) {
+			throw invalid_argument("The rule type ("+type+") is not equal to the passed node type ("+n->get<string>("type")+")");
 		}
 
 		if(type == "argument") {
@@ -2726,6 +2751,9 @@ namespace Interpreter {
 		) {
 			throw invalid_argument("The rule type ("+type+") is not in exceptions list for corresponding node to be present but null pointer is passed");
 		}
+		if(n && n->get("type") != type) {
+			throw invalid_argument("The rule type ("+type+") is not equal to the passed node type ("+n->get<string>("type")+")");
+		}
 
 		if(type == "arrayLiteral") {
 			auto value = SP<DictionaryType>(
@@ -2767,6 +2795,38 @@ namespace Interpreter {
 			setControlTransfer(value, "break");
 
 			return value;
+		} else
+		if(type == "chainExpression") {
+			TypeSP composite = executeNode(n->get("composite"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			if(!composite) {
+				report(1, n, "Cannot create chained inout, path is nil.");
+
+				return nullptr;
+			}
+
+			NodeSP member = n->get("member");
+			string identifier;
+
+			if(member->get("type") == "identifier") {
+				identifier = member->get<string>("value");
+			} else {  // stringLiteral
+				TypeSP value = executeNode(member);
+
+				if(threw()) {
+					return nullptr;
+				}
+
+				if(value) {
+					identifier = value->operator string();
+				}
+			}
+
+			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { composite, identifier }, true);
 		} else
 		if(type == "continueStatement") {
 			TypeSP value;
@@ -2811,19 +2871,6 @@ namespace Interpreter {
 			return getValueWrapper(n->get<double>("value"), "Float");
 		} else
 		if(type == "identifier") {
-			/*
-			string identifier = n->get("value");
-			auto overload = scope()->findOverload(identifier).overload;
-
-			if(!overload) {
-				report(1, n, "Member overload wasn't found (accessing '"+identifier+"').");
-
-				return nullptr;
-			}
-
-			return overload->value;
-			*/
-
 			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { scope(), n->get<string>("value") }, false);
 		} else
 		if(type == "ifStatement") {
@@ -2859,6 +2906,28 @@ namespace Interpreter {
 
 			return controlTransfer().value;
 		} else
+		if(type == "inoutExpression") {
+			TypeSP value = executeNode(n->get("value"));
+
+			if(!value || value->ID != TypeID::Inout || !value->concrete) {
+				report(1, n, "'"+to_string(value)+"' can\'t be marked as explicit inout value.");
+
+				return nullptr;
+			}
+
+			static_pointer_cast<InoutType>(value)->implicit = false;
+
+			return value;
+		} else
+		if(type == "inoutType") {
+			TypeSP type = executeNode(n->get("value"), false);
+
+			if(!type) {
+				return nullptr;
+			}
+
+			return SP<InoutType>(false, type, InoutType::Path {}, false);
+		} else
 		if(type == "integerLiteral") {
 			return getValueWrapper(n->get<int>("value"), "Integer");
 		} else
@@ -2871,7 +2940,7 @@ namespace Interpreter {
 			ControlTransfer& CT = controlTransfer();
 
 			if(CT.type || CT.value) {
-				report(threw() ? 2 : 0, n, to_string(controlTransfer().value));
+				report(0, n, to_string(controlTransfer().value));
 			}
 
 			removeScope();
@@ -3007,13 +3076,13 @@ namespace Interpreter {
 			vector<TypeSP> args;  // Arguments
 
 			for(const NodeSP& arg : n->get<NodeArray&>("arguments")) {
-				TypeSP argValue = executeNode(arg);
+				auto argValue = any_optcast<pair<string, TypeSP>>(any_rules("argument", arg));
 
 				if(threw()) {
 					return nullptr;
 				}
 
-				args.push_back(argValue);
+				args.push_back(argValue ? argValue->second : nullptr);
 			}
 
 			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { composite, args }, true);
