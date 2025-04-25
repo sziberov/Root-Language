@@ -803,7 +803,7 @@ namespace Interpreter {
 				throw invalid_argument("Only single-argument subscripted get is allowed for a dictionary");
 			}
 
-			cout << "getting: " << std::get<1>(key).at(0) << endl;
+		//	cout << "getting: " << std::get<1>(key).at(0) << endl;
 
 			return get(std::get<1>(key).at(0));
 		}
@@ -867,12 +867,12 @@ namespace Interpreter {
 			emplace(key, value, true);
 		}
 
-		void removeAtIndex(usize idxToRemove) {
-			iEntries.erase(begin()+idxToRemove);
+		void removeAtIndex(usize indexToRemove) {
+			iEntries.erase(begin()+indexToRemove);
 
 			for(auto& [key, indexes] : kIndexes) {
 				for(usize& index : indexes) {
-					if(index > idxToRemove) {
+					if(index > indexToRemove) {
 						index--;
 					}
 				}
@@ -886,9 +886,9 @@ namespace Interpreter {
 				return;
 			}
 
-			usize idxToRemove = it->second.front();
+			usize indexToRemove = it->second.front();
 			it->second.erase(it->second.begin());
-			removeAtIndex(idxToRemove);
+			removeAtIndex(indexToRemove);
 
 			if(it->second.empty()) {
 				kIndexes.erase(it);
@@ -902,9 +902,9 @@ namespace Interpreter {
 				return;
 			}
 
-			usize idxToRemove = it->second.back();
+			usize indexToRemove = it->second.back();
 			it->second.pop_back();
-			removeAtIndex(idxToRemove);
+			removeAtIndex(indexToRemove);
 
 			if(it->second.empty()) {
 				kIndexes.erase(it);
@@ -1887,7 +1887,7 @@ namespace Interpreter {
 		 *		 didDelete(A, B)
 		 * }
 		 */
-		TypeSP callObservers(const Observers& observers, OverloadSP overload, AccessMode mode, vector<TypeSP> arguments, TypeSP setValue = nullptr) {
+		TypeSP applyOverloadAccess(const Observers& observers, OverloadSP overload, AccessMode mode, vector<TypeSP> arguments, TypeSP setValue = nullptr) {
 			TypeSP value;
 
 			switch(mode) {
@@ -1958,10 +1958,10 @@ namespace Interpreter {
 			optional<OverloadCandidate> candidate = matchOverload(search, mode, arguments, getType, setValue);
 
 			if(candidate) {
-				return callObservers(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
+				return applyOverloadAccess(candidate->overload->observers, candidate->overload, mode, arguments ? *arguments : vector<TypeSP>(), setValue);
 			} else
 			if(search.observers) {
-				return callObservers(*search.observers, nullptr, mode, vector<TypeSP> { SP<PrimitiveType>(RHS) }, setValue);
+				return applyOverloadAccess(*search.observers, nullptr, mode, vector<TypeSP> { SP<PrimitiveType>(RHS) }, setValue);
 			}
 			*/
 
@@ -2077,6 +2077,7 @@ namespace Interpreter {
 						   awaits,
 						   throws;
 		} modifiers;
+		bool liskov;  // Only for call-site checking
 
 		FunctionType(const vector<TypeSP>& genericParametersTypes,
 					 const vector<TypeSP>& parametersTypes,
@@ -2095,12 +2096,17 @@ namespace Interpreter {
 			if(type->ID == TypeID::Function) {
 				auto funcType = static_pointer_cast<FunctionType>(type);
 
-				return FunctionType::matchTypeLists(genericParametersTypes, funcType->genericParametersTypes) &&
-					   FunctionType::matchTypeLists(parametersTypes, funcType->parametersTypes) &&
-					   (!modifiers.inits || funcType->modifiers.inits == modifiers.inits) &&
+				return (
+						liskov
+					  ? FunctionType::matchTypeLists(funcType->genericParametersTypes, genericParametersTypes) &&
+						FunctionType::matchTypeLists(funcType->parametersTypes, parametersTypes)
+					  : FunctionType::matchTypeLists(genericParametersTypes, funcType->genericParametersTypes) &&
+						FunctionType::matchTypeLists(parametersTypes, funcType->parametersTypes)
+					   ) &&
+					   (!modifiers.inits   || funcType->modifiers.inits   == modifiers.inits)   &&
 					   (!modifiers.deinits || funcType->modifiers.deinits == modifiers.deinits) &&
-					   (!modifiers.awaits || funcType->modifiers.awaits == modifiers.awaits) &&
-					   (!modifiers.throws || funcType->modifiers.throws == modifiers.throws) &&
+					   (!modifiers.awaits  || funcType->modifiers.awaits  == modifiers.awaits)  &&
+					   (!modifiers.throws  || funcType->modifiers.throws  == modifiers.throws)  &&
 					   returnType->acceptsA(funcType->returnType);
 			}
 
@@ -2839,6 +2845,20 @@ namespace Interpreter {
 
 			return value;
 		} else
+		if(type == "defaultType") {
+			if(TypeSP type = executeNode(n->get("value"), false)) {
+				return SP<DefaultType>(type);
+			}
+		} else
+		if(type == "deleteExpression") {
+			TypeSP value = executeNode(n->get("value"));
+
+			if(threw()) {
+				return nullptr;
+			}
+
+			value->delete_();
+		} else
 		if(type == "dictionaryLiteral") {
 			auto value = SP<DictionaryType>(
 				SP<NillableType>(PredefinedEAnyTypeSP),
@@ -2869,6 +2889,34 @@ namespace Interpreter {
 		} else
 		if(type == "floatLiteral") {
 			return getValueWrapper(n->get<double>("value"), "Float");
+		} else
+		if(type == "functionType") {
+			vector<TypeSP> genericParametersTypes,
+						   parametersTypes;
+
+			for(const NodeSP& node : n->get<NodeArray&>("genericParameterTypes")) {
+				if(TypeSP type = executeNode(node, false)) {
+					genericParametersTypes.push_back(type);
+				}
+			}
+			for(const NodeSP& node : n->get<NodeArray&>("parameterTypes")) {
+				if(TypeSP type = executeNode(node, false)) {
+					parametersTypes.push_back(type);
+				}
+			}
+
+			TypeSP returnType = executeNode(n->get("returnType"), false);
+
+			FunctionType::Modifiers modifiers;
+			int awaits = n->get("awaits");
+			int throws = n->get("throws");
+
+			if(awaits > 0) modifiers.awaits = true;
+			if(awaits < 0) modifiers.awaits = false;
+			if(throws > 0) modifiers.throws = true;
+			if(throws < 0) modifiers.throws = false;
+
+			return SP<FunctionType>(genericParametersTypes, parametersTypes, returnType, modifiers);
 		} else
 		if(type == "identifier") {
 			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { scope(), n->get<string>("value") }, false);
@@ -2931,6 +2979,33 @@ namespace Interpreter {
 		if(type == "integerLiteral") {
 			return getValueWrapper(n->get<int>("value"), "Integer");
 		} else
+		if(type == "intersectionType") {
+			NodeArray& subtypes = n->get("subtypes");
+
+			if(subtypes.empty()) {
+				return nullptr;
+			}
+
+			vector<TypeSP> alternatives;
+
+			for(const NodeSP& subtype : subtypes) {
+				TypeSP alternative = executeNode(subtype, false);
+
+				if(threw()) {
+					return nullptr;
+				}
+
+				if(alternative) {
+					alternatives.push_back(alternative);
+				}
+			}
+
+			if(alternatives.empty()) {
+				return nullptr;
+			}
+
+			return SP<IntersectionType>(alternatives);
+		} else
 		if(type == "module") {
 			addControlTransfer();
 			addScope(getComposite(0) ?: createNamespace("Global"));
@@ -2939,17 +3014,32 @@ namespace Interpreter {
 
 			ControlTransfer& CT = controlTransfer();
 
-			if(CT.type || CT.value) {
+			if((CT.type || CT.value) && CT.type != "throw") {
 				report(0, n, to_string(controlTransfer().value));
 			}
 
 			removeScope();
 			removeControlTransfer();
 		} else
+		if(type == "nillableType") {
+			if(TypeSP type = executeNode(n->get("value"), false)) {
+				return SP<NillableType>(type);
+			}
+		} else
 		if(type == "nilLiteral") {
+			// Nothing to do here
 		} else
 		if(type == "parenthesizedExpression") {
 			return executeNode(n->get("value"));
+		} else
+		if(type == "parenthesizedType") {
+			auto type = executeNode(n->get("value"), false);
+
+			if(!type) {
+				return nullptr;
+			}
+
+			return SP<ParenthesizedType>(type);
 		} else
 		if(type == "postfixExpression") {
 			auto value = executeNode(n->get("value"));
@@ -3124,6 +3214,33 @@ namespace Interpreter {
 				return SP<ReferenceType>(composite, genericArguments);  // TODO: Check if type accepts passed generic arguments
 			}
 		} else
+		if(type == "unionType") {
+			NodeArray& subtypes = n->get("subtypes");
+
+			if(subtypes.empty()) {
+				return nullptr;
+			}
+
+			vector<TypeSP> alternatives;
+
+			for(const NodeSP& subtype : subtypes) {
+				TypeSP alternative = executeNode(subtype, false);
+
+				if(threw()) {
+					return nullptr;
+				}
+
+				if(alternative) {
+					alternatives.push_back(alternative);
+				}
+			}
+
+			if(alternatives.empty()) {
+				return nullptr;
+			}
+
+			return SP<UnionType>(alternatives);
+		} else
 		if(type == "variableDeclaration") {
 			NodeArraySP modifiers = n->get("modifiers");
 
@@ -3141,6 +3258,9 @@ namespace Interpreter {
 				scope()->addOverload(identifier, CompositeType::Overload::Modifiers(), type);
 			//	scope()->accessOverload(identifier, AccessMode::Set, true, nullopt, false, nullptr, value);
 			}
+		} else
+		if(type == "variadicType") {
+			return SP<VariadicType>(executeNode(n->get("value"), false));
 		} else
 		if(type == "whileStatement") {
 			if(n->empty("condition")) {
