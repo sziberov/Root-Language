@@ -17,7 +17,7 @@
                 "${workspaceFolder}/Static/Includes"
             ],
             "defines": [],
-            "compilerPath": "C:/MinGW/bin/g++.exe",
+            "compilerPath": "E:/w64devkit/bin/g++.exe",
             "cStandard": "c17",
             "cppStandard": "gnu++23",
             "intelliSenseMode": "windows-gcc-x64"

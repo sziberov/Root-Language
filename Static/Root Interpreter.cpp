@@ -1,3 +1,4 @@
+#include "Interface.cpp"
 #include "Lexer.cpp"
 #include "Parser.cpp"
 #include "Interpreter.cpp"
@@ -20,6 +21,18 @@ int main() {
 		response.set_static_file_info("Resources/Interface.html");
 		response.end();
 	});
+    CROW_WEBSOCKET_ROUTE(app, "/interface")
+    .onopen([](crow::websocket::connection& conn) {
+        Interface::register_connection(&conn);
+    })
+    .onclose([](crow::websocket::connection& conn, const string& reason) {
+        Interface::unregister_connection(&conn);
+    })
+    .onmessage([](crow::websocket::connection& conn, const string& data, bool isBinary) {
+        if(!isBinary) {
+			Interface::handle_message(data);
+		}
+    });
 	CROW_ROUTE(app, "/lex").methods("POST"_method)([&](const crow::request& req) {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		char* iterationsString = req.url_params.get("iterations");
@@ -89,7 +102,7 @@ int main() {
 		return interpreterResultString;
 	});
 
-	app.port(3007)/*.multithreaded()*/.run();
+	app.port(3007).multithreaded().run();
 
 	return 0;
 }

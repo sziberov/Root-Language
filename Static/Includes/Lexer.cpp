@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Std.cpp"
+#include "Interface.cpp"
 
 // ----------------------------------------------------------------
 
@@ -338,7 +338,7 @@ struct Lexer {
 				"Object",
 				"Protocol",
 				"Structure",
-				"any", "async", "await", "awaits",
+				"any", "as", "async", "await", "awaits",
 				"bool", "break",
 				"case", "catch", "class", "continue",
 				"dict", "do",
@@ -545,7 +545,7 @@ struct Lexer {
 			if(conforms(type, value)) {
 				return true;
 			}
-			if(whitelisted != nullopt && !(*whitelisted)(type, value)) {
+			if(whitelisted && !(*whitelisted)(type, value)) {
 				return false;
 			}
 		}
@@ -574,7 +574,7 @@ struct Lexer {
 
 				break;
 			}
-			if(whitelisted != nullopt && !(*whitelisted)(type, value)) {
+			if(whitelisted && !(*whitelisted)(type, value)) {
 				break;
 			}
 		}
@@ -636,7 +636,7 @@ struct Lexer {
 			if(states[i] == type) {
 				return true;
 			}
-			if(whitelist != nullopt && !whitelist->contains(states[i])) {
+			if(whitelist && !whitelist->contains(states[i])) {
 				return false;
 			}
 		}
@@ -718,7 +718,7 @@ struct Lexer {
 				trigger = atRegex(get<::regex>(triggers));
 			}
 
-			if(trigger != nullopt && !actions(*trigger)) {  // Multiple rules can be executed on same position if some of them return true
+			if(trigger && !actions(*trigger)) {  // Multiple rules can be executed on same position if some of them return true
 				position += trigger->length();  // Rules shouldn't explicitly set position
 
 				break;

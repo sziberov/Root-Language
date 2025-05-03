@@ -93,24 +93,24 @@ body {
 		output_composites = document.getElementById('output_composites'),
 		output_console = document.getElementById('output_console'),
 		change_tree = document.getElementById('change_tree'),
-		parse_interpret = document.getElementById('parse_interpret');
+		parse_interpret = document.getElementById('parse_interpret'),
+		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/interface');
 
 	let lexerResult,
 		parserResult,
 		interpreterResult;
 
-	function clearReports() {
- 		output_console.innerHTML = '';
-	}
+	socket.onmessage = function(event) {
+		let report = JSON.parse(event.data);
 
-	function logReports(reports, transparent) {
-		for(let report of reports) {
+		if(report.action === 'add') {
 			let message = report.string.replace(/&/g, '&amp;')
-									   .replace(/</g, '&lt;')
-									   .replace(/>/g, '&gt;')
-									   .replace(/"/g, '&quot;')
-									   .replace(/'/g, '&#039;'),
+									.replace(/</g, '&lt;')
+									.replace(/>/g, '&gt;')
+									.replace(/"/g, '&quot;')
+									.replace(/'/g, '&#039;'),
 				color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
+				transparent = report.source !== 'interpreter',
 				weight;
 
 			if(report.location != null) {
@@ -128,6 +128,20 @@ body {
 			}
 
 			output_console.innerHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
+		}
+	};
+
+	function sendCommand(action) {
+		socket.send(JSON.stringify({ action: action }));
+	}
+
+	function clearReports() {
+ 		output_console.innerHTML = '';
+	}
+
+	function logReports(reports, transparent) {
+		for(let report of reports) {
+
 		}
 	}
 
@@ -251,26 +265,11 @@ body {
  		end = Date.now();
  		console.log(`[Interpreter] Taken ${end-start} ms by string(${input.value.length})`);
 
- 		clearReports();
-		logReports(parserResult.reports, true);
-		logReports(interpreterResult.reports);
+ 	//	clearReports();
+	//	logReports(parserResult.reports, true);
+	//	logReports(interpreterResult.reports);
 
 		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
-		/*
-		output_composites.innerText = JSON.stringify(interpreterResult.composites, (k, v) => {
-			if(v instanceof Map) {
-				return {
-					__TYPE__: 'Map',
-					__VALUE__: Array.from(v.entries())
-				}
-			} else
-			if(v == null) {
-				return null;
-			} else {
-				return v;
-			}
-		}, 4);
-		*/
 	}
 
 	input.oninput = tokenize;

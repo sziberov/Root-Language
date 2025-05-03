@@ -27,7 +27,19 @@ namespace Interpreter {
 			level,
 			position,
 			location,
-			(node != nullptr ? node->get<::string>("type")+" -> " : "")+string
+			(node != nullptr ? node->get<std::string>("type")+" -> " : "")+string
+		});
+
+		Interface::send(Node {
+			{"source", "interpreter"},
+			{"action", "add"},
+			{"level", level},
+			{"position", position},
+			{"location", Node {
+				{"line", location.line},
+				{"column", location.column}
+			}},
+			{"string", (node != nullptr ? node->get<std::string>("type")+" -> " : "")+string}
 		});
 	}
 
@@ -286,8 +298,8 @@ namespace Interpreter {
 		virtual TypeSP minus(TypeSP type) const { return plus(static_pointer_cast<Type>(type)->negative()); }
 		virtual TypeSP preIncrement() { return shared_from_this(); }
 		virtual TypeSP preDecrement() { return shared_from_this(); }
-		virtual TypeSP postIncrement(int) { return SP<Type>(); }
-		virtual TypeSP postDecrement(int) { return SP<Type>(); }
+		virtual TypeSP postIncrement() { return SP<Type>(); }
+		virtual TypeSP postDecrement() { return SP<Type>(); }
 		virtual TypeSP multiply(TypeSP type) const { return SP<Type>(); }
 		virtual TypeSP divide(TypeSP type) const { return SP<Type>(); }
 		virtual bool not_() const { return !operator bool(); }
@@ -658,20 +670,28 @@ namespace Interpreter {
 		//
 		// And to contrast that two, there is idea where no special mechanism exist. This is no go, as changes can't be observed at all.
 
-		TypeSP preIncrement() override {  // Prefix
+		TypeSP preIncrement() override {
+			set(positive()->plus(SP<PrimitiveType>(1)));
+
 			return shared_from_this();
 		}
 
-		TypeSP preDecrement() override {  // Prefix
+		TypeSP preDecrement() override {
+			set(positive()->minus(SP<PrimitiveType>(1)));
+
 			return shared_from_this();
 		}
 
-		TypeSP postIncrement(int) override {  // Postfix
-			return SP<Type>();
+		TypeSP postIncrement() override {
+			set(positive()->plus(SP<PrimitiveType>(1)));
+
+			return minus(SP<PrimitiveType>(1));
 		}
 
-		TypeSP postDecrement(int) override {  // Postfix
-			return SP<Type>();
+		TypeSP postDecrement() override {
+			set(positive()->minus(SP<PrimitiveType>(1)));
+
+			return plus(SP<PrimitiveType>(1));
 		}
 
 		TypeSP multiply(TypeSP type) const override {
@@ -2788,6 +2808,9 @@ namespace Interpreter {
 				return SP<DictionaryType>(PredefinedPIntegerTypeSP, valueType);
 			}
 		} else
+		if(type == "asExpression") {
+			return executeNode(n->get("type_"), false);
+		} else
 		if(type == "booleanLiteral") {
 			return getValueWrapper(n->get("value") == "true", "Boolean");
 		} else
@@ -3050,14 +3073,10 @@ namespace Interpreter {
 
 			if(value->ID == TypeID::Primitive && !n->empty("operator")) {
 				if(n->get<Node&>("operator").get("value") == "++") {
-					value->set(value->positive()->plus(SP<PrimitiveType>(1)));
-
-					return value->minus(SP<PrimitiveType>(1));
+					return value->postIncrement();
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					value->set(value->positive()->minus(SP<PrimitiveType>(1)));
-
-					return value->plus(SP<PrimitiveType>(1));
+					return value->postDecrement();
 				}
 			}
 
@@ -3105,14 +3124,10 @@ namespace Interpreter {
 					return value->negative();
 				}
 				if(n->get<Node&>("operator").get("value") == "++") {
-					value->set(value->positive()->plus(SP<PrimitiveType>(1)));
-
-					return value;
+					return value->preIncrement();
 				}
 				if(n->get<Node&>("operator").get("value") == "--") {
-					value->set(value->positive()->minus(SP<PrimitiveType>(1)));
-
-					return value;
+					return value->preDecrement();
 				}
 			}
 

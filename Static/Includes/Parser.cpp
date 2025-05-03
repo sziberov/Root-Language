@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Lexer.cpp"
-#include "Node.cpp"
 
 // ----------------------------------------------------------------
 
@@ -15,7 +14,7 @@ struct Parser {
 		int level,
 			position;
 		Location location;
-		::string string;
+		std::string string;
 	};
 
 	deque<Token> tokens;
@@ -119,6 +118,34 @@ struct Parser {
 
 			if(node.empty("value")) {
 				position--;
+
+				return nullptr;
+			}
+
+			node.get<Node&>("range").get("end") = position-1;
+
+			return node;
+		} else
+		if(type == "asOperator") {
+			Node node = {
+				{"type", "asOperator"},
+				{"range", {
+					{"start", position}
+				}},
+				{"type_", nullptr}
+			};
+
+			if(token().type != "keywordAs") {
+				position = node.get<Node&>("range").get("start");
+
+				return nullptr;
+			}
+
+			position++;
+			node.get("type_") = rules("type");
+
+			if(node.empty("type_")) {
+				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
 			}
@@ -934,7 +961,7 @@ struct Parser {
 				{"values", NodeArray {}}
 			};
 
-			set<string> subsequentialTypes = {"inOperator", "isOperator"};
+			set<string> subsequentialTypes = {"asOperator", "inOperator", "isOperator"};
 			NodeArray& values = node.get("values") = helpers_sequentialNodes({"expression", "infixExpression"}, nullptr, subsequentialTypes);
 
 			if(values.empty()) {
@@ -1437,6 +1464,7 @@ struct Parser {
 		} else
 		if(type == "infixExpression") {
 			return (
+				rules("asOperator") ?:
 				rules("conditionalOperator") ?:
 				rules("inOperator") ?:
 				rules("isOperator") ?:
@@ -3261,6 +3289,18 @@ struct Parser {
 			position,
 			location,
 			string
+		});
+
+		Interface::send(Node {
+			{"source", "parser"},
+			{"action", "add"},
+			{"level", level},
+			{"position", position},
+			{"location", Node {
+				{"line", location.line},
+				{"column", location.column}
+			}},
+			{"string", string}
 		});
 	}
 

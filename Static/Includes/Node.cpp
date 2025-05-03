@@ -302,7 +302,20 @@ public:
 
 static string to_string(const NodeValue& value) {
 	if(value.type() == 4) {
-		return "\""+(string)value+"\"";
+		string escaped;
+
+		for(auto c : (string)value) {
+			switch(c) {
+				case '"':  escaped += "\\\""; break;
+				case '\\': escaped += "\\\\"; break;
+				case '\n': escaped += "\\n";  break;
+				case '\r': escaped += "\\r";  break;
+				case '\t': escaped += "\\t";  break;
+				default:   escaped += c;      break;
+			}
+		}
+
+		return "\""+escaped+"\"";
 	}
 
 	return value;
