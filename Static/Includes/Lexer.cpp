@@ -732,8 +732,6 @@ struct Lexer {
 	};
 
 	Result tokenize(string_view code) {
-		Result result;
-
 		reset();
 
 		this->code = code;
@@ -742,10 +740,16 @@ struct Lexer {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
+		Result result;
+
 		result.rawTokens = move(tokens);
 		result.tokens = filter(result.rawTokens, [this](auto& v) { return !ignorable(v.type, nullopt); });
 
-		reset();
+		Interface::send({
+			{"source", "lexer"},
+			{"action", "tokenized"},
+			{"result", glz::write_json(result).value_or("error")}
+		});
 
 		return result;
 	}

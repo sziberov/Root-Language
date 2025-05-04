@@ -96,12 +96,107 @@ body {
 		parse_interpret = document.getElementById('parse_interpret'),
 		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/interface');
 
-	let lexerResult,
-		parserResult,
-		interpreterResult;
-
 	socket.onmessage = function(event) {
 		let report = JSON.parse(event.data);
+
+		if(report.action === 'tokenized') {
+			let result = JSON.parse(report.result),
+				tokens = result.rawTokens,
+				lintHTML = '';
+
+			for(let k = 0; k < tokens.length; k++) {
+				let position = tokens[k].position,
+					type = tokens[k].type,
+					value = tokens[k].value,
+					generated = tokens[k].generated,
+					length = value.length,
+					element;
+
+				if(type === 'whitespace') {
+					for(let i = 0; i < value.length; i++) {
+						if(value[i] !== '\n') {
+							element ??= document.createElement('span');
+							element.innerText += value[i]
+
+							if(value[i+1] === '\n' || i === value.length-1) {
+								lintHTML += element.outerHTML;
+								element = undefined;
+							}
+						}
+						if(value[i] === '\n') {
+							lintHTML += document.createElement('br').outerHTML;
+						}
+					}
+				} else {
+					element = document.createElement('span');
+					element.innerText = value;
+
+					if(type.startsWith('comment')) {
+						element.style.color = 'rgb(95 179 63)';
+					}
+					if(type.startsWith('string') && !type.startsWith('stringExpression')) {
+						element.style.color = 'rgb(191 127 95)';
+					}
+					if(type.startsWith('operator')) {
+						element.style.color = 'rgb(255 191 0)';
+
+						if(type.endsWith('Prefix')) {
+							element.style.color = 'rgb(255 63 0)';
+						}
+						if(type.endsWith('Infix')) {
+							element.style.color = 'rgb(255 95 0)';
+						}
+						if(type.endsWith('Postfix')) {
+							element.style.color = 'rgb(255 127 0)';
+						}
+					}
+					if(
+						type.startsWith('parenthesis') ||
+						type.startsWith('brace') ||
+						type.startsWith('bracket') ||
+						type === 'delimiter'
+					) {
+						element.style.color = 'rgb(255 255 255)';
+					}
+					if(type.startsWith('keyword')) {
+						element.style.color = 'rgb(96 151 255)';
+
+						if([
+							'nil',
+							'true',
+							'false'
+						].includes(value)) {
+							element.style.color = 'rgb(223 127 223)';
+						}
+					}
+					if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
+						element.style.color = 'rgb(223 223 223)';
+					}
+					if(type.startsWith('number')) {
+						element.style.color = 'rgb(223 127 223)';
+					}
+					if(type === 'unsupported') {
+						element.style.color = 'transparent';
+					}
+					if(generated) {
+						element.style.fontStyle = 'italic';
+					}
+
+					lintHTML += element.outerHTML;
+				}
+			}
+
+			output_lint.innerHTML = lintHTML;
+			output_lint.scrollTop = input.scrollTop;
+			output_lint.scrollLeft = input.scrollLeft;
+			output_tokens.innerText = JSON.stringify(result.tokens, null, 4);
+		} else
+		if(report.action === 'parsed') {
+			output_ast.innerText = JSON.stringify(JSON.parse(report.tree), null, 4);
+		} else
+		if(report.action === 'interpreted') {
+
+		}
 
 		if(report.action === 'add') {
 			let message = report.string.replace(/&/g, '&amp;')
@@ -128,148 +223,45 @@ body {
 			}
 
 			output_console.innerHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
+		} else
+		if(report.action === 'removeAfterPosition') {
+			output_console.innerHTML += '<span>Should\'ve been remove after '+report.position+' for '+report.source+'</span><br>';  // TODO: Replace with real action
+		} else
+		if(report.action === 'removeAll') {
+			output_console.innerHTML = '';
 		}
 	};
 
-	function sendCommand(action) {
-		socket.send(JSON.stringify({ action: action }));
-	}
-
-	function clearReports() {
- 		output_console.innerHTML = '';
-	}
-
-	function logReports(reports, transparent) {
-		for(let report of reports) {
-
-		}
+	function send(action) {
+		socket.send(JSON.stringify(action));
 	}
 
 	async function tokenize() {
+		let start,
+			end;
+
 		output_lint.innerHTML = '';
 
-		let start = Date.now();
-		let lexerResponse = await fetch(location.origin+'/lex?iterations=32', {
+		start = Date.now();
+		await fetch(location.origin+'/lex?iterations=32', {
 			method: 'POST',
 			headers: {'Content-Type': 'text/plain'},
 			body: input.value
 		});
-		lexerResult = await lexerResponse.json();
- 		let end = Date.now();
+ 		end = Date.now();
  		console.log(`[Lexer] Taken ${end-start} ms by string(${input.value.length})`);
 
-		let tokens = lexerResult.rawTokens,
-			lintHTML = '';
-
-		for(let k = 0; k < tokens.length; k++) {
-			let position = tokens[k].position,
-				type = tokens[k].type,
-				value = tokens[k].value,
-				generated = tokens[k].generated,
-				length = value.length,
-				element;
-
-			if(type === 'whitespace') {
-				for(let i = 0; i < value.length; i++) {
-					if(value[i] !== '\n') {
-						element ??= document.createElement('span');
-						element.innerText += value[i]
-
-						if(value[i+1] === '\n' || i === value.length-1) {
-							lintHTML += element.outerHTML;
-							element = undefined;
-						}
-					}
-					if(value[i] === '\n') {
-						lintHTML += document.createElement('br').outerHTML;
-					}
-				}
-			} else {
-				element = document.createElement('span');
-				element.innerText = value;
-
-				if(type.startsWith('comment')) {
-					element.style.color = 'rgb(95 179 63)';
-				}
-				if(type.startsWith('string') && !type.startsWith('stringExpression')) {
-					element.style.color = 'rgb(191 127 95)';
-				}
-				if(type.startsWith('operator')) {
-					element.style.color = 'rgb(255 191 0)';
-
-					if(type.endsWith('Prefix')) {
-						element.style.color = 'rgb(255 63 0)';
-					}
-					if(type.endsWith('Infix')) {
-						element.style.color = 'rgb(255 95 0)';
-					}
-					if(type.endsWith('Postfix')) {
-						element.style.color = 'rgb(255 127 0)';
-					}
-				}
-				if(
-					type.startsWith('parenthesis') ||
-					type.startsWith('brace') ||
-					type.startsWith('bracket') ||
-					type === 'delimiter'
-				) {
-					element.style.color = 'rgb(255 255 255)';
-				}
-				if(type.startsWith('keyword')) {
-					element.style.color = 'rgb(96 151 255)';
-
-					if([
-						'nil',
-						'true',
-						'false'
-					].includes(value)) {
-						element.style.color = 'rgb(223 127 223)';
-					}
-				}
-				if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
-					element.style.color = 'rgb(223 223 223)';
-				}
-				if(type.startsWith('number')) {
-					element.style.color = 'rgb(223 127 223)';
-				}
-				if(type === 'unsupported') {
-					element.style.color = 'transparent';
-				}
-				if(generated) {
-					element.style.fontStyle = 'italic';
-				}
-
-				lintHTML += element.outerHTML;
-			}
-		}
-
-		output_lint.innerHTML = lintHTML;
-		output_lint.scrollTop = input.scrollTop;
-		output_lint.scrollLeft = input.scrollLeft;
-		output_tokens.innerText = JSON.stringify(lexerResult.tokens, null, 4);
+		start = Date.now();
+		await fetch(location.origin+'/parse');
+ 		end = Date.now();
+ 		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
 	}
 
 	async function interpret() {
-		let start,
-			end;
-
-		start = Date.now();
-		let parserResponse = await fetch(location.origin+'/parse');
-		parserResult = await parserResponse.json();
- 		end = Date.now();
- 		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
-
-		start = Date.now();
-		let interpreterResponse = await fetch(location.origin+'/interpret');
-		interpreterResult = await interpreterResponse.json();
- 		end = Date.now();
+		let start = Date.now();
+		await fetch(location.origin+'/interpret');
+ 		let end = Date.now();
  		console.log(`[Interpreter] Taken ${end-start} ms by string(${input.value.length})`);
-
- 	//	clearReports();
-	//	logReports(parserResult.reports, true);
-	//	logReports(interpreterResult.reports);
-
-		output_ast.innerText = JSON.stringify(parserResult.tree, null, 4);
 	}
 
 	input.oninput = tokenize;

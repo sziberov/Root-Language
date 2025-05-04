@@ -10,15 +10,7 @@ struct Parser {
 
 	Parser() {};
 
-	struct Report {
-		int level,
-			position;
-		Location location;
-		std::string string;
-	};
-
 	deque<Token> tokens;
-	deque<Report> reports;
 
 	template<typename... Args>
 	NodeValue rules(const string& type, Args... args) {
@@ -3212,7 +3204,11 @@ struct Parser {
 
 		void update(int previous) {
 			if(value < previous) {  // Rollback global changes
-				erase_if(self.reports, [&](auto& v) { return v.position >= value; });
+				Interface::send({
+					{"source", "parser"},
+					{"action", "removeAfterPosition"},
+					{"position", value-1}
+				});
 			}
 		}
 
@@ -3276,22 +3272,7 @@ struct Parser {
 
 		string = type+" -> "+string;
 
-		for(auto& v : reports) if(
-			v.location.line == location.line &&
-			v.location.column == location.column &&
-			v.string == string
-		) {
-			return;
-		}
-
-		reports.push_back({
-			level,
-			position,
-			location,
-			string
-		});
-
-		Interface::send(Node {
+		Interface::send({
 			{"source", "parser"},
 			{"action", "add"},
 			{"level", level},
@@ -3307,25 +3288,26 @@ struct Parser {
 	void reset() {
 		tokens = {};
 		position = 0;
-		reports = {};
 	}
 
 	struct Result {
 		NodeSP tree;
-		deque<Report> reports;
 	};
 
 	Result parse(Lexer::Result lexerResult) {
-		Result result;
-
 		reset();
 
 		tokens = lexerResult.tokens;
 
-		result.tree = rules("module");
-		result.reports = move(reports);
+		Result result = {
+			rules("module")
+		};
 
-		reset();
+		Interface::send({
+			{"source", "parser"},
+			{"action", "parsed"},
+			{"tree", to_string(result.tree)}
+		});
 
 		return result;
 	}

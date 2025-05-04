@@ -37,7 +37,7 @@ int main() {
 		auto lock = lock_guard<mutex>(interpreterLock);
 		char* iterationsString = req.url_params.get("iterations");
 		int iterations = iterationsString != nullptr ? stoi(iterationsString) : 1;
-		string lexerResultString;
+	//	string lexerResultString;
 		chrono::milliseconds duration_0(0),
 							 duration_1(0);
 
@@ -49,7 +49,7 @@ int main() {
 			auto start = chrono::high_resolution_clock::now();
 			lexerResult = lexer.tokenize(req.body);
 			auto stop_0 = chrono::high_resolution_clock::now();
-			lexerResultString = glz::write_json(lexerResult).value_or("error");
+		//	lexerResultString = glz::write_json(lexerResult).value_or("error");
 			auto stop_1 = chrono::high_resolution_clock::now();
 
 			duration_0 += chrono::duration_cast<chrono::milliseconds>(stop_0-start);
@@ -69,7 +69,8 @@ int main() {
 
 		cout << endl;
 
-		return lexerResultString;
+	//	return lexerResultString;
+		return string();
 	});
 	CROW_ROUTE(app, "/parse")([&]() {
 		auto lock = lock_guard<mutex>(interpreterLock);
@@ -77,14 +78,15 @@ int main() {
 		auto start = chrono::high_resolution_clock::now();
 		parserResult = parser.parse(*lexerResult);
 		auto stop_0 = chrono::high_resolution_clock::now();
-		string parserResultString = glz::write_json(parserResult).value_or("error");
+	//	string parserResultString = glz::write_json(parserResult).value_or("error");
 		auto stop_1 = chrono::high_resolution_clock::now();
 		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
 			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
 		cout << "                      [Parser  ] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
 
-		return parserResultString;
+	//	return parserResultString;
+		return string();
 	});
 	CROW_ROUTE(app, "/interpret")([&]() {
 		auto lock = lock_guard<mutex>(interpreterLock);
@@ -92,14 +94,15 @@ int main() {
 		auto start = chrono::high_resolution_clock::now();
 		interpreterResult = Interpreter::interpret(*lexerResult, *parserResult);
 		auto stop_0 = chrono::high_resolution_clock::now();
-		string interpreterResultString = glz::write_json(interpreterResult).value_or("error");
+	//	string interpreterResultString = glz::write_json(interpreterResult).value_or("error");
 		auto stop_1 = chrono::high_resolution_clock::now();
 		auto duration_0 = chrono::duration_cast<chrono::milliseconds>(stop_0-start),
 			 duration_1 = chrono::duration_cast<chrono::milliseconds>(stop_1-start);
 
 		cout << "                   [Interpreter] Taken " << duration_0.count() << " (" << duration_1.count() << " with serialization) ms by rawTokens(" << lexerResult->rawTokens.size() << ")" << endl;
 
-		return interpreterResultString;
+	//	return interpreterResultString;
+		return string();
 	});
 
 	app.port(3007).multithreaded().run();

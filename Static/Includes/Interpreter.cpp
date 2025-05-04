@@ -5,7 +5,6 @@
 namespace Interpreter {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
-	using Report = Parser::Report;
 
 	deque<Token> tokens;
 	NodeSP tree;
@@ -16,40 +15,33 @@ namespace Interpreter {
 			metaprogrammingLevel;
 		bool arbitaryPrecisionArithmetics;
 	} preferences;
-	deque<Report> reports;
 
-	void report(int level, NodeSP node, const string& string) {
+	void report(int level, NodeSP node, string string) {
 		Location location = position < tokens.size()
 						  ? tokens[position].location
 						  : Location();
 
-		reports.push_back(Report {
-			level,
-			position,
-			location,
-			(node != nullptr ? node->get<std::string>("type")+" -> " : "")+string
-		});
+		if(node) {
+			string = node->get<std::string>("type")+" -> "+string;
+		}
 
-		Interface::send(Node {
+		Interface::send({
 			{"source", "interpreter"},
 			{"action", "add"},
+			{"parentModuleID", -1},
 			{"level", level},
+			{"path", ""},
 			{"position", position},
 			{"location", Node {
 				{"line", location.line},
 				{"column", location.column}
 			}},
-			{"string", (node != nullptr ? node->get<std::string>("type")+" -> " : "")+string}
+			{"string", string}
 		});
 	}
 
 	void print(const string& string) {
-		reports.push_back(Report {
-			0,
-			0,
-			Location(),
-			string
-		});
+		report(0, nullptr, string);
 	}
 
 	// ----------------------------------------------------------------
@@ -1353,7 +1345,7 @@ namespace Interpreter {
 			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
 			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
 		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
-			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;  // TODO: Check if this should be replaced with an own stack (each module have its Global) or ^^^ (scope stack), as I don't really know if current scope or current Global only will be sufficient for imports
 
 			return false;
 		}
@@ -3036,13 +3028,18 @@ namespace Interpreter {
 			executeNodes(n->get<NodeArraySP>("statements")/*, (t) => t !== 'throw' ? 0 : -1*/);
 
 			ControlTransfer& CT = controlTransfer();
+			TypeSP value;
 
 			if((CT.type || CT.value) && CT.type != "throw") {
-				report(0, n, to_string(controlTransfer().value));
+				value = CT.value;
+
+				report(0, n, to_string(value));
 			}
 
 			removeScope();
 			removeControlTransfer();
+
+			return value;
 		} else
 		if(type == "nillableType") {
 			if(TypeSP type = executeNode(n->get("value"), false)) {
@@ -3326,43 +3323,73 @@ namespace Interpreter {
 
 	struct Place {
 		NodeSP node,
-				location;
+			   location;
 	};
 
-	void reset(optional<Preferences> preferences_ = nullopt) {
+	void reset() {
 		tokens = {};
 		tree = nullptr;
 		position = 0;
 		composites = {};
 		scopes = {};
 		controlTransfers = {};
-		preferences = preferences_.value_or(Preferences {
+		preferences = {
 			128,
 			2,
 			3,
 			true
-		});
-		reports = {};
+		};
+
+		Interface::send({
+			{"source", "interpreter"},
+            {"action", "removeAll"},
+			{"moduleID", -1}
+        });
 	}
 
 	struct Result {
-		deque<Report> reports;
+		TypeSP value;
 	};
 
 	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, optional<Preferences> preferences_ = nullopt) {
-		Result result;
-
-		reset(preferences_);
+		reset();
 
 		tokens = lexerResult.tokens;
 		tree = parserResult.tree;
 
-		executeNode(tree);
+		if(preferences_) {
+			preferences = *preferences_;
+		}
 
-		result.reports = move(reports);
+		Result result = {
+			executeNode(tree)
+		};
 
-		reset();
+		Interface::send({
+			{"source", "interpreter"},
+			{"action", "evaluated"},
+			{"value", to_string(result.value)}
+		});
 
 		return result;
 	}
 };
+
+/*
+namespace glz::detail
+{
+	template <>
+	struct to_json<Interpreter::TypeSP>
+	{
+		template <auto Opts>
+		static void op(Interpreter::TypeSP& type, auto&&... args) noexcept
+		{
+			constexpr glz::opts opts {
+				.raw = true
+			};
+
+			write<json>::op<opts>(Interpreter::to_string(type), args...);
+		}
+	};
+}
+*/

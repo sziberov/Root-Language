@@ -31,9 +31,11 @@ namespace Interface {
 
         connections.insert(connection);
 
+        /* TODO: Do not resend everything automatically, but send critical
         for(const auto& message : messages) {
             connection->send_text(message);
         }
+        */
     }
 
     void unregister_connection(crow::websocket::connection* connection) {
