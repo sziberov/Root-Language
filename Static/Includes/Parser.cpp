@@ -3288,27 +3288,29 @@ struct Parser {
 	void reset() {
 		tokens = {};
 		position = 0;
+
+		Interface::send({
+			{"source", "parser"},
+            {"action", "removeAll"},
+			{"moduleID", -1}
+        });
 	}
 
-	struct Result {
-		NodeSP tree;
-	};
-
-	Result parse(Lexer::Result lexerResult) {
+	NodeSP parse(deque<Token> tokens) {
 		reset();
 
-		tokens = lexerResult.tokens;
+		this->tokens = filter(tokens, [this](auto& t) { return !t.trivia; });
 
-		Result result = {
-			rules("module")
-		};
+		NodeSP tree = rules("module");
 
 		Interface::send({
 			{"source", "parser"},
 			{"action", "parsed"},
-			{"tree", to_string(result.tree)}
+			{"tree", tree}
 		});
 
-		return result;
+		return tree;
 	}
 };
+
+static Parser sharedParser;

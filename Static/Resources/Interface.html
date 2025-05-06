@@ -59,6 +59,8 @@ body {
 }
 
 #output_console {
+	display: flex;
+	flex-direction: column;
 	grid-area: console;
 
 	background: none;
@@ -94,147 +96,7 @@ body {
 		output_console = document.getElementById('output_console'),
 		change_tree = document.getElementById('change_tree'),
 		parse_interpret = document.getElementById('parse_interpret'),
-		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/interface');
-
-	socket.onmessage = function(event) {
-		let report = JSON.parse(event.data);
-
-		if(report.action === 'tokenized') {
-			let result = JSON.parse(report.result),
-				tokens = result.rawTokens,
-				lintHTML = '';
-
-			for(let k = 0; k < tokens.length; k++) {
-				let position = tokens[k].position,
-					type = tokens[k].type,
-					value = tokens[k].value,
-					generated = tokens[k].generated,
-					length = value.length,
-					element;
-
-				if(type === 'whitespace') {
-					for(let i = 0; i < value.length; i++) {
-						if(value[i] !== '\n') {
-							element ??= document.createElement('span');
-							element.innerText += value[i]
-
-							if(value[i+1] === '\n' || i === value.length-1) {
-								lintHTML += element.outerHTML;
-								element = undefined;
-							}
-						}
-						if(value[i] === '\n') {
-							lintHTML += document.createElement('br').outerHTML;
-						}
-					}
-				} else {
-					element = document.createElement('span');
-					element.innerText = value;
-
-					if(type.startsWith('comment')) {
-						element.style.color = 'rgb(95 179 63)';
-					}
-					if(type.startsWith('string') && !type.startsWith('stringExpression')) {
-						element.style.color = 'rgb(191 127 95)';
-					}
-					if(type.startsWith('operator')) {
-						element.style.color = 'rgb(255 191 0)';
-
-						if(type.endsWith('Prefix')) {
-							element.style.color = 'rgb(255 63 0)';
-						}
-						if(type.endsWith('Infix')) {
-							element.style.color = 'rgb(255 95 0)';
-						}
-						if(type.endsWith('Postfix')) {
-							element.style.color = 'rgb(255 127 0)';
-						}
-					}
-					if(
-						type.startsWith('parenthesis') ||
-						type.startsWith('brace') ||
-						type.startsWith('bracket') ||
-						type === 'delimiter'
-					) {
-						element.style.color = 'rgb(255 255 255)';
-					}
-					if(type.startsWith('keyword')) {
-						element.style.color = 'rgb(96 151 255)';
-
-						if([
-							'nil',
-							'true',
-							'false'
-						].includes(value)) {
-							element.style.color = 'rgb(223 127 223)';
-						}
-					}
-					if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
-						element.style.color = 'rgb(223 223 223)';
-					}
-					if(type.startsWith('number')) {
-						element.style.color = 'rgb(223 127 223)';
-					}
-					if(type === 'unsupported') {
-						element.style.color = 'transparent';
-					}
-					if(generated) {
-						element.style.fontStyle = 'italic';
-					}
-
-					lintHTML += element.outerHTML;
-				}
-			}
-
-			output_lint.innerHTML = lintHTML;
-			output_lint.scrollTop = input.scrollTop;
-			output_lint.scrollLeft = input.scrollLeft;
-			output_tokens.innerText = JSON.stringify(result.tokens, null, 4);
-		} else
-		if(report.action === 'parsed') {
-			output_ast.innerText = JSON.stringify(JSON.parse(report.tree), null, 4);
-		} else
-		if(report.action === 'interpreted') {
-
-		}
-
-		if(report.action === 'add') {
-			let message = report.string.replace(/&/g, '&amp;')
-									.replace(/</g, '&lt;')
-									.replace(/>/g, '&gt;')
-									.replace(/"/g, '&quot;')
-									.replace(/'/g, '&#039;'),
-				color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
-				transparent = report.source !== 'interpreter',
-				weight;
-
-			if(report.location != null) {
-				let line = report.location.line+1,
-					column = report.location.column+1,
-					level = report.level.toString()
-										.replace('0', 'Info')
-										.replace('1', 'Warning')
-										.replace('2', 'Error');
-
-				weight = 'regular';
-				message = line+':'+column+': '+level+': '+message;
-			} else {
-				weight = 'bold';
-			}
-
-			output_console.innerHTML += '<span style="color: rgba('+color+' / '+(transparent ? '0.75' : '1')+'); font-weight: '+weight+';">'+message+'</span><br>';
-		} else
-		if(report.action === 'removeAfterPosition') {
-			output_console.innerHTML += '<span>Should\'ve been remove after '+report.position+' for '+report.source+'</span><br>';  // TODO: Replace with real action
-		} else
-		if(report.action === 'removeAll') {
-			output_console.innerHTML = '';
-		}
-	};
-
-	function send(action) {
-		socket.send(JSON.stringify(action));
-	}
+		socket;
 
 	async function tokenize() {
 		let start,
@@ -262,6 +124,205 @@ body {
 		await fetch(location.origin+'/interpret');
  		let end = Date.now();
  		console.log(`[Interpreter] Taken ${end-start} ms by string(${input.value.length})`);
+	}
+
+	function startSocket() {
+		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/interface');
+
+		socket.onopen = function() {
+			if(output_lint.innerHTML === '') {
+				tokenize();
+			}
+		}
+
+		socket.onmessage = function(event) {
+			let report = JSON.parse(event.data);
+
+			if(report.action === 'tokenized') {
+				let tokens = report.tokens,
+					lintHTML = '';
+
+				for(let k = 0; k < tokens.length; k++) {
+					let position = tokens[k].position,
+						type = tokens[k].type,
+						value = tokens[k].value,
+						generated = tokens[k].generated,
+						length = value.length,
+						element;
+
+					if(type === 'whitespace') {
+						for(let i = 0; i < value.length; i++) {
+							if(value[i] !== '\n') {
+								element ??= document.createElement('span');
+								element.innerText += value[i]
+
+								if(value[i+1] === '\n' || i === value.length-1) {
+									lintHTML += element.outerHTML;
+									element = undefined;
+								}
+							}
+							if(value[i] === '\n') {
+								lintHTML += document.createElement('br').outerHTML;
+							}
+						}
+					} else {
+						element = document.createElement('span');
+						element.innerText = value;
+
+						if(type.startsWith('comment')) {
+							element.style.color = 'rgb(95 179 63)';
+						}
+						if(type.startsWith('string') && !type.startsWith('stringExpression')) {
+							element.style.color = 'rgb(191 127 95)';
+						}
+						if(type.startsWith('operator')) {
+							element.style.color = 'rgb(255 191 0)';
+
+							if(type.endsWith('Prefix')) {
+								element.style.color = 'rgb(255 63 0)';
+							}
+							if(type.endsWith('Infix')) {
+								element.style.color = 'rgb(255 95 0)';
+							}
+							if(type.endsWith('Postfix')) {
+								element.style.color = 'rgb(255 127 0)';
+							}
+						}
+						if(
+							type.startsWith('parenthesis') ||
+							type.startsWith('brace') ||
+							type.startsWith('bracket') ||
+							type === 'delimiter'
+						) {
+							element.style.color = 'rgb(255 255 255)';
+						}
+						if(type.startsWith('keyword')) {
+							element.style.color = 'rgb(96 151 255)';
+
+							if([
+								'nil',
+								'true',
+								'false'
+							].includes(value)) {
+								element.style.color = 'rgb(223 127 223)';
+							}
+						}
+						if(type === 'identifier' && value[0] === value[0].toUpperCase()) {
+							element.style.color = 'rgb(223 223 223)';
+						}
+						if(type.startsWith('number')) {
+							element.style.color = 'rgb(223 127 223)';
+						}
+						if(type === 'unsupported') {
+							element.style.color = 'transparent';
+						}
+						if(generated) {
+							element.style.fontStyle = 'italic';
+						}
+
+						lintHTML += element.outerHTML;
+					}
+				}
+
+				output_lint.innerHTML = lintHTML;
+				output_lint.scrollTop = input.scrollTop;
+				output_lint.scrollLeft = input.scrollLeft;
+				output_tokens.innerText = JSON.stringify(tokens.filter(v => !v.trivia), null, 4);
+			} else
+			if(report.action === 'parsed') {
+				output_ast.innerText = JSON.stringify(report.tree, null, 4);
+			} else
+			if(report.action === 'interpreted') {}
+
+			if(report.action === 'add') {
+				let message = report.string,
+					color = report.level === 0 ? '0 0 0' : report.level === 1 ? '255 95 0' : '255 0 0',
+					transparent = report.source !== 'interpreter',
+					weight;
+
+				if(report.location != null) {
+					let line = report.location.line+1,
+						column = report.location.column+1,
+						level = report.level.toString()
+											.replace('0', 'Info')
+											.replace('1', 'Warning')
+											.replace('2', 'Error');
+
+					weight = 'regular';
+					message = line+':'+column+': '+level+': '+message;
+				} else {
+					weight = 'bold';
+				}
+
+				let prev = document.createElement('span');
+
+				prev.dataset.source = report.source;
+				prev.dataset.position = report.position;
+				prev.style.color = `rgba(${color} / ${transparent ? '0.75' : '1'})`;
+				prev.style.fontWeight = weight;
+				prev.innerText = message;
+
+				let next,
+					nodes = [...output_console.children].reverse(),
+					sources = ['lexer', 'parser', 'interpreter']
+
+				for(let node of nodes) {
+					let nextPosition = node.dataset.position*1,
+						prevPosition = report.position,
+						nextSource = sources.indexOf(node.dataset.source),
+						prevSource = sources.indexOf(report.source);
+
+					if(nextSource > prevSource) {
+						next = node;
+					} else
+					if(
+						nextSource <   prevSource ||
+						(nextSource === prevSource && nextPosition <= prevPosition)
+					) {
+						next = node.nextSibling;
+
+						break;
+					}
+				}
+
+				output_console.insertBefore(prev, next);
+				output_console.scrollTop = output_console.scrollHeight;
+			} else
+			if(report.action === 'removeAfterPosition') {
+				let nodes = [...output_console.children]
+
+				for(let node of nodes) {
+					if(node.dataset.source === report.source && node.dataset.position*1 > report.position)  {
+						node.remove();
+					}
+				}
+			} else
+			if(report.action === 'removeAll') {
+				let sources = ['lexer', 'parser', 'interpreter'],
+					source = sources.indexOf(report.source);
+
+				if(source === -1) {
+					output_console.innerHTML = '';
+				} else {
+					let toDelete = sources.slice(source),
+						nodes = [...output_console.children].filter(n => toDelete.includes(n.dataset.source));
+
+					for(let node of nodes) {
+						node.remove();
+					}
+				}
+			}
+		}
+
+		socket.onclose = function() {
+			socket = undefined;
+
+			setTimeout(startSocket, 5000)
+		}
+	}
+
+	function send(action) {
+		socket?.send?.(JSON.stringify(action));
 	}
 
 	input.oninput = tokenize;
@@ -292,7 +353,7 @@ body {
 	}
 	parse_interpret.onclick = interpret;
 
-	tokenize();
+	startSocket();
 </script>
 </body>
 </html>

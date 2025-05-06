@@ -4,7 +4,7 @@
         {
             "label": "Build",
             "type": "shell",
-            "command": "time g++ -std=c++26 -I Includes Root\\ Interpreter.cpp -g -o Root\\ Interpreter",
+            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -g -o RootServer",
             "options": {
                 "cwd": "${workspaceFolder}/Static/"
             },
@@ -18,7 +18,7 @@
         {
             "label": "Run",
             "type": "shell",
-            "command": "${workspaceFolder}/Static/Root Interpreter",
+            "command": "${workspaceFolder}/Static/RootServer",
             "group": {
                 "kind": "test",
                 "isDefault": true

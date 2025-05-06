@@ -15,9 +15,53 @@ struct Lexer {
 		Location location;
 		string type,
 			   value;
-		bool nonmergeable,
+		bool trivia,
+			 nonmergeable,
 			 generated;
 	};
+
+	static string to_string(const Location& l) {
+		return string("{")+
+			"\"line\": "+std::to_string(l.line)+","+
+			"\"column\": "+std::to_string(l.column)+
+		"}";
+	}
+
+	static string to_string(const Token& t) {
+		return string("{")+
+			"\"position\": "+std::to_string(t.position)+","+
+			"\"location\": "+to_string(t.location)+","+
+			"\"type\": \""+t.type+"\","+
+			"\"value\": \""+crow::json::escape(t.value)+"\","+
+			"\"trivia\": "+(t.trivia ? "true" : "false")+","+
+			"\"nonmergeable\": "+(t.nonmergeable ? "true" : "false")+","+
+			"\"generated\": "+(t.generated ? "true" : "false")+
+		"}";
+	}
+
+	static string to_string(const deque<Token>& tokens) {
+		string result = "[";
+		auto it = tokens.begin();
+
+		while(it != tokens.end()) {
+			auto& v = *it;
+			string s = to_string(v);
+
+			if(!s.empty()) {
+				result += s;
+
+				if(next(it) != tokens.end()) {
+					result += ", ";
+				}
+			}
+
+			it++;
+		}
+
+		result += "]";
+
+		return result;
+	}
 
 	struct Rule {
 		variant<string, vector<string>, regex> triggers;
@@ -36,6 +80,7 @@ struct Lexer {
 			} else
 			if(position == 0) {
 				addToken("commentShebang", v);
+				token().trivia = true;
 				addState("comment");
 			} else {
 				return true;
@@ -50,6 +95,7 @@ struct Lexer {
 			} else
 			if(v == "/*") {
 				addToken("commentBlock", v);
+				token().trivia = true;
 			}
 			if(token().type == "commentBlock") {
 				if(v == "/*") {
@@ -67,6 +113,7 @@ struct Lexer {
 				token().value += v;
 			} else {
 				addToken("commentLine", v);
+				token().trivia = true;
 				addState("comment");
 			}
 
@@ -193,12 +240,12 @@ struct Lexer {
 			addToken(type);
 			removeState("angle", 2);  // Balanced tokens except </> are allowed right after generic types but not inside them
 
-			if(v == "{" && atStatement() && atToken([](string t, string v) { return t == "whitespace" && v.contains("\n"); }, ignorable, -1)) {
+			if(v == "{" && atStatement() && atToken([](Token& t) { return t.type == "whitespace" && t.value.contains("\n"); }, -1)) {
 				addState("statementBody");
 
 				return false;
 			}
-			if(v == "}" && atStatementBody() && !atFutureToken([](string t, string v) { return set<string> {"keywordElse", "keywordWhere"}.contains(t); }, ignorable)) {
+			if(v == "}" && atStatementBody() && !atFutureToken([](Token& t) { return set<string> {"keywordElse", "keywordWhere"}.contains(t.type); })) {
 				addToken("delimiter", ";");
 				token().generated = true;
 				removeState("statement");
@@ -261,6 +308,7 @@ struct Lexer {
 
 			if(token().type != "whitespace") {
 				addToken("whitespace", v);
+				token().trivia = true;
 
 				if(atComments()) {
 					removeState("comment");
@@ -270,12 +318,12 @@ struct Lexer {
 			}
 
 			if(atStatement() && count(token().value.begin(), token().value.end(), '\n') == 1) {
-				auto braceOpen = [](string t, optional<string> v) { return t == "braceOpen"; };
+				auto braceOpen = [](Token& t) { return t.type == "braceOpen"; };
 
-				if(atToken(braceOpen, ignorable)) {
+				if(atToken(braceOpen)) {
 					addState("statementBody");
 				} else
-				if(!atState("brace", set<string>()) && !atFutureToken(braceOpen, ignorable)) {
+				if(!atState("brace", set<string>()) && !atFutureToken(braceOpen)) {
 					removeState("statement");
 				}
 			}
@@ -291,6 +339,7 @@ struct Lexer {
 			}
 
 			addToken("whitespace", v);
+			token().trivia = true;
 
 			return false;
 		}},
@@ -360,7 +409,7 @@ struct Lexer {
 			helpers_specifyOperatorType();
 
 			string type = "identifier";
-			bool chain = atToken([](string t, string v) { return t.starts_with("operator") && !t.ends_with("Postfix") && v == "."; }, ignorable);
+			bool chain = atToken([](Token& t) { return t.type.starts_with("operator") && !t.type.ends_with("Postfix") && t.value == "."; });
 
 			if(keywords.contains(v) && !chain) {  // Disable keywords in a chains
 				type = "keyword";
@@ -504,10 +553,6 @@ struct Lexer {
 		return atState("angle", set<string>());
 	}
 
-	function<bool(string, optional<string>)> ignorable = [](string t, optional<string> v = nullopt) {
-		return t == "whitespace" || t.starts_with("comment");
-	};
-
 	Token& getToken(int offset = 0) {
 		static Token dummy;
 
@@ -530,22 +575,20 @@ struct Lexer {
 	}
 
 	/*
-	 * Check for token(s) starting from rightmost (inclusively if no offset set), using combinations of type and value within predicate.
+	 * Check for token(s) starting from rightmost (inclusively if no offset set), using filters within predicate.
 	 *
-	 * Strict by default, additionally whitelist predicate can be set.
+	 * Strict for anything but trivia tokens.
 	 *
 	 * Useful for complex token sequences check.
 	 */
-	bool atToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt, int offset = 0) {
+	bool atToken(function<bool(Token&)> conforms, int offset = 0) {
 		for(int i = tokens.size()-1+offset; i >= 0; i--) {
-			Token& token = tokens[i];
-			string type = token.type,
-				   value = token.value;
+			Token& token = tokens.at(i);
 
-			if(conforms(type, value)) {
+			if(conforms(token)) {
 				return true;
 			}
-			if(whitelisted && !(*whitelisted)(type, value)) {
+			if(!token.trivia) {
 				return false;
 			}
 		}
@@ -556,7 +599,7 @@ struct Lexer {
 	/*
 	 * Future-time version of atToken(). Rightmost (at the moment) token is not included in a search.
 	 */
-	bool atFutureToken(function<bool(string, string)> conforms, optional<function<bool(string, string)>> whitelisted = nullopt) {
+	bool atFutureToken(function<bool(Token&)> conforms) {
 		Save save = getSave();
 		bool result = false;
 
@@ -566,15 +609,13 @@ struct Lexer {
 			nextToken();
 
 			Token& token = getToken();
-			string type = token.type,
-				   value = token.value;
 
-			if(conforms(type, value)) {
+			if(conforms(token)) {
 				result = true;
 
 				break;
 			}
-			if(whitelisted && !(*whitelisted)(type, value)) {
+			if(!token.trivia) {
 				break;
 			}
 		}
@@ -672,6 +713,12 @@ struct Lexer {
 			// angle - used to distinguish between common operator and generic type's closing >
 			// brace - used in statements
 			// parenthesis - used in string expressions
+
+		Interface::send({
+			{"source", "lexer"},
+			{"action", "removeAll"},
+			{"moduleID", -1}
+		});
 	}
 
 	bool atSubstring(const string& substring) {
@@ -726,12 +773,7 @@ struct Lexer {
 		}
 	}
 
-	struct Result {
-		deque<Token> rawTokens,
-					 tokens;
-	};
-
-	Result tokenize(string_view code) {
+	deque<Token> tokenize(string_view code) {
 		reset();
 
 		this->code = code;
@@ -740,17 +782,14 @@ struct Lexer {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		Result result;
-
-		result.rawTokens = move(tokens);
-		result.tokens = filter(result.rawTokens, [this](auto& v) { return !ignorable(v.type, nullopt); });
-
 		Interface::send({
 			{"source", "lexer"},
 			{"action", "tokenized"},
-			{"result", glz::write_json(result).value_or("error")}
+			{"tokens", NodeValue(to_string(tokens), true)}
 		});
 
-		return result;
+		return tokens;
 	}
 };
+
+static Lexer sharedLexer;

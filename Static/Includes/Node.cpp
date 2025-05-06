@@ -1,8 +1,7 @@
 #pragma once
 
 #include "Std.cpp"
-
-#include "glaze.hpp"
+#include "crow.h"
 
 template <typename T>
 constexpr auto type_name() {
@@ -47,13 +46,15 @@ private:
 	mutable variant<nullptr_t, bool, int, double, string, NodeSP, NodeArraySP, any> value;
 
 public:
+	bool serialized = false;
+
 	NodeValue() : value(nullptr) {}
 	NodeValue(nullptr_t v) : value(v) {}
 	NodeValue(bool v) : value(v) {}
 	NodeValue(int v) : value(v) {}
 	NodeValue(double v) : value(v) {}
-	NodeValue(const char* v) : value(string(v)) {}
-	NodeValue(const string& v) : value(v) {}
+	NodeValue(const char* v, bool serialized = false) : value(string(v)), serialized(serialized) {}
+	NodeValue(const string& v, bool serialized = false) : value(v), serialized(serialized) {}
 	NodeValue(const Node& v) : value(SP<Node>(v)) {}
 	NodeValue(const NodeSP& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const NodeArray& v) : value(SP<NodeArray>(v)) {}
@@ -302,20 +303,7 @@ public:
 
 static string to_string(const NodeValue& value) {
 	if(value.type() == 4) {
-		string escaped;
-
-		for(auto c : (string)value) {
-			switch(c) {
-				case '"':  escaped += "\\\""; break;
-				case '\\': escaped += "\\\\"; break;
-				case '\n': escaped += "\\n";  break;
-				case '\r': escaped += "\\r";  break;
-				case '\t': escaped += "\\t";  break;
-				default:   escaped += c;      break;
-			}
-		}
-
-		return "\""+escaped+"\"";
+		return value.serialized ? (string)value : "\""+crow::json::escape(value)+"\"";
 	}
 
 	return value;
@@ -367,50 +355,6 @@ static string to_string(const NodeArray& node) {
 	result += "]";
 
 	return result;
-}
-
-namespace glz::detail
-{
-	/*
-	template <>
-	struct from_json<Node>
-	{
-		template <auto Opts>
-		static void op(Node& node, auto&&... args)
-		{
-			read<json>::op<Opts>(node.human_readable, args...);
-			node.data = std::stoi(node.human_readable);
-		}
-	};
-	*/
-
-	template <>
-	struct to_json<NodeValue>
-	{
-		template <auto Opts>
-		static void op(NodeValue& value, auto&&... args) noexcept
-		{
-			constexpr glz::opts opts {
-				.raw = true
-			};
-
-			write<json>::op<opts>(to_string(value), args...);
-		}
-	};
-
-	template <>
-	struct to_json<Node>
-	{
-		template <auto Opts>
-		static void op(Node& node, auto&&... args) noexcept
-		{
-			constexpr glz::opts opts {
-				.raw = true
-			};
-
-			write<json>::op<opts>(to_string(node), args...);
-		}
-	};
 }
 
 /*

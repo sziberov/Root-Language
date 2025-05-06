@@ -2,9 +2,11 @@
 
 #include "Parser.cpp"
 
-namespace Interpreter {
+struct Interpreter {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
+
+	Interpreter() {};
 
 	deque<Token> tokens;
 	NodeSP tree;
@@ -15,34 +17,6 @@ namespace Interpreter {
 			metaprogrammingLevel;
 		bool arbitaryPrecisionArithmetics;
 	} preferences;
-
-	void report(int level, NodeSP node, string string) {
-		Location location = position < tokens.size()
-						  ? tokens[position].location
-						  : Location();
-
-		if(node) {
-			string = node->get<std::string>("type")+" -> "+string;
-		}
-
-		Interface::send({
-			{"source", "interpreter"},
-			{"action", "add"},
-			{"parentModuleID", -1},
-			{"level", level},
-			{"path", ""},
-			{"position", position},
-			{"location", Node {
-				{"line", location.line},
-				{"column", location.column}
-			}},
-			{"string", string}
-		});
-	}
-
-	void print(const string& string) {
-		report(0, nullptr, string);
-	}
 
 	// ----------------------------------------------------------------
 
@@ -152,37 +126,12 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
-	extern const TypeSP PredefinedEVoidTypeSP;
-	extern const TypeSP PredefinedEAnyTypeSP;
-
-	extern const TypeSP PredefinedPAnyTypeSP;
-	extern const TypeSP PredefinedPBooleanTypeSP;
-	extern const TypeSP PredefinedPFloatTypeSP;
-	extern const TypeSP PredefinedPIntegerTypeSP;
-	extern const TypeSP PredefinedPStringTypeSP;
-	extern const TypeSP PredefinedPTypeTypeSP;
-
-	extern const TypeSP PredefinedCAnyTypeSP;
-	extern const TypeSP PredefinedCClassTypeSP;
-	extern const TypeSP PredefinedCEnumerationTypeSP;
-	extern const TypeSP PredefinedCFunctionTypeSP;
-	extern const TypeSP PredefinedCNamespaceTypeSP;
-	extern const TypeSP PredefinedCObjectTypeSP;
-	extern const TypeSP PredefinedCProtocolTypeSP;
-	extern const TypeSP PredefinedCStructureTypeSP;
-
-	// ----------------------------------------------------------------
-
-	deque<CompositeTypeSP> composites;  // Global composite storage is allowed, as it decided by design to have only one Interpreter instance in a single process memory
+	deque<CompositeTypeSP> composites;
 	deque<CompositeTypeSP> scopes;
 
 	CompositeTypeSP getComposite(optional<int> ID) {
-		return ID && *ID < composites.size() ? composites[*ID] : nullptr;
+		return ID && *ID < composites.size() ? composites.at(*ID) : nullptr;
 	}
-
-	CompositeTypeSP scope();
-	CompositeTypeSP getValueComposite(TypeSP value);
-	unordered_set<CompositeTypeSP> getValueComposites(TypeSP value);
 
 	// ----------------------------------------------------------------
 
@@ -995,9 +944,10 @@ namespace Interpreter {
 		using OverloadSP = sp<Overload>;
 		using Member = deque<OverloadSP>;
 
+		Interpreter* interpreter;
 		const CompositeTypeID subID;
 		string title;
-		const int ownID = composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
+		const int ownID = interpreter->composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
 		unordered_map<string, CompositeTypeSP> hierarchy = {
 			// Defaults are needed to distinguish between "not set" and "intentionally unset" states
 			{"super", nullptr},
@@ -1018,10 +968,12 @@ namespace Interpreter {
 		Observers chainObservers;  // Internal access
 	//	unordered_map<FunctionTypeSP, Observers> subscriptObservers;  // External-internal access
 
-		CompositeType(CompositeTypeID subID,
+		CompositeType(Interpreter* interpreter,
+					  CompositeTypeID subID,
 					  const string& title,
 					  const std::set<TypeSP>& inheritedTypes = {},
 					  const vector<TypeSP>& genericParametersTypes = {}) : Type(TypeID::Composite, true),
+					  													   interpreter(interpreter),
 																		   subID(subID),
 																		   title(title),
 																		   inheritedTypes(inheritedTypes),
@@ -1030,7 +982,28 @@ namespace Interpreter {
 			// TODO: Statically retain inherited and generic parameters composite types
 		}
 
-		std::set<TypeSP> getFullInheritanceChain() const;
+		std::set<TypeSP> getFullInheritanceChain() const {
+			auto chain = inheritedTypes;
+
+			for(const TypeSP& parentType : inheritedTypes) {
+				CompositeTypeSP compType;
+
+				if(parentType->ID == TypeID::Composite) {
+					compType = static_pointer_cast<CompositeType>(parentType);
+				} else
+				if(parentType->ID == TypeID::Reference) {
+					compType = static_pointer_cast<ReferenceType>(parentType)->compType;
+				}
+
+				if(compType) {
+					std::set<TypeSP> parentChain = compType->getFullInheritanceChain();
+
+					chain.insert(parentChain.begin(), parentChain.end());
+				}
+			}
+
+			return chain;
+		}
 
 		static bool checkConformance(const CompositeTypeSP& base, const CompositeTypeSP& candidate, const optional<vector<TypeSP>>& candidateGenericArgumentsTypes = {}) {
 			if(candidate != base && !candidate->getFullInheritanceChain().contains(base)) {
@@ -1051,7 +1024,22 @@ namespace Interpreter {
 			return true;
 		}
 
-		bool acceptsA(const TypeSP& type) override;
+		bool acceptsA(const TypeSP& type) {
+			if(type->ID == TypeID::Composite) {
+				auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
+				auto compType = static_pointer_cast<CompositeType>(type);
+
+				return checkConformance(compThis, compType);
+			}
+			if(type->ID == TypeID::Reference) {
+				auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
+				auto refType = static_pointer_cast<ReferenceType>(type);
+
+				return checkConformance(compThis, refType->compType, refType->typeArgs);
+			}
+
+			return false;
+		}
 
 		string toString() const override {
 			string result;
@@ -1107,7 +1095,19 @@ namespace Interpreter {
 
 		// var a: getType = this
 		// var a: getType = this(...arguments)
-		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) override;
+		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) {
+			if(!arguments) {
+				return shared_from_this();
+			}
+			if(!isCallable()) {
+				throw invalid_argument("Composite is not callable");
+			}
+			if(subID != CompositeTypeID::Function) {
+				return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { shared_from_this(), "init" }, true)->get(arguments, getType);
+			}
+
+			return nullptr;
+		}
 
 		virtual void set(TypeSP setValue = nullptr) override {
 			throw invalid_argument("Can't set a composite");
@@ -1142,7 +1142,7 @@ namespace Interpreter {
 			unordered_set<int> retainedIDs = getRetainedIDs();
 
 			for(int retainedID : retainedIDs) {
-				if(CompositeTypeSP retainedComposite = getComposite(retainedID)) {
+				if(CompositeTypeSP retainedComposite = interpreter->getComposite(retainedID)) {
 					release(retainedComposite);
 
 					/*  Let the objects destroy no matter of errors
@@ -1155,13 +1155,13 @@ namespace Interpreter {
 
 			TypeSP self = shared_from_this();
 
-			composites[ownID].reset();
+			interpreter->composites[ownID].reset();
 
 			unordered_set<int> retainersIDs = getRetainersIDs();
 			int aliveRetainers = 0;
 
 			for(int retainerID : retainersIDs) {
-				if(CompositeTypeSP retainingComposite = getComposite(retainerID); retainingComposite->life < 2) {
+				if(CompositeTypeSP retainingComposite = interpreter->getComposite(retainerID); retainingComposite->life < 2) {
 					aliveRetainers++;
 
 					// TODO: Notify retainers about destroy
@@ -1169,10 +1169,10 @@ namespace Interpreter {
 			}
 
 			if(aliveRetainers > 0) {
-				report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-empty["+std::to_string(aliveRetainers)+"] retainer list.");
+				interpreter->report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-empty["+std::to_string(aliveRetainers)+"] retainer list.");
 			}
 			if(self.use_count() > 1) {
-				report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-single["+std::to_string(self.use_count())+"] low-level reference count.");
+				interpreter->report(1, nullptr, "Composite "+getTitle()+" was destroyed with a non-single["+std::to_string(self.use_count())+"] low-level reference count.");
 			}
 		}
 
@@ -1255,8 +1255,8 @@ namespace Interpreter {
 		 * Check `getValueComposites()` for details of search.
 		 */
 		void retainOrRelease(TypeSP oldRetainedValue, TypeSP newRetainedValue) {
-			auto ORC = getValueComposites(oldRetainedValue),  // Old/new retained composites
-				 NRC = getValueComposites(newRetainedValue);
+			auto ORC = interpreter->getValueComposites(oldRetainedValue),  // Old/new retained composites
+				 NRC = interpreter->getValueComposites(newRetainedValue);
 
 			for(auto oldRetainedComposite : ORC) if(!NRC.contains(oldRetainedComposite)) release(oldRetainedComposite);
 			for(auto newRetainedComposite : NRC) if(!ORC.contains(newRetainedComposite)) retain(newRetainedComposite);
@@ -1268,7 +1268,7 @@ namespace Interpreter {
 		 * Check `getValueComposites()` for details of search.
 		 */
 		void retain(TypeSP retainedValue) {
-			for(auto retainedComposite : getValueComposites(retainedValue)) {
+			for(auto retainedComposite : interpreter->getValueComposites(retainedValue)) {
 				retain(retainedComposite);
 			}
 		}
@@ -1279,7 +1279,7 @@ namespace Interpreter {
 		 * Check `getValueComposites()` for details of search.
 		 */
 		void release(TypeSP retainedValue) {
-			for(auto retainedComposite : getValueComposites(retainedValue)) {
+			for(auto retainedComposite : interpreter->getValueComposites(retainedValue)) {
 				release(retainedComposite);
 			}
 		}
@@ -1323,7 +1323,7 @@ namespace Interpreter {
 				if(!visitedIDs->contains(retainedID)) {
 					visitedIDs->insert(retainedID);
 
-					if(auto retainingComposite = getComposite(retainedID); retainingComposite->retainsDistant(retainedComposite, visitedIDs)) {
+					if(auto retainingComposite = interpreter->getComposite(retainedID); retainingComposite->retainsDistant(retainedComposite, visitedIDs)) {
 						return true;
 					}
 				}
@@ -1342,10 +1342,10 @@ namespace Interpreter {
 			CompositeTypeSP retainingComposite,
 							retainedComposite = static_pointer_cast<CompositeType>(shared_from_this());
 
-			if(retainingComposite = getValueComposite(controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
-			if(retainingComposite = scope())									if(retainingComposite->retainsDistant(retainedComposite)) return true;
-		//	for(auto&& retainingComposite : scopes)								if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
-			if(retainingComposite = getComposite(0))							if(retainingComposite->retainsDistant(retainedComposite)) return true;  // TODO: Check if this should be replaced with an own stack (each module have its Global) or ^^^ (scope stack), as I don't really know if current scope or current Global only will be sufficient for imports
+			if(retainingComposite = interpreter->getValueComposite(interpreter->controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
+			if(retainingComposite = interpreter->scope())													if(retainingComposite->retainsDistant(retainedComposite)) return true;
+		//	for(auto&& retainingComposite : interpreter->scopes)											if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
+			if(retainingComposite = interpreter->getComposite(0))											if(retainingComposite->retainsDistant(retainedComposite)) return true;  // TODO: Check if this should be replaced with an own stack (each module have its Global) or ^^^ (scope stack), as I don't really know if current scope or current Global only will be sufficient for imports
 
 			return false;
 		}
@@ -1502,7 +1502,7 @@ namespace Interpreter {
 		}
 
 		CompositeTypeSP getInheritedTypeComposite() {
-			return inheritedTypes.size() ? getValueComposite(*inheritedTypes.begin()) : nullptr;
+			return inheritedTypes.size() ? interpreter->getValueComposite(*inheritedTypes.begin()) : nullptr;
 		}
 
 		optional<reference_wrapper<Member>> getMember(const string& identifier) {
@@ -1648,10 +1648,10 @@ namespace Interpreter {
 
 			auto hierarchy = this->hierarchy;
 
-			hierarchy.erase("scope");						// Only object and inheritance chains
-			hierarchy.emplace("Global", getComposite(0));	// Global-type
-		//	hierarchy.emplace("metaSelf", -1);				   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
-		//	hierarchy.emplace("arguments", -1);				   Function arguments array (should be in callFunction() if needed)
+			hierarchy.erase("scope");									// Only object and inheritance chains
+			hierarchy.emplace("Global", interpreter->getComposite(0));	// Global-type
+		//	hierarchy.emplace("metaSelf", -1);							   Self-object or a type (descriptor) (probably not a simple ID but some kind of proxy)
+		//	hierarchy.emplace("arguments", -1);							   Function arguments array (should be in callFunction() if needed)
 
 			if(hierarchy.contains(identifier)) {
 				overloads.push_back(SP<Overload>(
@@ -2037,46 +2037,6 @@ namespace Interpreter {
 		}
 	};
 
-	std::set<TypeSP> CompositeType::getFullInheritanceChain() const {
-		auto chain = inheritedTypes;
-
-		for(const TypeSP& parentType : inheritedTypes) {
-			CompositeTypeSP compType;
-
-			if(parentType->ID == TypeID::Composite) {
-				compType = static_pointer_cast<CompositeType>(parentType);
-			} else
-			if(parentType->ID == TypeID::Reference) {
-				compType = static_pointer_cast<ReferenceType>(parentType)->compType;
-			}
-
-			if(compType) {
-				std::set<TypeSP> parentChain = compType->getFullInheritanceChain();
-
-				chain.insert(parentChain.begin(), parentChain.end());
-			}
-		}
-
-		return chain;
-	}
-
-	bool CompositeType::acceptsA(const TypeSP& type) {
-		if(type->ID == TypeID::Composite) {
-			auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
-			auto compType = static_pointer_cast<CompositeType>(type);
-
-			return checkConformance(compThis, compType);
-		}
-		if(type->ID == TypeID::Reference) {
-			auto compThis = static_pointer_cast<CompositeType>(shared_from_this());
-			auto refType = static_pointer_cast<ReferenceType>(type);
-
-			return checkConformance(compThis, refType->compType, refType->typeArgs);
-		}
-
-		return false;
-	}
-
 	// ----------------------------------------------------------------
 
 	struct FunctionType : Type {
@@ -2099,7 +2059,51 @@ namespace Interpreter {
 												   returnType(returnType),
 												   modifiers(modifiers) {}
 
-		static bool matchTypeLists(const vector<TypeSP>& expectedList, const vector<TypeSP>& providedList);
+		static bool matchTypeLists(const vector<TypeSP>& expectedList, const vector<TypeSP>& providedList) {
+			int expectedSize = expectedList.size(),
+				providedSize = providedList.size();
+
+			function<bool(int, int)> matchFrom = [&](int expectedIndex, int providedIndex) {
+				if(expectedIndex == expectedSize) {
+					return providedIndex == providedSize;
+				}
+
+				const TypeSP& expectedType = expectedList[expectedIndex];
+
+				if(expectedType->ID == TypeID::Variadic) {
+					auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
+
+					if(expectedIndex == expectedSize-1) {
+						return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeSP& t) {
+							return varExpectedType->acceptsA(t);
+						});
+					}
+
+					if(matchFrom(expectedIndex+1, providedIndex)) {
+						return true;
+					}
+
+					for(int currentIndex = providedIndex; currentIndex < providedSize; currentIndex++) {
+						if(!varExpectedType->acceptsA(providedList[currentIndex])) {
+							break;
+						}
+						if(matchFrom(expectedIndex+1, currentIndex+1)) {
+							return true;
+						}
+					}
+
+					return false;
+				}
+
+				if(providedIndex < providedSize && expectedType->acceptsA(providedList[providedIndex])) {
+					return matchFrom(expectedIndex+1, providedIndex+1);
+				}
+
+				return false;
+			};
+
+			return matchFrom(0, 0);
+		}
 
 		bool acceptsA(const TypeSP& type) override {
 			if(type->ID == TypeID::Composite) {
@@ -2334,20 +2338,6 @@ namespace Interpreter {
 		}
 	};
 
-	TypeSP CompositeType::get(optional<vector<TypeSP>> arguments, TypeSP getType) {
-		if(!arguments) {
-			return shared_from_this();
-		}
-		if(!isCallable()) {
-			throw invalid_argument("Composite is not callable");
-		}
-		if(subID != CompositeTypeID::Function) {
-			return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { shared_from_this(), "init" }, true)->get(arguments, getType);
-		}
-
-		return nullptr;
-	}
-
 	struct VariadicType : Type {
 		TypeSP innerType;
 
@@ -2383,126 +2373,80 @@ namespace Interpreter {
 		}
 	};
 
-	bool FunctionType::matchTypeLists(const vector<TypeSP>& expectedList, const vector<TypeSP>& providedList) {
-		int expectedSize = expectedList.size(),
-			providedSize = providedList.size();
-
-		function<bool(int, int)> matchFrom = [&](int expectedIndex, int providedIndex) {
-			if(expectedIndex == expectedSize) {
-				return providedIndex == providedSize;
-			}
-
-			const TypeSP& expectedType = expectedList[expectedIndex];
-
-			if(expectedType->ID == TypeID::Variadic) {
-				auto varExpectedType = static_pointer_cast<VariadicType>(expectedType);
-
-				if(expectedIndex == expectedSize-1) {
-					return all_of(providedList.begin()+providedIndex, providedList.end(), [&](const TypeSP& t) {
-						return varExpectedType->acceptsA(t);
-					});
-				}
-
-				if(matchFrom(expectedIndex+1, providedIndex)) {
-					return true;
-				}
-
-				for(int currentIndex = providedIndex; currentIndex < providedSize; currentIndex++) {
-					if(!varExpectedType->acceptsA(providedList[currentIndex])) {
-						break;
-					}
-					if(matchFrom(expectedIndex+1, currentIndex+1)) {
-						return true;
-					}
-				}
-
-				return false;
-			}
-
-			if(providedIndex < providedSize && expectedType->acceptsA(providedList[providedIndex])) {
-				return matchFrom(expectedIndex+1, providedIndex+1);
-			}
-
-			return false;
-		};
-
-		return matchFrom(0, 0);
-	}
-
 	// ----------------------------------------------------------------
 
-	const TypeSP PredefinedEVoidTypeSP = SP<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedEVoidTypeSP = SP<PredefinedType>(PredefinedTypeID::EVoid, [](const TypeSP& type) {
 		return type->ID == TypeID::Predefined && static_pointer_cast<PredefinedType>(type)->subID == PredefinedTypeID::EVoid;
 	});
 
-	const TypeSP PredefinedEAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::EAny, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedEAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::EAny, [](const TypeSP& type) {
 		return true;
 	});
 
-	const TypeSP PredefinedPAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::PAny, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::PAny, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive;
 	});
 
-	const TypeSP PredefinedPBooleanTypeSP = SP<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPBooleanTypeSP = SP<PredefinedType>(PredefinedTypeID::PBoolean, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Boolean;
 	});
 
-	const TypeSP PredefinedPDictionaryTypeRef = SP<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPDictionaryTypeRef = SP<PredefinedType>(PredefinedTypeID::PDictionary, [](const TypeSP& type) {
 		return type->ID == TypeID::Dictionary;
 	});
 
-	const TypeSP PredefinedPFloatTypeSP = SP<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPFloatTypeSP = SP<PredefinedType>(PredefinedTypeID::PFloat, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Float;
 	});
 
-	const TypeSP PredefinedPIntegerTypeSP = SP<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPIntegerTypeSP = SP<PredefinedType>(PredefinedTypeID::PInteger, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Integer;
 	});
 
-	const TypeSP PredefinedPStringTypeSP = SP<PredefinedType>(PredefinedTypeID::PString, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPStringTypeSP = SP<PredefinedType>(PredefinedTypeID::PString, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::String;
 	});
 
-	const TypeSP PredefinedPTypeTypeSP = SP<PredefinedType>(PredefinedTypeID::PType, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedPTypeTypeSP = SP<PredefinedType>(PredefinedTypeID::PType, [](const TypeSP& type) {
 		return type->ID == TypeID::Primitive && static_pointer_cast<PrimitiveType>(type)->subID == PrimitiveTypeID::Type;
 	});
 
-	const TypeSP PredefinedCAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::CAny, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCAnyTypeSP = SP<PredefinedType>(PredefinedTypeID::CAny, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite ||
 			   type->ID == TypeID::Reference;
 	});
 
-	const TypeSP PredefinedCClassTypeSP = SP<PredefinedType>(PredefinedTypeID::CClass, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCClassTypeSP = SP<PredefinedType>(PredefinedTypeID::CClass, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Class ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Class;
 	});
 
-	const TypeSP PredefinedCEnumerationTypeSP = SP<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCEnumerationTypeSP = SP<PredefinedType>(PredefinedTypeID::CEnumeration, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Enumeration ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Enumeration;
 	});
 
-	const TypeSP PredefinedCFunctionTypeSP = SP<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCFunctionTypeSP = SP<PredefinedType>(PredefinedTypeID::CFunction, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Function ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Function;
 	});
 
-	const TypeSP PredefinedCNamespaceTypeSP = SP<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCNamespaceTypeSP = SP<PredefinedType>(PredefinedTypeID::CNamespace, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Namespace ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Namespace;
 	});
 
-	const TypeSP PredefinedCObjectTypeSP = SP<PredefinedType>(PredefinedTypeID::CObject, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCObjectTypeSP = SP<PredefinedType>(PredefinedTypeID::CObject, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Object ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Object;
 	});
 
-	const TypeSP PredefinedCProtocolTypeSP = SP<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCProtocolTypeSP = SP<PredefinedType>(PredefinedTypeID::CProtocol, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Protocol ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Protocol;
 	});
 
-	const TypeSP PredefinedCStructureTypeSP = SP<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeSP& type) {
+	inline static const TypeSP PredefinedCStructureTypeSP = SP<PredefinedType>(PredefinedTypeID::CStructure, [](const TypeSP& type) {
 		return type->ID == TypeID::Composite && static_pointer_cast<CompositeType>(type)->subID == CompositeTypeID::Structure ||
 			   type->ID == TypeID::Reference && static_pointer_cast<ReferenceType>(type)->compType->subID == CompositeTypeID::Structure;
 	});
@@ -2511,7 +2455,7 @@ namespace Interpreter {
 
 	CompositeTypeSP createComposite(const string& title, CompositeTypeID type, CompositeTypeSP scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
-		auto composite = SP<CompositeType>(type, title);
+		auto composite = SP<CompositeType>(this, type, title);
 
 		composites.push_back(composite);
 
@@ -2653,9 +2597,6 @@ namespace Interpreter {
 	// ----------------------------------------------------------------
 
 	template<typename... Args>
-	TypeSP rules(const string& type, NodeSP n = nullptr, Args... args);
-
-	template<typename... Args>
 	TypeSP executeNode(NodeSP node, bool concrete = true, Args... arguments) {
 		if(!node) {
 			return nullptr;
@@ -2759,7 +2700,7 @@ namespace Interpreter {
 	}
 
 	template<typename... Args>
-	TypeSP rules(const string& type, NodeSP n, Args... args) {
+	TypeSP rules(const string& type, NodeSP n = nullptr, Args... args) {
 		vector<any> arguments = {args...};
 
 		if(
@@ -3321,10 +3262,33 @@ namespace Interpreter {
 
 	// ----------------------------------------------------------------
 
-	struct Place {
-		NodeSP node,
-			   location;
-	};
+	void report(int level, NodeSP node, string string) {
+		Location location = position < tokens.size()
+						  ? tokens[position].location
+						  : Location();
+
+		if(node) {
+			string = node->get<std::string>("type")+" -> "+string;
+		}
+
+		Interface::send({
+			{"source", "interpreter"},
+			{"action", "add"},
+			{"parentModuleID", -1},
+			{"level", level},
+			{"path", ""},
+			{"position", position},
+			{"location", Node {
+				{"line", location.line},
+				{"column", location.column}
+			}},
+			{"string", string}
+		});
+	}
+
+	void print(const string& string) {
+		report(0, nullptr, string);
+	}
 
 	void reset() {
 		tokens = {};
@@ -3347,49 +3311,26 @@ namespace Interpreter {
         });
 	}
 
-	struct Result {
-		TypeSP value;
-	};
-
-	Result interpret(Lexer::Result lexerResult, Parser::Result parserResult, optional<Preferences> preferences_ = nullopt) {
+	TypeSP interpret(deque<Token> tokens, NodeSP tree, optional<Preferences> preferences = nullopt) {
 		reset();
 
-		tokens = lexerResult.tokens;
-		tree = parserResult.tree;
+		this->tokens = tokens;
+		this->tree = tree;
 
-		if(preferences_) {
-			preferences = *preferences_;
+		if(preferences) {
+			this->preferences = *preferences;
 		}
 
-		Result result = {
-			executeNode(tree)
-		};
+		TypeSP value = executeNode(tree);
 
 		Interface::send({
 			{"source", "interpreter"},
 			{"action", "evaluated"},
-			{"value", to_string(result.value)}
+			{"value", to_string(value)}
 		});
 
-		return result;
+		return value;
 	}
 };
 
-/*
-namespace glz::detail
-{
-	template <>
-	struct to_json<Interpreter::TypeSP>
-	{
-		template <auto Opts>
-		static void op(Interpreter::TypeSP& type, auto&&... args) noexcept
-		{
-			constexpr glz::opts opts {
-				.raw = true
-			};
-
-			write<json>::op<opts>(Interpreter::to_string(type), args...);
-		}
-	};
-}
-*/
+static Interpreter sharedInterpreter;
