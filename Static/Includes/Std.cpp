@@ -1,13 +1,18 @@
 #pragma once
 
+#include <algorithm>
 #include <any>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <regex>
 #include <set>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -68,7 +73,7 @@ template <typename Container, typename UnaryPredicate>
 Container transform(const Container& container, UnaryPredicate predicate) {
 	Container result;
 	result.reserve(container.size());
-	std::transform(container.begin(), container.end(), back_inserter(result), predicate);
+	transform(container.begin(), container.end(), back_inserter(result), predicate);
 	return result;
 }
 
@@ -88,18 +93,18 @@ int find_index(Container container, Predicate predicate) {
 
 template <typename T>
 shared_ptr<decay_t<T>> SP(T&& value) {
-	return std::make_shared<decay_t<T>>(forward<T>(value));
+	return make_shared<decay_t<T>>(forward<T>(value));
 }
 
 template <typename T, typename... Args>
 shared_ptr<T> SP(Args&&... args) {
-	return std::make_shared<T>(forward<Args>(args)...);
+	return make_shared<T>(forward<Args>(args)...);
 }
 
 static string tolower(string_view string) {
 	auto result = ::string(string);
 
-	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return std::tolower(c); });
+	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return tolower(c); });
 
 	return result;
 }
@@ -126,4 +131,26 @@ shared_ptr<T> any_spcast(const any& value) {
 	}
 
 	return nullptr;
+}
+
+optional<string> read_file(const filesystem::path& path) {
+	if(!filesystem::exists(path) || !filesystem::is_regular_file(path)) {
+		return nullopt;
+	}
+
+	ifstream file(path, ios::in);
+
+	if(!file.is_open()) {
+		return nullopt;
+	}
+
+	ostringstream ss;
+
+	ss << file.rdbuf();
+
+	if(file.fail()) {
+		return nullopt;
+	}
+
+	return ss.str();
 }

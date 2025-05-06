@@ -3291,9 +3291,9 @@ struct Parser {
 
 		Interface::send({
 			{"source", "parser"},
-            {"action", "removeAll"},
+			{"action", "removeAll"},
 			{"moduleID", -1}
-        });
+		});
 	}
 
 	NodeSP parse(deque<Token> tokens) {

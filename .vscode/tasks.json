@@ -18,7 +18,7 @@
         {
             "label": "Run",
             "type": "shell",
-            "command": "${workspaceFolder}/Static/RootServer",
+            "command": "${workspaceFolder}/Static/RootServer -d",
             "group": {
                 "kind": "test",
                 "isDefault": true

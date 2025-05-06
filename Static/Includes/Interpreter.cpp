@@ -11,12 +11,6 @@ struct Interpreter {
 	deque<Token> tokens;
 	NodeSP tree;
 	int position;
-	struct Preferences {
-		int callStackSize,
-			allowedReportLevel,
-			metaprogrammingLevel;
-		bool arbitaryPrecisionArithmetics;
-	} preferences;
 
 	// ----------------------------------------------------------------
 
@@ -3297,29 +3291,19 @@ struct Interpreter {
 		composites = {};
 		scopes = {};
 		controlTransfers = {};
-		preferences = {
-			128,
-			2,
-			3,
-			true
-		};
 
 		Interface::send({
 			{"source", "interpreter"},
-            {"action", "removeAll"},
+			{"action", "removeAll"},
 			{"moduleID", -1}
-        });
+		});
 	}
 
-	TypeSP interpret(deque<Token> tokens, NodeSP tree, optional<Preferences> preferences = nullopt) {
+	TypeSP interpret(deque<Token> tokens, NodeSP tree) {
 		reset();
 
 		this->tokens = tokens;
 		this->tree = tree;
-
-		if(preferences) {
-			this->preferences = *preferences;
-		}
 
 		TypeSP value = executeNode(tree);
 
