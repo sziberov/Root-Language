@@ -79,7 +79,9 @@
         "cinttypes": "cpp",
         "typeinfo": "cpp",
         "variant": "cpp",
-        "*.ipp": "cpp"
+        "*.ipp": "cpp",
+        "queue": "cpp",
+        "stack": "cpp"
     },
     "files.watcherExclude": {
         "**/*.Old.cpp": true,

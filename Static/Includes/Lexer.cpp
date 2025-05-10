@@ -2,8 +2,6 @@
 
 #include "Interface.cpp"
 
-// ----------------------------------------------------------------
-
 struct Lexer {
 	struct Location {
 		int line,
@@ -19,6 +17,17 @@ struct Lexer {
 			 nonmergeable,
 			 generated;
 	};
+
+	string_view code;
+	int position = 0;
+	deque<Token> tokens;
+	deque<string> states;  // angle - used to distinguish between common operator and generic type's closing >
+						   // brace - used in statements
+						   // parenthesis - used in string expressions
+
+	Lexer(string_view code) : code(code) {}
+
+	// ----------------------------------------------------------------
 
 	static string to_string(const Location& l) {
 		return string("{")+
@@ -63,15 +72,13 @@ struct Lexer {
 		return result;
 	}
 
+	// ----------------------------------------------------------------
+
 	struct Rule {
 		variant<string, vector<string>, regex> triggers;
 		function<bool(string)> actions;
 	};
 
-	string_view code;
-	int position;
-	deque<Token> tokens;
-	deque<string> states;
 	vector<Rule> rules {
 		{"#!", [this](const string& v) {
 			if(atComments() || atString()) {
@@ -455,6 +462,8 @@ struct Lexer {
 		}}
 	};
 
+	// ----------------------------------------------------------------
+
 	void helpers_continueString() {
 		if(set<string> {"stringOpen", "stringExpressionClosed"}.contains(token().type)) {
 			addToken("stringSegment", "");
@@ -495,6 +504,8 @@ struct Lexer {
 		helpers_mergeOperators();
 		helpers_specifyOperatorType();
 	}
+
+	// ----------------------------------------------------------------
 
 	inline bool codeEnd() {
 		return position >= code.length();
@@ -705,22 +716,6 @@ struct Lexer {
 		states = save.states;
 	}
 
-	void reset() {
-		code = "";
-		position = 0;
-		tokens = {};
-		states = {};
-			// angle - used to distinguish between common operator and generic type's closing >
-			// brace - used in statements
-			// parenthesis - used in string expressions
-
-		Interface::send({
-			{"source", "lexer"},
-			{"action", "removeAll"},
-			{"moduleID", -1}
-		});
-	}
-
 	bool atSubstring(const string& substring) {
 		if(position+substring.size() > code.size()) {
 			return false;
@@ -773,10 +768,12 @@ struct Lexer {
 		}
 	}
 
-	deque<Token> tokenize(string_view code) {
-		reset();
-
-		this->code = code;
+	deque<Token> tokenize() {
+		Interface::send({
+			{"source", "lexer"},
+			{"action", "removeAll"},
+			{"moduleID", -1}
+		});
 
 		while(!codeEnd()) {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
@@ -791,5 +788,3 @@ struct Lexer {
 		return tokens;
 	}
 };
-
-static Lexer sharedLexer;

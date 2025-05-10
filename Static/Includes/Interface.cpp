@@ -2,21 +2,25 @@
 
 #include "Node.cpp"
 
-// ----------------------------------------------------------------
-
 namespace Interface {
+	struct Socket {
+		string host = "localhost";
+		usize port = 3007;
+	};
+
 	struct Preferences {
 		enum class Mode {
 			Undefined,
 			Interpret,
 			Dashboard
 		} mode = Mode::Undefined;
-		filesystem::path scriptPath;
-		bool //standardIO = false,
-			 socket = false;
-		string socketHost = "localhost";
-		usize socketPort = 3007;
-		string token;
+
+		optional<filesystem::path> scriptPath;
+		vector<string> scriptArguments;
+
+	//	bool standardIO = false;
+		optional<Socket> socket;
+		vector<string> tokens;
 
 		usize callStackSize = 128,
 			  reportsLevel = 3,
@@ -24,53 +28,67 @@ namespace Interface {
 		bool preciseArithmetics = false;
 	} preferences;
 
-	// TODO: Allow process to listen multiple [socket: tocken]'s. Use case:
-	// User wants to create a process with debug connection, but Opium Kernel (Poppy DE)
-	// must create process with its own debugging socket to control the process.
 	void printUsage() {
 		cout << "Usage:\n"
-			 << "    (--interpret <Path> | --dashboard)\n"
+			 << "    (--interpret [PATH] | --dashboard)\n"
 		//	 << "    [--standardIO]\n"
-			 << "    [--socket [<Host> | <Port>]]\n"
-			 << "    [--token <Token>]\n"  // TODO: Should be passed securely (as a password)
-			 << "    [--callStackSize <Number>]\n"
-			 << "    [--reportsLevel <Number>]\n"
-			 << "    [--metaprogrammingLevel <Number>]\n"
-			 << "    [--preciseArithmetics]\n\n"
+			 << "    [--socket [HOST | PORT]]\n"
+			 << "    [--token [TOKEN]]\n"
+			 << "    [--callStackSize NUMBER]\n"
+			 << "    [--reportsLevel NUMBER]\n"
+			 << "    [--metaprogrammingLevel NUMBER]\n"
+			 << "    [--preciseArithmetics]\n"
+			 << "    [--arguments [ARGUMENT]...]\n\n"
 
 			 << "Modes:\n"
-			 << "    (-i | --interpret) <Path>                  Interpret script on given path\n"
-			 << "    (-d | --dashboard)                         Set up dashboard interface\n\n"
+			 << "    (-i | --interpret) [PATH]                Interpret script on given path\n"
+			 << "    (-d | --dashboard)                       Set up dashboard interface\n\n"
 
 			 << "Debugging:\n"
-		//	 << "    (-sio | --standardIO)                      Use standard input/output for debugging purposes (default - disabled)\n"
-			 << "    (-s | --socket) [<Host> | <Port>]          Host or port of the socket (default - localhost:3007 if enabled; always enabled for dashboard)\n"
-			 << "    (-t | --token) <Token>                     Security token (default - empty string)\n\n"
+		//	 << "    (-sio | --standardIO)                    Use standard input/output for debugging purposes (default - disabled)\n"
+			 << "    (-s | --socket) [HOST | PORT]            Host or port of the socket (default - localhost:3007 if enabled; always enabled for dashboard)\n"
+			 << "    (-t | --token) [TOKEN]                   Security token (required if socket enabled, either as argument or standard input)\n\n"
 
 			 << "Execution:\n"
-			 << "    (-css | --callStackSize) <Number>          Call stack size (default - 128)\n"
-			 << "    (-rl | --reportsLevel) <Number>            Reports level (default - 2): 0 - information, 1 - warning, 2 - error\n"
-			 << "    (-ml | --metaprogrammingLevel) <Number>    Metaprogramming level (default - 2): 0 - disabled, 1 - read, 2 - write\n"
-			 << "    (-pa | --preciseArithmetics)               Precise string-based arithmetic (default - disabled)\n\n"
+			 << "    (-css | --callStackSize) NUMBER          Call stack size (default - 128)\n"
+			 << "    (-rl | --reportsLevel) NUMBER            Reports level (default - 2): 0 - information, 1 - warning, 2 - error\n"
+			 << "    (-ml | --metaprogrammingLevel) NUMBER    Metaprogramming level (default - 2): 0 - disabled, 1 - read, 2 - write\n"
+			 << "    (-pa | --preciseArithmetics)             Precise string-based arithmetic (default - disabled)\n"
+			 << "    (-a | --arguments) [ARGUMENT]...         Script arguments\n\n"
 
 			 << "Help:\n"
-			 << "    (-h | --help)                              Show this help message and exit\n";
+			 << "    (-h | --help)                            Show this help message and exit\n";
 	}
 
 	void printPreferences() {
-		cout << "Mode: " << (preferences.mode == Preferences::Mode::Interpret ? "Interpret" : "Dashboard") << "\n";
-		if(preferences.mode == Preferences::Mode::Interpret) {
-			cout << "Script Path: " << preferences.scriptPath << "\n";
+		cout << "                 Mode: " << (preferences.mode == Preferences::Mode::Interpret ? "Interpret" : "Dashboard") << endl;
+
+		if(preferences.scriptPath) {
+			cout << "          Script Path: " << *preferences.scriptPath << endl;
 		}
-	//	cout << "Standard IO: " << (preferences.standardIO ? "Enabled" : "Disabled") << "\n";
-		cout << "Socket: " << (preferences.socket ? "Enabled" : "Disabled") << "\n";
-		cout << "Socket Host: " << preferences.socketHost << "\n";
-		cout << "Socket Port: " << preferences.socketPort << "\n";
-		cout << "Token: " << preferences.token << "\n";  // TODO: Should be hidden
-		cout << "Call Stack Size: " << preferences.callStackSize << "\n";
-		cout << "Reports Level: " << preferences.reportsLevel << "\n";
-		cout << "Metaprogramming Level: " << preferences.metaprogrammingLevel << "\n";
-		cout << "Precise Arithmetics: " << (preferences.preciseArithmetics ? "Enabled" : "Disabled") << "\n";
+		if(!preferences.scriptArguments.empty()) {
+			cout << "     Script Arguments:";
+
+			for(string& argument : preferences.scriptArguments) {
+				cout << " " << argument;
+			}
+
+			cout << endl;
+		}
+
+	//	cout << "          Standard IO: " << (preferences.standardIO ? "Enabled" : "Disabled") << endl;
+
+		if(preferences.socket) {
+			cout << "          Socket Mode: " << (preferences.mode == Preferences::Mode::Dashboard ? "Server" : "Client") << endl;
+			cout << "          Socket Host: " << preferences.socket->host << endl;
+			cout << "          Socket Port: " << to_string(preferences.socket->port) << endl;
+		}
+
+		cout << "                Token: " << preferences.tokens[0] << endl;  // TODO: Should be hidden
+		cout << "      Call Stack Size: " << preferences.callStackSize << endl;
+		cout << "        Reports Level: " << preferences.reportsLevel << endl;
+		cout << "Metaprogramming Level: " << preferences.metaprogrammingLevel << endl;
+		cout << "  Precise Arithmetics: " << (preferences.preciseArithmetics ? "Enabled" : "Disabled") << endl;
 	}
 
 	bool isPositiveInteger(const string& s) {
@@ -94,82 +112,116 @@ namespace Interface {
 			{"-rl", "--reportsLevel"},
 			{"-ml", "--metaprogrammingLevel"},
 			{"-pa", "--preciseArithmetics"},
+			{"-a", "--arguments"},
 			{"-h", "--help"}
 		};
 
 		unordered_map<string, function<bool(int&)>> rules = {
 			{"--interpret", [&](int& i) {
-				if(i+1 >= argc) return false;
 				preferences.mode = Preferences::Mode::Interpret;
-				preferences.scriptPath = argv[++i];
+
+				if(i+1 < argc && argv[i+1][0] != '-') {
+					preferences.scriptPath = argv[++i];
+				}
+
 				return true;
 			}},
 			{"--dashboard", [&](int&) {
 				preferences.mode = Preferences::Mode::Dashboard;
-				preferences.socket = true;
+				preferences.socket = Socket();
+
 				return true;
 			}},
 			/*
 			{"--standardIO", [&](int&) {
 				preferences.standardIO = true;
+
 				return true;
 			}},
 			*/
 			{"--socket", [&](int& i) {
-				preferences.socket = true;
+				preferences.socket = Socket();
 
-				if(i + 1 < argc && argv[i + 1][0] != '-') {
+				if(i+1 < argc && argv[i+1][0] != '-') {
 					string next = argv[++i];
-
 					auto colonPos = next.find(':');
+
 					if(colonPos != string::npos) {
-						string hostPart = next.substr(0, colonPos);
-						string portPart = next.substr(colonPos + 1);
+						string hostPart = next.substr(0, colonPos),
+							   portPart = next.substr(colonPos+1);
 
 						if(!isPositiveInteger(portPart)) {
-							cerr << "Invalid port in --socket: " << portPart << "\n";
+							cerr << "Invalid port in --socket: " << portPart << endl;
+
 							return false;
 						}
 
-						preferences.socketHost = hostPart;
-						preferences.socketPort = stoi(portPart);
+						preferences.socket->host = hostPart;
+						preferences.socket->port = stoi(portPart);
 					} else
-					if (isPositiveInteger(next)) {
-						preferences.socketPort = stoi(next);
+					if(isPositiveInteger(next)) {
+						preferences.socket->port = stoi(next);
 					} else {
-						preferences.socketHost = next;
+						preferences.socket->host = next;
 					}
 				}
 
 				return true;
 			}},
 			{"--token", [&](int& i) {
-				if(i+1 >= argc) return false;
-				preferences.token = argv[++i];
+				if(i+1 < argc && argv[i+1][0] != '-') {
+					preferences.tokens.emplace_back(argv[++i]);
+				} else {
+					preferences.tokens.emplace_back();
+				}
+
 				return true;
 			}},
 			{"--callStackSize", [&](int& i) {
-				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) return false;
+				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) {
+					return false;
+				}
+
 				preferences.callStackSize = stoi(argv[++i]);
+
 				return true;
 			}},
 			{"--reportsLevel", [&](int& i) {
-				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) return false;
+				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) {
+					return false;
+				}
+
 				preferences.reportsLevel = stoi(argv[++i]);
+
 				return true;
 			}},
 			{"--metaprogrammingLevel", [&](int& i) {
-				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) return false;
+				if(i+1 >= argc || !isPositiveInteger(argv[i+1])) {
+					return false;
+				}
+
 				preferences.metaprogrammingLevel = stoi(argv[++i]);
+
 				return true;
 			}},
 			{"--preciseArithmetics", [&](int&) {
 				preferences.preciseArithmetics = true;
+
+				return true;
+			}},
+			{"--arguments", [&](int& i) {
+				i++;
+
+				for(; i < argc; i++) {
+					preferences.scriptArguments.emplace_back(argv[i]);
+				}
+
 				return true;
 			}},
 			{"--help", [&](int&) {
 				printUsage();
 				exit(0);
+
 				return true;
 			}}
 		};
@@ -180,18 +232,35 @@ namespace Interface {
 
 			if(rules.contains(arg)) {
 				if(!rules[arg](i)) {
-					cerr << "Invalid or missing argument for: " << raw << "\n";
+					cerr << "Invalid or missing argument for: " << raw << endl;
+
 					return false;
 				}
 			} else {
-				cerr << "Unknown argument: " << raw << "\n";
+				cerr << "Unknown argument: " << raw << endl;
+
 				return false;
 			}
 		}
 
 		if(preferences.mode == Preferences::Mode::Undefined) {
 			cerr << "Error: --interpret or --dashboard must be specified\n";
+
 			return false;
+		}
+
+		if(preferences.socket && preferences.tokens.empty()) {
+			string token;
+
+			cout << "Token: ";
+
+			getline(cin, token);
+
+			if(cin.fail()) {
+				cin.clear();
+			}
+
+			preferences.tokens.push_back(token);
 		}
 
 		return true;
@@ -199,12 +268,11 @@ namespace Interface {
 
 	// ----------------------------------------------------------------
 
-	mutex mutex_;
 	unordered_set<crow::websocket::connection*> connections;
+	vector<function<void(crow::json::rvalue&)>> handlers;
 	vector<string> messages; // JSON
 
 	void send(const Node& output) {
-		lock_guard<mutex> lock(mutex_);
 		string outputString = to_string(output);
 
 		messages.push_back(outputString);
@@ -219,9 +287,7 @@ namespace Interface {
 		}
 	}
 
-	void register_connection(crow::websocket::connection* connection) {
-		lock_guard<mutex> lock(mutex_);
-
+	void registerСonnection(crow::websocket::connection* connection) {
 		connections.insert(connection);
 
 		/* TODO: Send important only
@@ -231,25 +297,14 @@ namespace Interface {
 		*/
 	}
 
-	void unregister_connection(crow::websocket::connection* connection) {
-		lock_guard<mutex> lock(mutex_);
-
+	void unregisterСonnection(crow::websocket::connection* connection) {
 		connections.erase(connection);
 	}
 
-	void handle_message(const string& input) {
-		auto cmd = crow::json::load(input);
-		if (!cmd) return;
-
-		lock_guard<mutex> lock(mutex_);
-
-		string action = cmd["action"].s();
-		if (action == "clear") {
-			messages.clear();
-		} else
-		if (action == "removeLast") {
-			if (!messages.empty()) {
-				messages.pop_back();
+	void handleMessage(const string& input) {
+		if(auto JSON = crow::json::load(input)) {
+			for(auto& handler : handlers) {
+				handler(JSON);
 			}
 		}
 	}

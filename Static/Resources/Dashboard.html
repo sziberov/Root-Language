@@ -1,22 +1,22 @@
-<html>
-<body>
 <style>
 body {
 	display: grid;
 	grid-template:
-		'code trees' 2fr
-		'console console' 1fr
-		/ 6fr 5fr;
+		'code trees' max-content
+		'console console' auto
+		/ max-content auto;
+	grid-auto-columns: 0;
+	grid-auto-rows: 0;
 
 	height: 100%;
 
 	margin: 0;
 }
 
-#input,
-#output_lint,
-#output_trees,
-#output_console {
+#inputText,
+#inputLint,
+#treesOutput,
+#console {
 	overflow: auto;
 
 	font: 12px monospace;
@@ -24,8 +24,8 @@ body {
 	white-space: pre;
 }
 
-#input,
-#output_lint {
+#inputText,
+#inputLint {
 	grid-area: code;
 
 	box-sizing: border-box;
@@ -39,7 +39,7 @@ body {
 	caret-color: white;
 }
 
-#output_lint {
+#inputLint {
 	background: none;
 
 	color: rgb(191 191 191 / 1);
@@ -47,8 +47,8 @@ body {
 	pointer-events: none;
 }
 
-#output_trees,
-#output_console {
+#treesOutput,
+#console {
 	grid-area: trees;
 
 	overflow-x: auto;
@@ -58,12 +58,16 @@ body {
 	font-size: 10px;
 }
 
-#output_console {
+#console {
 	display: flex;
 	flex-direction: column;
 	grid-area: console;
 
 	background: none;
+}
+
+#consoleOutput {
+	flex: 1;
 }
 
 #buttons {
@@ -75,63 +79,46 @@ body {
 	gap: 8px;
 }
 </style>
-<textarea id="input" spellcheck="false"></textarea>
-<div id="output_lint"></div>
-<div id="output_trees">
+<textarea id="inputText" spellcheck="false" style="width: 55vw; height: 65vh;"></textarea>
+<div id="inputLint"></div>
+<div id="treesOutput">
 	<div id="buttons">
-		<button id="change_tree">Change tree</button>
-		<button id="parse_interpret">Parse & interpret</button>
+		<button id="changeTree">Change tree</button>
+		<button id="interpret">Interpret</button>
 	</div>
-	<div id="output_tokens"></div>
-	<div id="output_ast" style="display: none;"></div>
-	<div id="output_composites" style="display: none;"></div>
+	<div id="tokensOutput"></div>
+	<div id="ASTOutput" style="display: none;"></div>
+	<div id="compositesOutput" style="display: none;"></div>
 </div>
-<div id="output_console"></div>
+<div id="console">
+	<div id="consoleOutput"></div>
+	<input type="text" id="consoleInput">
+</div>
 <script>
-	let input = document.getElementById('input'),
-		output_lint = document.getElementById('output_lint'),
-		output_tokens = document.getElementById('output_tokens'),
-		output_ast = document.getElementById('output_ast'),
-		output_composites = document.getElementById('output_composites'),
-		output_console = document.getElementById('output_console'),
-		change_tree = document.getElementById('change_tree'),
-		parse_interpret = document.getElementById('parse_interpret'),
+	let inputText = document.getElementById('inputText'),
+		inputLint = document.getElementById('inputLint'),
+		changeTree = document.getElementById('changeTree'),
+		interpret = document.getElementById('interpret'),
+		tokensOutput = document.getElementById('tokensOutput'),
+		ASTOutput = document.getElementById('ASTOutput'),
+		compositesOutput = document.getElementById('compositesOutput'),
+		consoleOutput = document.getElementById('consoleOutput'),
+		consoleInput = document.getElementById('consoleInput'),
 		socket;
 
-	async function tokenize() {
-		let start,
-			end;
+	function parse() {
+		inputLint.innerHTML = '';
 
-		output_lint.innerHTML = '';
-
-		start = Date.now();
-		await fetch(location.origin+'/lex?iterations=32', {
-			method: 'POST',
-			headers: {'Content-Type': 'text/plain'},
-			body: input.value
-		});
- 		end = Date.now();
- 		console.log(`[Lexer] Taken ${end-start} ms by string(${input.value.length})`);
-
-		start = Date.now();
-		await fetch(location.origin+'/parse');
- 		end = Date.now();
- 		console.log(`[Parser] Taken ${end-start} ms by string(${input.value.length})`);
+		send({ action: 'lex', code: inputText.value });
+		send({ action: 'parse' });
 	}
 
-	async function interpret() {
-		let start = Date.now();
-		await fetch(location.origin+'/interpret');
- 		let end = Date.now();
- 		console.log(`[Interpreter] Taken ${end-start} ms by string(${input.value.length})`);
-	}
-
-	function startSocket() {
-		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/interface');
+	function openSocket() {
+		socket = new WebSocket('ws://'+document.domain+':'+location.port+'/socket');
 
 		socket.onopen = function() {
-			if(output_lint.innerHTML === '') {
-				tokenize();
+			if(inputLint.innerHTML === '') {
+				parse();
 			}
 		}
 
@@ -224,13 +211,13 @@ body {
 					}
 				}
 
-				output_lint.innerHTML = lintHTML;
-				output_lint.scrollTop = input.scrollTop;
-				output_lint.scrollLeft = input.scrollLeft;
-				output_tokens.innerText = JSON.stringify(tokens.filter(v => !v.trivia), null, 4);
+				inputLint.innerHTML = lintHTML;
+				inputLint.scrollTop = inputText.scrollTop;
+				inputLint.scrollLeft = inputText.scrollLeft;
+				tokensOutput.innerText = JSON.stringify(tokens.filter(v => !v.trivia), null, 4);
 			} else
 			if(report.action === 'parsed') {
-				output_ast.innerText = JSON.stringify(report.tree, null, 4);
+				ASTOutput.innerText = JSON.stringify(report.tree, null, 4);
 			} else
 			if(report.action === 'interpreted') {}
 
@@ -263,7 +250,7 @@ body {
 				prev.innerText = message;
 
 				let next,
-					nodes = [...output_console.children].reverse(),
+					nodes = [...consoleOutput.children].reverse(),
 					sources = ['lexer', 'parser', 'interpreter']
 
 				for(let node of nodes) {
@@ -276,7 +263,7 @@ body {
 						next = node;
 					} else
 					if(
-						nextSource <   prevSource ||
+						 nextSource <   prevSource ||
 						(nextSource === prevSource && nextPosition <= prevPosition)
 					) {
 						next = node.nextSibling;
@@ -285,11 +272,11 @@ body {
 					}
 				}
 
-				output_console.insertBefore(prev, next);
-				output_console.scrollTop = output_console.scrollHeight;
+				consoleOutput.insertBefore(prev, next);
+				consoleOutput.scrollTop = consoleOutput.scrollHeight;
 			} else
 			if(report.action === 'removeAfterPosition') {
-				let nodes = [...output_console.children]
+				let nodes = [...consoleOutput.children]
 
 				for(let node of nodes) {
 					if(node.dataset.source === report.source && node.dataset.position*1 > report.position)  {
@@ -302,10 +289,10 @@ body {
 					source = sources.indexOf(report.source);
 
 				if(source === -1) {
-					output_console.innerHTML = '';
+					consoleOutput.innerHTML = '';
 				} else {
 					let toDelete = sources.slice(source),
-						nodes = [...output_console.children].filter(n => toDelete.includes(n.dataset.source));
+						nodes = [...consoleOutput.children].filter(n => toDelete.includes(n.dataset.source));
 
 					for(let node of nodes) {
 						node.remove();
@@ -317,7 +304,7 @@ body {
 		socket.onclose = function() {
 			socket = undefined;
 
-			setTimeout(startSocket, 5000)
+			setTimeout(openSocket, 5000)
 		}
 	}
 
@@ -325,35 +312,38 @@ body {
 		socket?.send?.(JSON.stringify(action));
 	}
 
-	input.oninput = tokenize;
-	input.onscroll = () => {
-		output_lint.scrollTop = input.scrollTop;
-		output_lint.scrollLeft = input.scrollLeft;
+	inputText.oninput = parse;
+	inputText.onscroll = () => {
+		inputLint.scrollTop = inputText.scrollTop;
+		inputLint.scrollLeft = inputText.scrollLeft;
 	}
-	input.value = typeof require !== 'undefined' ? require('fs').readFileSync(global.__dirname+'/Resources/Modules/Test').toString() : '';
+	changeTree.onclick = () => {
+		if(tokensOutput.style.display !== 'none') {
+			ASTOutput.style.display = 'block';
 
-	change_tree.onclick = () => {
-		if(output_tokens.style.display !== 'none') {
-			output_ast.style.display = 'block';
-
-			output_tokens.style.display =
-			output_composites.style.display = 'none';
+			tokensOutput.style.display =
+			compositesOutput.style.display = 'none';
 		} else
-		if(output_ast.style.display !== 'none') {
-			output_composites.style.display = 'block';
+		if(ASTOutput.style.display !== 'none') {
+			compositesOutput.style.display = 'block';
 
-			output_tokens.style.display =
-			output_ast.style.display = 'none';
+			tokensOutput.style.display =
+			ASTOutput.style.display = 'none';
 		} else {
-			output_tokens.style.display = 'block';
+			tokensOutput.style.display = 'block';
 
-			output_ast.style.display =
-			output_composites.style.display = 'none';
+			ASTOutput.style.display =
+			compositesOutput.style.display = 'none';
 		}
 	}
-	parse_interpret.onclick = interpret;
+	interpret.onclick = () => {
+		send({ action: 'interpret' });
+	}
+	consoleInput.onkeypress = (e) => {
+		if(e.key === 'Enter') {
+			send({ action: 'evaluate', code: consoleInput.value });
+		}
+	}
 
-	startSocket();
+	openSocket();
 </script>
-</body>
-</html>

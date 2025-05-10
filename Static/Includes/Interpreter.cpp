@@ -2,15 +2,25 @@
 
 #include "Parser.cpp"
 
-struct Interpreter {
+struct Interpreter : enable_shared_from_this<Interpreter> {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
 
-	Interpreter() {};
-
+	sp<Interpreter> parent;
+	struct InheritedContext {
+		bool composites = false,
+			 calls = false,
+			 scopes = false,
+			 controlTransfers = false;
+	} inheritedContext;
+	string_view code;
 	deque<Token> tokens;
 	NodeSP tree;
-	int position;
+	int position = 0;
+
+	Interpreter() {}
+	Interpreter(string_view code, deque<Token> tokens, NodeSP tree) : code(code), tokens(tokens), tree(tree) {}
+	Interpreter(sp<Interpreter> parent, InheritedContext IC, string_view code, deque<Token> tokens, NodeSP tree) : inheritedContext(IC), parent(parent), code(code), tokens(tokens), tree(tree) {}
 
 	// ----------------------------------------------------------------
 
@@ -120,11 +130,17 @@ struct Interpreter {
 
 	// ----------------------------------------------------------------
 
-	deque<CompositeTypeSP> composites;
-	deque<CompositeTypeSP> scopes;
+	deque<CompositeTypeSP> _composites;
+	deque<CompositeTypeSP> _scopes;
+
+	deque<CompositeTypeSP>& composites() {
+		return inheritedContext.composites && parent
+			 ? parent->composites()
+			 : _composites;
+	}
 
 	CompositeTypeSP getComposite(optional<int> ID) {
-		return ID && *ID < composites.size() ? composites.at(*ID) : nullptr;
+		return ID && *ID < composites().size() ? composites().at(*ID) : nullptr;
 	}
 
 	// ----------------------------------------------------------------
@@ -134,13 +150,19 @@ struct Interpreter {
 		optional<string> type;
 	};
 
-	deque<ControlTransfer> controlTransfers;
+	deque<ControlTransfer> _controlTransfers;
+
+	deque<ControlTransfer>& controlTransfers() {
+		return inheritedContext.controlTransfers && parent
+			 ? parent->controlTransfers()
+			 : _controlTransfers;
+	}
 
 	ControlTransfer& controlTransfer() {
 		static ControlTransfer dummy;
 
-		return !controlTransfers.empty()
-			 ? controlTransfers.back()
+		return !controlTransfers().empty()
+			 ? controlTransfers().back()
 			 : dummy = ControlTransfer();
 	}
 
@@ -149,11 +171,11 @@ struct Interpreter {
 	}
 
 	void addControlTransfer() {
-		controlTransfers.push_back(ControlTransfer());
+		controlTransfers().push_back(ControlTransfer());
 	}
 
 	void removeControlTransfer() {
-		controlTransfers.pop_back();
+		controlTransfers().pop_back();
 	}
 
 	/**
@@ -938,11 +960,11 @@ struct Interpreter {
 		using OverloadSP = sp<Overload>;
 		using Member = deque<OverloadSP>;
 
-		Interpreter* interpreter;
+		sp<Interpreter> interpreter;
 		const CompositeTypeID subID;
 		string title;
-		const int ownID = interpreter->composites.size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
-		unordered_map<string, CompositeTypeSP> hierarchy = {
+		const int ownID = interpreter->composites().size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
+		unordered_map<string_view, CompositeTypeSP> hierarchy = {
 			// Defaults are needed to distinguish between "not set" and "intentionally unset" states
 			{"super", nullptr},
 			{"Super", nullptr},
@@ -957,12 +979,12 @@ struct Interpreter {
 		std::set<TypeSP> inheritedTypes;  // May be composite (class, struct, protocol), reference to, or function
 		vector<TypeSP> genericParametersTypes;
 		variant<function<TypeSP(vector<TypeSP>)>, NodeArraySP> statements;
-		unordered_map<string, CompositeTypeSP> imports;
-		unordered_map<string, Member> members;
+		unordered_map<string_view, CompositeTypeSP> imports;
+		unordered_map<string_view, Member> members;
 		Observers chainObservers;  // Internal access
 	//	unordered_map<FunctionTypeSP, Observers> subscriptObservers;  // External-internal access
 
-		CompositeType(Interpreter* interpreter,
+		CompositeType(sp<Interpreter> interpreter,
 					  CompositeTypeID subID,
 					  const string& title,
 					  const std::set<TypeSP>& inheritedTypes = {},
@@ -1149,7 +1171,7 @@ struct Interpreter {
 
 			TypeSP self = shared_from_this();
 
-			interpreter->composites[ownID].reset();
+			interpreter->composites()[ownID].reset();
 
 			unordered_set<int> retainersIDs = getRetainersIDs();
 			int aliveRetainers = 0;
@@ -1338,17 +1360,17 @@ struct Interpreter {
 
 			if(retainingComposite = interpreter->getValueComposite(interpreter->controlTransfer().value))	if(retainingComposite->retainsDistant(retainedComposite)) return true;
 			if(retainingComposite = interpreter->scope())													if(retainingComposite->retainsDistant(retainedComposite)) return true;
-		//	for(auto&& retainingComposite : interpreter->scopes)											if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
+		//	for(auto&& retainingComposite : interpreter->scopes())											if(retainingComposite->retainsDistant(retainedComposite)) return true;  // May be useful when "with" syntax construct will be added
 			if(retainingComposite = interpreter->getComposite(0))											if(retainingComposite->retainsDistant(retainedComposite)) return true;  // TODO: Check if this should be replaced with an own stack (each module have its Global) or ^^^ (scope stack), as I don't really know if current scope or current Global only will be sufficient for imports
 
 			return false;
 		}
 
-		CompositeTypeSP getHierarchy(const string& branch) {
+		CompositeTypeSP getHierarchy(const string_view& branch) {
 			return hierarchy.contains(branch) ? hierarchy[branch] : nullptr;
 		}
 
-		void setHierarchy(const string& key, CompositeTypeSP value) {
+		void setHierarchy(const string_view& key, CompositeTypeSP value) {
 			CompositeTypeSP OV = hierarchy[key],  // Old/new value
 							NV = hierarchy[key] = value;
 
@@ -1499,7 +1521,7 @@ struct Interpreter {
 			return inheritedTypes.size() ? interpreter->getValueComposite(*inheritedTypes.begin()) : nullptr;
 		}
 
-		optional<reference_wrapper<Member>> getMember(const string& identifier) {
+		optional<reference_wrapper<Member>> getMember(const string_view& identifier) {
 			auto it = members.find(identifier);
 
 			if(it != members.end()) {
@@ -1509,11 +1531,11 @@ struct Interpreter {
 			return nullopt;
 		}
 
-		Member& addMember(const string& identifier) {
+		Member& addMember(const string_view& identifier) {
 			return members[identifier];
 		}
 
-		void removeMember(const string& identifier) {
+		void removeMember(const string_view& identifier) {
 			if(auto memberNode = members.extract(identifier)) {
 				Member member = move(memberNode.mapped());
 
@@ -2449,9 +2471,9 @@ struct Interpreter {
 
 	CompositeTypeSP createComposite(const string& title, CompositeTypeID type, CompositeTypeSP scope = nullptr) {
 		cout << "createComposite("+title+")" << endl;
-		auto composite = SP<CompositeType>(this, type, title);
+		auto composite = SP<CompositeType>(shared_from_this(), type, title);
 
-		composites.push_back(composite);
+		composites().push_back(composite);
 
 		if(scope) {
 			composite->setScope(scope);
@@ -2505,9 +2527,15 @@ struct Interpreter {
 	}
 	*/
 
+	deque<CompositeTypeSP>& scopes() {
+		return inheritedContext.scopes && parent
+			 ? parent->scopes()
+			 : _scopes;
+	}
+
 	CompositeTypeSP getScope(int offset = 0) {
-		return scopes.size() > scopes.size()-1+offset
-			 ? scopes[scopes.size()-1+offset]
+		return scopes().size() > scopes().size()-1+offset
+			 ? scopes()[scopes().size()-1+offset]
 			 : nullptr;
 	}
 
@@ -2520,16 +2548,16 @@ struct Interpreter {
 	 * as ARC utilizes a current scope at the moment.
 	 */
 	void addScope(CompositeTypeSP composite) {
-		scopes.push_back(composite);
+		scopes().push_back(composite);
 	}
 
 	/**
 	 * Removes from the stack and optionally automatically destroys a last scope.
 	 */
 	void removeScope(bool destroy = true) {
-		CompositeTypeSP composite = scopes.back();
+		CompositeTypeSP composite = scopes().back();
 
-		scopes.pop_back();
+		scopes().pop_back();
 
 		if(destroy && composite) {
 			composite->destroyReleased();
@@ -3193,7 +3221,7 @@ struct Interpreter {
 
 			for(Node& declarator : n->get<NodeArray&>("declarators")) {
 				string identifier = declarator.get<Node&>("identifier").get("value");
-				TypeSP type = executeNode(declarator.get("type_"), false),
+				TypeSP type = executeNode(declarator.get("type_"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP),
 					   value;
 
 			//	addContext({ type: type }, ['implicitChainExpression']);
@@ -3284,26 +3312,19 @@ struct Interpreter {
 		report(0, nullptr, string);
 	}
 
-	void reset() {
-		tokens = {};
-		tree = nullptr;
+	void clean() {
 		position = 0;
-		composites = {};
-		scopes = {};
-		controlTransfers = {};
+		_composites = {};
+		_scopes = {};
+		_controlTransfers = {};
+	}
 
+	TypeSP interpret() {
 		Interface::send({
 			{"source", "interpreter"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
 		});
-	}
-
-	TypeSP interpret(deque<Token> tokens, NodeSP tree) {
-		reset();
-
-		this->tokens = tokens;
-		this->tree = tree;
 
 		TypeSP value = executeNode(tree);
 
@@ -3317,4 +3338,4 @@ struct Interpreter {
 	}
 };
 
-static Interpreter sharedInterpreter;
+static sp<Interpreter> sharedInterpreter = SP(Interpreter());

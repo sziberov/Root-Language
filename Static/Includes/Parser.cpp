@@ -2,15 +2,13 @@
 
 #include "Lexer.cpp"
 
-// ----------------------------------------------------------------
-
 struct Parser {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
 
-	Parser() {};
-
 	deque<Token> tokens;
+
+	Parser(deque<Token> tokens) : tokens(filter(tokens, [this](auto& t) { return !t.trivia; })) {}
 
 	template<typename... Args>
 	NodeValue rules(const string& type, Args... args) {
@@ -3285,21 +3283,12 @@ struct Parser {
 		});
 	}
 
-	void reset() {
-		tokens = {};
-		position = 0;
-
+	NodeSP parse() {
 		Interface::send({
 			{"source", "parser"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
 		});
-	}
-
-	NodeSP parse(deque<Token> tokens) {
-		reset();
-
-		this->tokens = filter(tokens, [this](auto& t) { return !t.trivia; });
 
 		NodeSP tree = rules("module");
 
@@ -3312,5 +3301,3 @@ struct Parser {
 		return tree;
 	}
 };
-
-static Parser sharedParser;
