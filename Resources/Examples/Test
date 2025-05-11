@@ -1,0 +1,1124 @@
+if a in b in c in d { e }
+
+if key in self + 1 {
+	return .'\(key)'
+}
+
+return
+
+class A {
+	static func get(a, b) {
+		return a+b
+	}
+
+	static subscript(a, b) {
+		get {
+			return a+b
+		}
+
+		set {
+			print('SET 0: \(a) \(b) \(value)')
+		}
+	}
+
+	/*
+	static var subscript = [
+		'get': func () {
+			return a+b
+		},
+		'set': func () {
+			print('SET 0: \(a) \(b) \(value)')
+		}
+	]
+	*/
+}
+
+class B: A {
+	static subscript(a, b, c) {
+		get {
+			return a+b+c
+		}
+
+		set {
+			print('SET 1: \(a) \(b) \(c) \(value)')
+		}
+	}
+}
+
+func a() {
+	print(B.get(1, 2) == 3)
+	print(B[1, 2] == 3)
+	print(B[1, 2, 3] == 6)
+	print((B[1, 2] = 3) == 3)		// SET 0: 1 2 3
+	print((B[1, 2, 3] = 4) == 4)	// SET 1: 1 2 3 4
+
+	class B {
+		static func get(a, b, c) {
+			return a+b+c
+		}
+
+		static subscript(a, b, c) {
+			set {
+				print('SET 2: \(a) \(b) \(c) \(value)')
+			}
+		}
+	}
+
+	print(B.get(1, 2) == nil)
+	print(B[1, 2] == nil)
+	print(B[1, 2, 3] == nil)
+	print((B[1, 2] = 3) == nil)
+	print((B[1, 2, 3] = 4) == 4)	// SET 2: 1 2 3 4
+}
+
+a()
+
+return
+
+class A {
+	chain {
+		get {
+			print('GLOBAL GET '+key)
+
+			if key in self {
+				return .'\(key)'
+			}
+		}
+
+		set {
+			print('GLOBAL SET '+key)
+
+			if key in self {
+				.'\(key)' = value
+			}
+		}
+	}
+
+	static var a = 1 {
+		willGet {
+			print('WILL GET '+key)
+		}
+
+		get {
+			print('GET '+key)
+
+			return 2
+		}
+
+		didGet {
+			print('DID GET '+key)
+		}
+
+		willSet {
+			print('WILL SET \(key): \(value)')
+		}
+
+		set {
+			print('SET \(key): \(value)')
+
+			a = value
+		}
+
+		didSet {
+			print('DID SET \(key): \(value)')
+		}
+	}
+}
+
+print(A.a)		// GLOBAL GET a; WILL GET a; GET a; DID GET a
+
+A.a = 2
+
+return
+
+func a() {
+	print(1)
+
+	return func () {
+		print(2)
+
+		return func () {
+			print(3)
+		}
+	}
+}
+
+/*
+func a(f) {
+	return { (f_) -> () in
+		return { (f__) -> () in
+			print(1)
+		}
+	}
+}
+*/
+
+a {} {} {}
+
+return
+
+class User {
+	private var username: String
+	private var valid: Bool
+
+	init(username: String, password: String) {
+		self.username = username
+		valid = validateUser(username, password)
+	}
+
+	/*virtual*/ func validateUser(username: String, password: String) -> Bool {
+		return false
+	}
+
+	final func isValid() -> Bool {
+		return valid
+	}
+}
+
+class Attacker: User {
+	init(username: String, password: String) {
+		super(username, password)
+	}
+
+	func validateUser(username: String, password: String) -> Bool {
+		return true
+	}
+}
+
+if Attacker('Evil', 'Hacker').isValid() {
+	print('Attack successful!')
+} else {
+	print('Attack failed')
+}
+
+return
+
+var a: Self = .print(1)
+
+return
+
+namespace A {
+	func a() {
+		return a
+	}
+
+	func a(b) {
+		print(b)
+	}
+
+	func a(b, c) {
+		print(b+c)
+	}
+}
+
+A.a(1, 2)
+
+return
+
+struct Int {
+	static var value = 2
+}
+
+var a: Int /*| String*/ = 1+.value
+
+print(a == 3)
+
+return
+
+func fib(n) {
+	if n <= 1 {
+		return n
+	}
+
+	return fib(n-2)+fib(n-1)
+}
+
+var start = getTimestamp(),
+	i = 0
+
+while i < 20 {
+	print(fib(i))
+	i++
+}
+
+print(getTimestamp()-start)
+
+// ~211408ms / ~3.52346667m (before replacement of getSubtype() with getTypeParts() and other tiny optimizations)
+// ~24913ms / ~0.415216667m (after)
+//
+// structuredClone() is performance-expensive tool
+// and should be avoided in highly recursive functions
+
+return
+
+var a = 0
+
+class A {
+	var la = a
+
+	init {
+		a++
+		print('1 \(self)')
+	}
+
+	deinit {
+		print('1. \(self)')
+	}
+}
+
+func b(c, d) {
+	return c
+}
+
+var bb = b(A(), A())
+
+return
+
+class A {
+	static var init = func() {
+		print(1)
+
+		return self
+	}
+}
+
+var b = A.init,
+	c = b(),  // Composite
+	d = A()   // No initializer - no object
+
+return
+
+var a = 10,
+	b = 20
+
+class A {
+	init {
+		print('1 init')
+		print(caller)
+	}
+
+	deinit {
+		print('1 deinit')
+		a++
+		print(a)
+		print(getCallsString())
+		print('-')
+		B()
+		1
+		throw 6
+	}
+}
+
+class B {
+	init {
+		print('2 init')
+		print(caller)
+	}
+
+	deinit {
+		print('2 deinit')
+		b++
+		print(b)
+		print(getCallsString())
+		print('--')
+
+		struct C {}
+
+		throw 5
+		throw 1
+	}
+}
+
+return A().deinit()
+
+func a() {
+	throw 1
+}
+
+func b(c) {
+	print(c)
+}
+
+return c(a())
+
+var i = 0
+
+while i < 4 {
+	print(i)
+
+	i++
+
+//	break;
+
+	if true {
+	//	continue;
+	//	return;
+
+		print('.\(i)')
+	}
+
+	print('..\(i)')
+}
+
+return
+
+struct A { init {} }
+struct B<T> { init {} }
+struct C { init {} }
+
+do {
+	throw A()
+} catch A {
+	print(error)
+
+	throw B<C>()
+} catch B<C>, C {
+	print(error)
+
+	throw struct { init {} }()
+} catch {  // _?
+	print(error)
+}
+
+return
+
+var b, c
+
+class A {
+	init {
+		if c == nil {
+			c = 0
+			c = Self()
+		}
+	}
+
+	var a = c
+}
+
+b = A()
+
+return
+
+var ns = namespace {
+	func a() {}
+
+	var b = struct {
+		static func b() {}
+	}
+
+	//var b
+}
+
+return
+
+var start = getTimestamp()
+
+class String {
+	private var value
+
+//	static func init
+	init(value: string | String) {
+	//	if value is dict
+		if value.value == nil {
+			self.value = value
+		} else {
+			self.value = value.value
+		}
+
+	//	return self
+	}
+}
+
+class Dictionary<K: string | String, V> {
+	private var entries
+
+	init(entries: dict | Dictionary) {
+	//	if entries is dict
+		if entries.entries == nil {
+			self.entries = entries
+		} else {
+			self.entries = entries.entries
+		}
+	}
+}
+
+//func String(a) { print(a); a }
+//func Dictionary(a) { print(a); a }
+
+var a = Dictionary<String, _?>(['0': 1]),
+	b = [2: 4]
+
+print(getTimestamp()-start)
+
+return
+
+struct Integer {
+	private var value: int
+
+	init(v: int | Self) {
+	//	if v is int
+		if v.value == nil {
+			value = v
+		} else {
+			value = v.value
+		}
+	}
+
+	static func ==(lhs: Self, rhs: Self) {
+		return lhs.value == rhs.value
+	}
+}
+
+print(Integer.'=='(Integer(1), 1)) // true
+print(Integer.'=='(Integer(1), 0)) // false
+
+return
+
+func f3() {
+	print(caller)
+
+	func () {
+		print(caller)
+		print(getCallsString())
+	}()
+}
+
+class B {
+	static func f2() {
+		print(caller)
+		f3()
+	}
+}
+
+class A {
+	static func f1() {
+		print(caller)
+		B.f2()
+	}
+}
+
+return A.f1()
+
+var start = getTimestamp(),
+	a = 0
+
+class A {
+	var a = 1,
+		b = -1,
+		a_ = print('local a: \(a == 1)'),
+		b_ = print('local b: \(b == -1)')
+
+	init(a) {
+		print('call self.a: \(self.a == 1)')
+		print('call self.b: \(self.b == -1)')
+		print('call a: \(a == 2)')
+		print('call b: \(b == -1)')
+
+		class B {
+			static var a = a,
+					   b = b,
+					   a_ = print('local (nested) a: \(a == 2)'),
+					   b_ = print('local (nested) b: \(b == -1)'),
+					   c_ = print('local (nested) f1.s: \(f1.s == 10) == false'),
+					   d_ = print('local (nested) f2.s: \(f2.s == 20)')
+		}
+	}
+
+	func f1() {
+		static var s = 10
+
+		return ++s
+	}
+
+	static func f2() {
+		static var s = 20
+
+		return ++s
+	}
+}
+
+namespace B {
+	namespace C {
+		var b = 1
+
+		class D {
+			static namespace E {
+				func f() {
+					static var c = 2,
+							   a_ = print('local (nested ns) a: \(a == 0)'),
+							   b_ = print('local (nested ns) b: \(b == 1)'),
+							   c_ = print('local (nested ns) c: \(c == 2)')
+				}
+			}
+		}
+	}
+}
+
+var a_ins = A(2)
+
+print('global a: \(a == 0)')
+print('global a_ins.a: \(a_ins.a == 1)')
+print('global a_ins.b: \(a_ins.b == -1)')
+
+print('global A.f1.s: \(A.f1.s == 10)')
+print('global a_ins.f1.s: \(a_ins.f1.s == 10) == false')
+
+print('Add to static 1 \(a_ins.f1() == 11)')
+print('Add to static 1 \(a_ins.f1() == 12)')
+print('Add to static 1 \(a_ins.f1() == 13)')
+
+print('global A.f2.s: \(A.f2.s == 20)')
+print('global a_ins.f2.s: \(a_ins.f2.s == 20)')
+
+print('Add to static 2 \(A.f2() == 21)')
+print('Add to static 2 \(A.f2() == 22)')
+print('Add to static 2 \(A.'\('f2')'() == 23)')
+
+print('global B.C.D.E.f.a: \(B.C.D.E.f.a == 0) == false')
+print('global B.C.D.E.f.b: \(B.C.D.E.f.b == 1) == false')
+print('global B.C.D.E.f.c: \(B.C.D.E.f.c == 2)')
+
+print(getTimestamp()-start)
+
+return
+
+var a: type = type ((String, F) -> Int)?
+
+return
+
+class A {
+	static func e() { 1 }
+}
+
+class B: A {
+	static func t() {
+		print(Super.e())
+	}
+}
+
+B.t()
+
+return
+
+class A {
+	var a: Int = -1,
+		b: (Int) -> ()
+
+	init(/*_*/ b: /*@escaping*/ (Int) -> ()) {
+		self.b = b
+		self.b(0)
+	}
+}
+
+class B {
+	var a: Int = -1,
+		b: (Int) -> ()
+
+	init(/*_*/ b: /*@escaping*/ (Int) -> ()) {
+		self.b = b
+		self.b(1)
+	}
+}
+
+struct C {
+	static var a: Int = 0
+
+	static func e(n: Int) -> () {
+		self.a = n
+	}
+}
+
+var a = A(C.e),
+	b = B(C.e)
+
+print(a.a == -1)
+print(b.a == -1)
+print(C.a == 1)
+
+return
+
+var b
+
+class A {
+	class B {
+		static var c
+	}
+
+	init(c) {
+		B.c = c; print(B.c)
+	}
+}
+
+b = A(1)
+//b = nil
+
+return b
+
+class A {
+	init {
+		print(self)
+
+		var self = 1
+
+		print(self)
+	}
+}
+
+return A()
+
+class Base {
+	/*virtual*/ var a = 'Base'
+
+	init {
+		f()
+		print(super)
+		print(self)
+		print(sub)
+	}
+
+	/*virtual*/ func f() {
+		print(a)
+	}
+}
+
+class Derived: Base {
+	var a = 'Derived'
+
+	init {
+		super()
+		f()
+		print(super)
+		print(self)
+		print(sub)
+	}
+
+	func f() {
+		print(a)
+	}
+}
+
+var d = Derived()
+
+return d
+
+var b
+
+class A {
+	init(c) {
+		b = c; print(1)
+	}
+
+	deinit {
+		b = Self
+
+		print(b)
+	}
+}
+
+A(1)
+A = nil
+
+return b
+
+var b
+
+class A {
+	init(c) {
+		b = c; print(1)
+	}
+}
+
+A(1)
+
+return b
+
+var b
+
+class A {
+	deinit {
+		b = Self
+
+		print(b)
+	}
+}
+
+A = nil
+
+return b
+
+struct A {
+	struct B {}
+
+	var E
+}
+
+func a() {
+	class C {
+		var b = A.B
+	}
+
+	A.B = 1
+	//A.E = C.b
+
+	struct A {}
+}
+
+return a()
+
+var primitiveArray = [1, 2, 3, 4, func (v) { print(v) }],
+	primitiveDictionary = [1: 2, 3: 4]
+
+return primitiveArray(1234)
+
+class Animal {
+	init {}
+
+	func say() {
+		'...'
+	}
+}
+
+class Canine: Animal {
+	init {}
+}
+
+class Fox: Canine {
+	init {}
+
+	func say() {
+		'Yiff'
+	}
+}
+
+class Wolf: Canine {
+	func say() {
+		'Auf'
+	}
+}
+
+class Dog: Canine {
+	func say() {
+		'Bark'
+	}
+}
+
+class Feline: Animal {}
+
+class Cat: Feline {
+	func say() {
+		'Meow'
+	}
+}
+
+var fox = Fox()
+
+func family(a: Animal) {
+	'Is \(a.Self.metaSelf.title)'
+}
+
+func family(a: Fox) {
+	'Is vulpes'
+}
+
+func family(a: Dog | Wolf) {
+	'Is canine'
+}
+
+family(Fox())
+family(Dog())
+family(Wolf())
+family(Cat())
+
+func testFlowTransfer() {
+	if true {
+		if true {
+			var a = 1
+
+			return a
+		} else
+		if true {
+			return 2
+
+			3
+		}
+	} else {
+		4
+	}
+
+	//5
+}
+
+var flowTransferTest = testFlowTransfer()
+
+func do_(a) {
+  a(4)
+}
+
+struct Person {
+  static var age = 0
+
+  static func change() {
+	do_(func (age) {
+	  self.age = ++age
+	})
+  }
+}
+
+Person.change()
+
+struct Array {}
+
+var a: [Global]
+
+func A() {
+	struct AB {}  // Retain chain: AB -> Call<A> -> A -> Global
+
+	return AB
+}
+
+func B() {
+	A()
+
+	return A()
+}
+
+func C(CC) {
+	return CC
+}
+
+var retainTest = C(CC: B())  // Preserve value globally, simple return cleans up memory
+
+return retainTest
+
+/*
+func D() {
+	struct E {
+		static func F() {
+			struct G {
+				static func a()
+
+				static func H() {
+					struct J {}  // J, Call<H>, H, G, Call<F>, F, E, Call<D>, D, Global
+
+					return J
+				}
+			}
+
+			G.a()
+
+			return G.H()
+		}
+	}
+
+	return E.F()
+}
+
+var retainTest = D()
+
+return retainTest
+*/
+
+//var f = A.D,
+//	A,
+//	f
+
+func test(a: inout _?, and b) {
+	return a != b
+}
+
+var a: Function | bool = 1
+
+if a[] { c }           //
+if a { c }             // Exportable (0: a)
+if a { b } { c }       // Exportable (1: a { b })
+if -a() { c }          // Prefixed
+if -a { c }            // Prefixed, exportable (0)
+if -a { b } { c }      // Prefixed, exportable (1)
+if i > a[] { c }       // Sequence
+if i > a { c }         // Sequence, exportable (0)
+if i > a { b } { c }   // Sequence, exportable (1)
+if i > -a() { c }      // Sequence, prefixed
+if i > -a { c }        // Sequence, prefixed, exportable (0)
+if i > -a { b } { c }  // Sequence, prefixed, exportable (1)
+
+if a in b in c in d { e }
+
+for i in 0...3 {
+
+} where i > -1 {  // Sequence, prefixed
+	print(i)
+}
++ outside
+
+for i in 0...3 where i > -1 {  // Sequence, prefixed
+	print(i)
+}
+
+// ---- ---- ---- ----
+
+/* Multiblock
+	/* Comment */
+		Block */
+
+// Comment Line
+
+import Foundation
+
+final var Boolean = Foundation.Boolean,
+		  Number = Foundation.Number,
+		  Decimal = Foundation.Decimal,
+		  Integer = Foundation.Integer,
+		  String = Foundation.String,
+		  Array = Foundation.Array,
+		  Dictionary = Foundation.Dictionary
+
+final var constant = Number.Pi
+
+var variable
+
+if constant > 0 {
+	variable = 1
+}
+
+class A {
+	private final var constant: Number = 0.5
+
+	protected var variable: Integer = 1
+
+	var variable_01a = 'String'
+
+	var anotherVariable {
+		willGet {}
+		get {
+			return value
+		}
+		didGet {}
+
+		willSet {}
+		set {
+			value = newValue
+		}
+		didSet {}
+	}
+
+	chain {
+		get {
+			return metaSelf.members[key]?.value
+		}
+		set {
+			metaSelf.members[key] = value
+		}
+		delete {
+			delete metaSelf.members[key]
+		}
+	}
+
+	subscript(a: Integer, b: Integer) -> Integer {
+		get {
+			return a+b
+		}
+		set {
+			print(a, b)
+		}
+	}
+
+	init(with number: Integer = 0, and string_: String) {
+		print('Intitializing with \(number) and \(string_)')
+
+		variable = number
+		variable_01a = string_
+	}
+
+	deinit {
+		print('Deinitializing!')
+	}
+}
+
+var instance = A(with: 12, and: '2')
+
+/*
+var self.A: self.Class = class { ... }
+
+var self.instance = A(with: 12, and: '2')
+*/
+
+print('Testing nested template string: printing some \(identifier+'abc\(1+2+3)def'+0.125) and \(instance.variable)')
+
+var instance_2 = struct {
+	init(test: Integer) {
+		print('Initialized anonymous struct with testing variable: '+test)
+	}
+}(12)
+
+instance =
+instance_2 = nil
+
+enum B {
+	case first
+	case second
+	case third
+	case fourth
+}
+
+var enum_value: B = .first
+
+var function
+
+/*
+function = { x in x > 0 } - 1
+
+function = (x) in x > 0
+function = (x) { x > 0 }
+function = (x) { return x > 0 } - 2
+
+function = func (x) in x > 0
+function = func (x) { x > 0 }
+function = func (x) { return x > 0 } - 3
+
+func getMnemonic(color: Color) =
+	when color {
+		.RED -> "кот"
+		.ORANGE -> "охотник"
+		.YELLOW -> "желает"
+		.GREEN -> "знать"
+		.BLUE -> "где"
+		.INDIGO -> "сидят"
+		.VIOLET -> "фазаны"
+	}
+
+func getWarmth(color: Int) {
+	when color {
+		RED || YELLOW: 'warm'
+		GREEN: 'neutral'
+		BLUE: 'cold'
+		else: 'unknown'
+	}
+}
+*/
+
+when catImageView.visibility {
+	View.VISIBLE -> println('visible')
+	View.INVISIBLE -> println('invisible')
+	else -> println('gone')
+}
+
+var switchedByDictionary = [
+	case1: { 0 },
+	case2: { nil }
+][case_]?()
+
+var A = 1
+
+print(A)		// 1
+
+if true {		// If statements have local scopes
+	class A {}
+
+	print(A)	// class
+}
+
+print(A)		// 1
+
+A = class {}
+
+print(A)		// class

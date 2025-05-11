@@ -3,7 +3,7 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/Static/Includes"
+                "${workspaceFolder}/CPP/Includes"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/g++",
@@ -14,7 +14,7 @@
         {
             "name": "Windows",
             "includePath": [
-                "${workspaceFolder}/Static/Includes"
+                "${workspaceFolder}/CPP/Includes"
             ],
             "defines": [],
             "compilerPath": "E:/w64devkit/bin/g++.exe",

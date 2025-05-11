@@ -1,0 +1,96 @@
+// Foundation Source
+
+postfix operator ++
+postfix operator --
+
+prefix operator ++
+prefix operator --
+
+infix operator ??= {
+	associativity: left
+	precedence: 128
+}
+
+public infix operator == {
+	associativity: left
+	precedence: 64
+}
+
+func ??=(lhs: inout _?, rhs: _?) {
+    if lhs != nil {
+    	return
+    }
+
+    lhs = rhs
+}
+
+struct Boolean {
+	private final var value
+
+	init(value: bool) {
+		self.value = value  // .value = value
+	}
+
+	static func ==(lhs: bool & Self, rhs: bool & Self) -> Self {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
+
+		return leftValue == rightValue
+	}
+}
+
+struct Number {
+	static final var Pi = 3.141592653589793
+
+	protected final var value
+
+	init(value: int & float) {
+		.value = value
+	}
+
+	static func ==(lhs: int & float & Self, rhs: int & float & Self) -> Boolean {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
+
+		return leftValue == rightValue
+	}
+}
+
+struct Float: Number {
+	init(value: int & float) {
+		if v = value%2 && (v == 0 || v == 1) {
+			throw 'Value can\'t be integer'
+		}
+
+		.value = value
+	}
+}
+
+struct Integer: Number {
+	init(value: int & float) {
+		if v = value%2 && v > 0 && v < 1 {
+			throw 'Value can\'t be float'
+		}
+
+		.value = value
+	}
+}
+
+struct String {
+	private final var value
+
+	init(value: string) {
+		.value = value
+	}
+
+	static func ==(lhs: string & Self, rhs: string & Self) -> Boolean {
+		var leftValue = lhs !is Self ? lhs : lhs.value,
+			rightValue = rhs !is Self ? rhs : rhs.value
+
+		return leftValue == rightValue
+	}
+}
+
+class Array {}
+
+class Dictionary {}

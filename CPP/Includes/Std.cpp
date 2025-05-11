@@ -1,0 +1,156 @@
+#pragma once
+
+#include <algorithm>
+#include <any>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <iostream>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <regex>
+#include <set>
+#include <sstream>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <variant>
+#include <vector>
+
+using namespace std;
+
+// ----------------------------------------------------------------
+
+using u8  = uint8_t;
+using u16 = uint16_t;
+using u32 = uint32_t;
+using u64 = uint64_t;
+using u128 = __uint128_t;
+using usize = size_t;
+
+using i8  = int8_t;
+using i16 = int16_t;
+using i32 = int32_t;
+using i64 = int64_t;
+using i128 = __int128_t;
+using isize = ptrdiff_t;
+
+using f32 = float;
+using f64 = double;
+using f128 = long double;
+
+template <typename T>
+using sp = shared_ptr<T>;
+
+template <typename T>
+using up = unique_ptr<T>;
+
+template <typename T>
+using wp = weak_ptr<T>;
+
+// ----------------------------------------------------------------
+
+template <typename Container, typename Predicate>
+bool some(const Container& container, Predicate predicate) {
+	return any_of(container.begin(), container.end(), predicate);
+}
+
+template <typename Container, typename T>
+bool contains(const Container& container, const T& value) {
+	return find(container.begin(), container.end(), value) != container.end();
+}
+
+template <typename Container, typename UnaryPredicate>
+Container filter(const Container& container, UnaryPredicate predicate) {
+	Container result;
+	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
+	return result;
+}
+
+template <typename Container, typename UnaryPredicate>
+Container transform(const Container& container, UnaryPredicate predicate) {
+	Container result;
+	result.reserve(container.size());
+	transform(container.begin(), container.end(), back_inserter(result), predicate);
+	return result;
+}
+
+template <typename Container, typename T>
+int index_of(Container container, const T& value) {
+	auto it = find(container.begin(), container.end(), value);
+
+	return it != container.end() ? it-container.begin() : -1;
+}
+
+template <typename Container, typename Predicate>
+int find_index(Container container, Predicate predicate) {
+	auto it = find_if(container.begin(), container.end(), predicate);
+
+	return it != container.end() ? it-container.begin() : -1;
+}
+
+template <typename T>
+shared_ptr<decay_t<T>> SP(T&& value) {
+	return make_shared<decay_t<T>>(forward<T>(value));
+}
+
+template <typename T, typename... Args>
+shared_ptr<T> SP(Args&&... args) {
+	return make_shared<T>(forward<Args>(args)...);
+}
+
+static string tolower(string_view string) {
+	auto result = ::string(string);
+
+	transform(result.begin(), result.end(), result.begin(), [](unsigned char c) { return tolower(c); });
+
+	return result;
+}
+
+template <typename T>
+optional<T> any_optcast(const any& value) {
+	if(const optional<T>* v = any_cast<optional<T>>(&value)) {
+		return *v;
+	} else
+	if(const T* v = any_cast<T>(&value)) {
+		return optional<T>(*v);
+	}
+
+	return nullopt;
+}
+
+template <typename T>
+shared_ptr<T> any_spcast(const any& value) {
+	if(const shared_ptr<T>* v = any_cast<shared_ptr<T>>(&value)) {
+		return *v;
+	} else
+	if(const T* v = any_cast<T>(&value)) {
+		return make_shared<T>(*v);
+	}
+
+	return nullptr;
+}
+
+optional<string> read_file(const filesystem::path& path) {
+	if(!filesystem::exists(path) || !filesystem::is_regular_file(path)) {
+		return nullopt;
+	}
+
+	ifstream file(path, ios::in);
+
+	if(!file.is_open()) {
+		return nullopt;
+	}
+
+	ostringstream ss;
+
+	ss << file.rdbuf();
+
+	if(file.fail()) {
+		return nullopt;
+	}
+
+	return ss.str();
+}

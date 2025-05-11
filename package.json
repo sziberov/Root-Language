@@ -1,9 +1,0 @@
-{
-	"name": "Root-Language",
-	"main": "Interpreter.html",
-	"window": {
-		"fullscreen": false,
-		"width": 1024,
-		"height": 600
-	}
-}

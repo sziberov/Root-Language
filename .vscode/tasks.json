@@ -6,7 +6,7 @@
             "type": "shell",
             "command": "time g++ -std=c++26 -I Includes RootServer.cpp -g -o RootServer",
             "options": {
-                "cwd": "${workspaceFolder}/Static/"
+                "cwd": "${workspaceFolder}/CPP/"
             },
             "group": {
                 "kind": "build",
@@ -18,7 +18,7 @@
         {
             "label": "Run",
             "type": "shell",
-            "command": "${workspaceFolder}/Static/RootServer -d -t",
+            "command": "${workspaceFolder}/CPP/RootServer -d -t",
             "group": {
                 "kind": "test",
                 "isDefault": true

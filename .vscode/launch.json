@@ -5,9 +5,9 @@
             "name": "Windows",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/Static/RootServer.exe",
+            "program": "${workspaceFolder}/CPP/RootServer.exe",
             "args": ["-d", "-t"],
-            "cwd": "${workspaceFolder}/Static",
+            "cwd": "${workspaceFolder}/CPP",
             "MIMode": "gdb",
             "miDebuggerPath": "C:/Program Files/mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin/gdb.exe"
         },
@@ -15,9 +15,9 @@
             "name": "Linux",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/Static/RootServer",
+            "program": "${workspaceFolder}/CPP/RootServer",
             "args": ["-d", "-t"],
-            "cwd": "${workspaceFolder}/Static",
+            "cwd": "${workspaceFolder}/CPP",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb"
         }
