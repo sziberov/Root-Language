@@ -18,7 +18,6 @@ namespace Interface {
 		optional<filesystem::path> scriptPath;
 		vector<string> scriptArguments;
 
-	//	bool standardIO = false;
 		optional<Socket> socket;
 		vector<string> tokens;
 
@@ -30,22 +29,16 @@ namespace Interface {
 
 	void printUsage() {
 		cout << "Usage:\n"
-			 << "    (--interpret [PATH] | --dashboard)\n"
-		//	 << "    [--standardIO]\n"
-			 << "    [--socket [HOST | PORT]]\n"
-			 << "    [--token [TOKEN]]\n"
-			 << "    [--callStackSize NUMBER]\n"
-			 << "    [--reportsLevel NUMBER]\n"
-			 << "    [--metaprogrammingLevel NUMBER]\n"
-			 << "    [--preciseArithmetics]\n"
-			 << "    [--arguments [ARGUMENT]...]\n\n"
+			 << "    RootServer (--interpret [PATH] | --dashboard)\n"
+			 << "               [--socket [HOST | PORT]] [--token [TOKEN]]\n"
+			 << "               [--callStackSize NUMBER] [--reportsLevel NUMBER] [--metaprogrammingLevel NUMBER] [--preciseArithmetics]\n"
+			 << "               [--arguments [ARGUMENT]...]\n\n"
 
 			 << "Modes:\n"
 			 << "    (-i | --interpret) [PATH]                Interpret script on given path\n"
 			 << "    (-d | --dashboard)                       Set up dashboard interface\n\n"
 
 			 << "Debugging:\n"
-		//	 << "    (-sio | --standardIO)                    Use standard input/output for debugging purposes (default - disabled)\n"
 			 << "    (-s | --socket) [HOST | PORT]            Host or port of the socket (default - localhost:3007 if enabled; always enabled for dashboard)\n"
 			 << "    (-t | --token) [TOKEN]                   Security token (required if socket enabled, either as argument or standard input)\n\n"
 
@@ -76,8 +69,6 @@ namespace Interface {
 			cout << endl;
 		}
 
-	//	cout << "          Standard IO: " << (preferences.standardIO ? "Enabled" : "Disabled") << endl;
-
 		if(preferences.socket) {
 			cout << "          Socket Mode: " << (preferences.mode == Preferences::Mode::Dashboard ? "Server" : "Client") << endl;
 			cout << "          Socket Host: " << preferences.socket->host << endl;
@@ -105,7 +96,6 @@ namespace Interface {
 		unordered_map<string, string> aliases = {
 			{"-i", "--interpret"},
 			{"-d", "--dashboard"},
-		//	{"-sio", "--standardIO"},
 			{"-s", "--socket"},
 			{"-t", "--token"},
 			{"-css", "--callStackSize"},
@@ -132,13 +122,6 @@ namespace Interface {
 
 				return true;
 			}},
-			/*
-			{"--standardIO", [&](int&) {
-				preferences.standardIO = true;
-
-				return true;
-			}},
-			*/
 			{"--socket", [&](int& i) {
 				preferences.socket = Socket();
 
@@ -277,7 +260,7 @@ namespace Interface {
 		int status = posix_spawn(&pid, path, nullptr, nullptr, argv, environ);
 		if (status == 0) {
 			waitpid(pid, &status, 0);
-			std::cout << "Child exited with status: " << status << std::endl;
+			cout << "Child exited with status: " << status << endl;
 		} else {
 			perror("posix_spawn failed");
 		}
@@ -288,44 +271,114 @@ namespace Interface {
 
 	// ----------------------------------------------------------------
 
-	unordered_set<crow::websocket::connection*> connections;
-	vector<function<void(crow::json::rvalue&)>> handlers;
-	vector<string> messages; // JSON
+	WSConnection serverConnection;
+    unordered_set<WSConnection, WSConnectionHash, WSConnectionEqual> clientsConnections;
+	function<void(Node)> serverSideHandler,
+						 clientSideHandler;
 
-	void send(const Node& output) {
-		string outputString = to_string(output);
-
-		messages.push_back(outputString);
-
-		/*
-		if(preferences.standardIO) {
-			cout << outputString << endl;
-		}
-		*/
-		for(auto* connection : connections) {
-			connection->send_text(outputString);
-		}
-	}
-
-	void registerConnection(crow::websocket::connection* connection) {
-		connections.insert(connection);
-
-		/* TODO: Send important only
-		for(const auto& message : messages) {
-			connection->send_text(message);
-		}
-		*/
-	}
-
-	void unregisterConnection(crow::websocket::connection* connection) {
-		connections.erase(connection);
-	}
-
-	void handleMessage(const string& input) {
-		if(auto JSON = crow::json::load(input)) {
-			for(auto& handler : handlers) {
-				handler(JSON);
+	void sendToClients(const string& output) {
+		for(const auto& connection : clientsConnections) {
+			try {
+				sharedServer.send(connection, output, websocketpp::frame::opcode::text);
+			} catch(const exception& e) {
+				cerr << "Send (to clients) error: " << e.what() << endl;
 			}
+		}
+	}
+
+	void sendToServer(const string& input) {
+		try {
+			sharedClient.send(serverConnection, input, websocketpp::frame::opcode::text);
+		} catch(const exception& e) {
+			cerr << "Send (to server) error: " << e.what() << endl;
+		}
+	}
+
+	void sendToClients(const Node& node) {
+		sendToClients(to_string(node));
+	}
+
+	void sendToServer(const Node& node) {
+		sendToServer(to_string(node));
+	}
+
+	void registerClient(WSConnection connection) {
+		clientsConnections.insert(connection);
+	}
+
+	void unregisterClient(WSConnection connection) {
+		clientsConnections.erase(connection);
+	}
+
+	void handleServerSide(const string& message) {
+		/*
+		if(auto JSON = glz::read_json<glz::json_t>(message)) {
+			for(auto& handler : serverSideHandlers) {
+				handler(JSON.value());
+			}
+		}
+		*/
+		sendToClients(message);
+	}
+
+	void handleClientSide(const string& message) {
+		if(NodeSP node = NodeParser(message).parse()) {
+			string token = node->get("token");
+
+			if(contains(preferences.tokens, token)) {
+				clientSideHandler(*node);
+			} else {
+				cerr << "Tokens list does not contain '" << token << "', message ignored" << endl;
+			}
+		}
+	}
+
+	void becomeServer() {
+		sharedServer.init_asio();
+		sharedServer.set_open_handler([](WSConnection connection) {
+			registerClient(connection);
+		});
+		sharedServer.set_close_handler([](WSConnection connection) {
+			unregisterClient(connection);
+		});
+		sharedServer.set_message_handler([](WSConnection connection, WSServer::message_ptr message) {
+			if(message->get_opcode() == websocketpp::frame::opcode::text) {
+				handleServerSide(message->get_payload());
+			}
+		});
+		sharedServer.listen(preferences.socket->port);
+		sharedServer.start_accept();
+		sharedServer.run();
+	}
+
+	void becomeClient() {
+		sharedClient.init_asio();
+		sharedClient.set_open_handler([](WSConnection connection) {
+			thread([]() {
+				while(true) {
+					sendToServer({
+						{"action", "heartbeat"},
+						{"processID", (int)getpid()}
+					});
+
+					this_thread::sleep_for(10s);
+				}
+			}).detach();
+		});
+		sharedClient.set_message_handler([](WSConnection, WSClientMessageSP message) {
+			if(message->get_opcode() == websocketpp::frame::opcode::text) {
+				handleClientSide(message->get_payload());
+			}
+		});
+
+		websocketpp::lib::error_code EC;
+		WSClient::connection_ptr connection = sharedClient.get_connection("ws://"+preferences.socket->host+":"+to_string(preferences.socket->port), EC);
+
+		if(!EC) {
+			serverConnection = connection->get_handle();
+
+			sharedClient.connect(connection);
+			sharedClient.run();
 		}
 	}
 }

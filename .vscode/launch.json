@@ -12,11 +12,21 @@
             "miDebuggerPath": "C:/Program Files/mingw-w64/x86_64-8.1.0-posix-seh-rt_v6-rev0/mingw64/bin/gdb.exe"
         },
         {
-            "name": "Linux",
+            "name": "Linux - Dashboard",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/CPP/RootServer",
             "args": ["-d", "-t"],
+            "cwd": "${workspaceFolder}/CPP",
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb"
+        },
+        {
+            "name": "Linux - Interpreter",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/CPP/RootServer",
+            "args": ["-i", "-s", "-t"],
             "cwd": "${workspaceFolder}/CPP",
             "MIMode": "gdb",
             "miDebuggerPath": "/usr/bin/gdb"

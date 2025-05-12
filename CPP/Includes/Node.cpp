@@ -1,8 +1,7 @@
 #pragma once
 
-#include <crow.h>
-
 #include "Std.cpp"
+#include "WebSocket.cpp"
 
 template <typename T>
 constexpr auto type_name() {
@@ -69,16 +68,6 @@ public:
 
 	template <typename T>
 	NodeValue(const optional<T>& v) : value(v ? *v : static_cast<decltype(value)>(nullptr)) {}
-
-	/*
-	template <typename T>
-	requires (!is_same_v<T, int> &&
-	          !is_same_v<T, double> &&
-	          !is_same_v<T, string> &&
-	          !is_same_v<T, const char*> &&
-	          !is_same_v<T, NodeValue>)
-	NodeValue(const T& v) : value(make_any<T>(v)) {}
-	*/
 
 	template <typename T>
 	T& get() {
@@ -302,9 +291,50 @@ public:
 	}
 };
 
+string escape_string(const string& input) {
+	string result = "\"";
+	for(char c : input) {
+		switch(c) {
+			case '\"': result += "\\\""; break;
+			case '\\': result += "\\\\"; break;
+			case '\b': result += "\\b"; break;
+			case '\f': result += "\\f"; break;
+			case '\n': result += "\\n"; break;
+			case '\r': result += "\\r"; break;
+			case '\t': result += "\\t"; break;
+			default: result += c; break;
+		}
+	}
+	result += "\"";
+	return result;
+}
+
+string unescape_string(const string& input) {
+	string result;
+	usize i = 0;
+	while(i < input.length()) {
+		if(input[i] == '\\' && i + 1 < input.length()) {
+			switch(input[++i]) {
+				case '\"': result += '\"'; break;
+				case '\\': result += '\\'; break;
+				case 'b': result += '\b'; break;
+				case 'f': result += '\f'; break;
+				case 'n': result += '\n'; break;
+				case 'r': result += '\r'; break;
+				case 't': result += '\t'; break;
+				default: result += input[i]; break;
+			}
+		} else {
+			result += input[i];
+		}
+		i++;
+	}
+	return result;
+}
+
 static string to_string(const NodeValue& value) {
 	if(value.type() == 4) {
-		return value.serialized ? (string)value : "\""+crow::json::escape(value)+"\"";
+		return value.serialized ? (string)value : escape_string((string)value);
 	}
 
 	return value;
@@ -358,55 +388,103 @@ static string to_string(const NodeArray& node) {
 	return result;
 }
 
-/*
-int main() {
-	Node node = {
-		{"name", "John Doe"},
-		{"age", 30},
-		{"is_student", false},
-		{"address", {
-			{"city", "New York"},
-			{"zip", 10001},
-			{"a", {1, "2", 3.4, true}}
-		}},
-		{"friends", {"Alice", "Bob"}}
-	};
+class NodeParser {
+	string s;
+	usize i = 0;
 
-	// Accessing values
-	cout << "Name: " << node.get<string>("name") << endl;
-	cout << "Age: " << node.get<int>("age") << endl;
-	cout << "Is student: " << (node.get("is_student") ? "true" : "false") << endl;
-	cout << "City: " << node.get<Node&>("address").get<string>("city") << endl;
-	cout << "Zip: " << node.get<Node&>("address").get<int>("zip") << endl;
-
-	NodeArray& friendsRetrieved = node.get("friends");
-	cout << "Friends: ";
-	for(const string& friendName : friendsRetrieved) {
-		cout << friendName << " ";
-	}
-	cout << endl;
-
-	// Removing a field
-	node.remove("age");
-	if(node.empty("age")) {
-		cout << "Age field is removed.\n";
+	void skipWhitespace() {
+		while(i < s.size() && isspace(s[i])) {
+			i++;
+		}
 	}
 
-	// Adding a new child object
-	Node newAddress {
-		{"city", "San Francisco"},
-		{"zip", 94105}
-	};
-	node.get("new_address") = newAddress;
+	string parseString() {
+		string result;
+		if(s[i] != '"') return result;
+		i++;
+		while(i < s.size() && s[i] != '"') {
+			if(s[i] == '\\' && i + 1 < s.size()) {
+				result += s[++i];
+			} else {
+				result += s[i];
+			}
+			i++;
+		}
+		if(i < s.size() && s[i] == '"') i++;
+		return unescape_string(result);
+	}
 
-	cout << "New city: " << node.get<Node&>("new_address").get<string>("city") << endl;
-	cout << "New zip: " << node.get<Node&>("new_address").get<int>("zip") << endl;
+	NodeValue parseNumber() {
+		usize start = i;
+		bool isFloat = false;
+		while(i < s.size() && (isdigit(s[i]) || s[i] == '.' || s[i] == '-' || s[i] == '+')) {
+			if(s[i] == '.') isFloat = true;
+			i++;
+		}
+		string num = s.substr(start, i-start);
+		try {
+			return isFloat ? NodeValue(stod(num)) : NodeValue(stoi(num));
+		} catch(...) {
+			return nullptr;
+		}
+	}
 
-	// Accessing a non-existent field with default value
-	cout << "Non-existent field (with default): " << node.get<string>("non_existent_field", "Default Value") << endl;
+	NodeValue parseArray() {
+		NodeArray array;
+		i++;
+		while(i < s.size()) {
+			skipWhitespace();
+			if(s[i] == ']') { i++; break; }
+			array.push_back(parseValue());
+			skipWhitespace();
+			if(s[i] == ',') i++;
+			else if(s[i] == ']') { i++; break; }
+			else i++;
+		}
+		return SP(array);
+	}
 
-	system("pause");
+	NodeValue parseNode() {
+		Node node;
+		i++;
+		while(i < s.size()) {
+			skipWhitespace();
+			if(s[i] == '}') { i++; break; }
 
-	return 0;
-}
-*/
+			string key = parseString();
+			skipWhitespace();
+			if(s[i] == ':') i++;
+			skipWhitespace();
+			node.get(key) = parseValue();
+			skipWhitespace();
+			if(s[i] == ',') i++;
+			else if(s[i] == '}') { i++; break; }
+			else i++;
+		}
+		return SP(node);
+	}
+
+	NodeValue parseValue() {
+		skipWhitespace();
+		if(i >= s.size()) return nullptr;
+		char c = s[i];
+
+		if(c == '"') return parseString();
+		if(c == '-' || isdigit(c)) return parseNumber();
+		if(s.compare(i, 4, "true") == 0) { i += 4; return true; }
+		if(s.compare(i, 5, "false") == 0) { i += 5; return false; }
+		if(s.compare(i, 4, "null") == 0) { i += 4; return nullptr; }
+		if(c == '[') return parseArray();
+		if(c == '{') return parseNode();
+
+		i++;
+		return nullptr;
+	}
+
+public:
+	NodeParser(const string& input) : s(input), i(0) {}
+
+	NodeValue parse() {
+		return parseValue();
+	}
+};
