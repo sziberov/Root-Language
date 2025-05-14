@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <any>
+#include <arpa/inet.h>
+#include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -14,6 +17,10 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <thread>
+#include <unistd.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>

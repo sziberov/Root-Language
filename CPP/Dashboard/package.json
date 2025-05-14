@@ -1,0 +1,9 @@
+{
+	"name": "Dashboard",
+	"main": "Dashboard.html",
+	"window": {
+		"fullscreen": false,
+		"width": 1024,
+		"height": 768
+	}
+}

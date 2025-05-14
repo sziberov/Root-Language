@@ -3293,7 +3293,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 			string = node->get<std::string>("type")+" -> "+string;
 		}
 
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "interpreter"},
 			{"action", "add"},
 			{"parentModuleID", -1},
@@ -3320,7 +3320,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	}
 
 	TypeSP interpret() {
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "interpreter"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
@@ -3328,7 +3328,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 		TypeSP value = executeNode(tree);
 
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "interpreter"},
 			{"action", "evaluated"},
 			{"value", to_string(value)}

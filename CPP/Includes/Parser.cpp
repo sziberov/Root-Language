@@ -3202,7 +3202,7 @@ struct Parser {
 
 		void update(int previous) {
 			if(value < previous) {  // Rollback global changes
-				Interface::sendToClients({
+				Interface::sendToServer({
 					{"source", "parser"},
 					{"action", "removeAfterPosition"},
 					{"position", value-1}
@@ -3270,7 +3270,7 @@ struct Parser {
 
 		string = type+" -> "+string;
 
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "parser"},
 			{"action", "add"},
 			{"level", level},
@@ -3284,7 +3284,7 @@ struct Parser {
 	}
 
 	NodeSP parse() {
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "parser"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
@@ -3292,7 +3292,7 @@ struct Parser {
 
 		NodeSP tree = rules("module");
 
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "parser"},
 			{"action", "parsed"},
 			{"tree", tree}

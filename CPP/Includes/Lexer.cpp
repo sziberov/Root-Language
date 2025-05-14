@@ -41,7 +41,7 @@ struct Lexer {
 			"\"position\": "+std::to_string(t.position)+","+
 			"\"location\": "+to_string(t.location)+","+
 			"\"type\": \""+t.type+"\","+
-			"\"value\": "+escape_string(t.value)+","+
+			"\"value\": \""+escape_json(t.value)+"\","+
 			"\"trivia\": "+(t.trivia ? "true" : "false")+","+
 			"\"nonmergeable\": "+(t.nonmergeable ? "true" : "false")+","+
 			"\"generated\": "+(t.generated ? "true" : "false")+
@@ -769,7 +769,7 @@ struct Lexer {
 	}
 
 	deque<Token> tokenize() {
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "lexer"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
@@ -779,7 +779,7 @@ struct Lexer {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		Interface::sendToClients({
+		Interface::sendToServer({
 			{"source", "lexer"},
 			{"action", "tokenized"},
 			{"tokens", NodeValue(to_string(tokens), true)}

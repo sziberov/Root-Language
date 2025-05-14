@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Std.cpp"
-#include "WebSocket.cpp"
 
 template <typename T>
 constexpr auto type_name() {
@@ -291,50 +290,99 @@ public:
 	}
 };
 
-string escape_string(const string& input) {
-	string result = "\"";
-	for(char c : input) {
-		switch(c) {
-			case '\"': result += "\\\""; break;
-			case '\\': result += "\\\\"; break;
-			case '\b': result += "\\b"; break;
-			case '\f': result += "\\f"; break;
-			case '\n': result += "\\n"; break;
-			case '\r': result += "\\r"; break;
-			case '\t': result += "\\t"; break;
-			default: result += c; break;
+// ----------------------------------------------------------------
+
+string to_hex(char c) {
+	ostringstream oss;
+
+	oss << "\\u" << hex << setw(4) << setfill('0') << (int)(unsigned char)c;
+
+	return oss.str();
+}
+
+char from_hex(const string& hexstr) {
+	return stoi(hexstr, nullptr, 16);
+}
+
+string escape_json(const string& input, bool reverse = false) {
+	static const unordered_map<char, string> escapeMap = {
+		{'\"', "\\\""},
+		{'\\', "\\\\"},
+		{'\b', "\\b"},
+		{'\f', "\\f"},
+		{'\n', "\\n"},
+		{'\r', "\\r"},
+		{'\t', "\\t"}
+	};
+	static const unordered_map<string, char> unescapeMap = {
+		{"\\\"", '\"'},
+		{"\\\\", '\\'},
+		{"\\b", '\b'},
+		{"\\f", '\f'},
+		{"\\n", '\n'},
+		{"\\r", '\r'},
+		{"\\t", '\t'}
+	};
+
+	string result;
+
+	if(!reverse) {
+		for(char c : input) {
+			auto it = escapeMap.find(c);
+
+			if(it != escapeMap.end()) {
+				result += it->second;
+			} else
+			if(c <= 0x1F) {
+				result += to_hex(c);  // Control character as \u00XX
+			} else {
+				result += c;
+			}
+		}
+	} else {
+		usize i = 0;
+
+		while(i < input.length()) {
+			if(input[i] == '\\' && i+1 < input.length()) {
+				if(input[i+1] == 'u' && i+5 < input.length()) {
+					string hexstr = input.substr(i+2, 4);
+
+					if(all_of(hexstr.begin(), hexstr.end(), ::isxdigit)) {
+						result += from_hex(hexstr);
+						i += 6;
+
+						continue;
+					}
+				}
+
+				string esc = input.substr(i, 2);
+				auto it = unescapeMap.find(esc);
+
+				if(it != unescapeMap.end()) {
+					result += it->second;
+				} else {
+					result += input[i+1];  // Unknown escape
+				}
+
+				i += 2;
+			} else {
+				result += input[i++];
+			}
 		}
 	}
-	result += "\"";
+
 	return result;
 }
 
-string unescape_string(const string& input) {
-	string result;
-	usize i = 0;
-	while(i < input.length()) {
-		if(input[i] == '\\' && i + 1 < input.length()) {
-			switch(input[++i]) {
-				case '\"': result += '\"'; break;
-				case '\\': result += '\\'; break;
-				case 'b': result += '\b'; break;
-				case 'f': result += '\f'; break;
-				case 'n': result += '\n'; break;
-				case 'r': result += '\r'; break;
-				case 't': result += '\t'; break;
-				default: result += input[i]; break;
-			}
-		} else {
-			result += input[i];
-		}
-		i++;
-	}
-	return result;
+string unescape_json(const string& input) {
+	return escape_json(input, true);
 }
+
+// ----------------------------------------------------------------
 
 static string to_string(const NodeValue& value) {
 	if(value.type() == 4) {
-		return value.serialized ? (string)value : escape_string((string)value);
+		return value.serialized ? (string)value : "\""+escape_json((string)value)+"\"";
 	}
 
 	return value;
@@ -388,6 +436,8 @@ static string to_string(const NodeArray& node) {
 	return result;
 }
 
+// ----------------------------------------------------------------
+
 class NodeParser {
 	string s;
 	usize i = 0;
@@ -400,18 +450,37 @@ class NodeParser {
 
 	string parseString() {
 		string result;
-		if(s[i] != '"') return result;
+
+		if (i >= s.size() || s[i] != '"') return result;
 		i++;
-		while(i < s.size() && s[i] != '"') {
-			if(s[i] == '\\' && i + 1 < s.size()) {
-				result += s[++i];
-			} else {
-				result += s[i];
+
+		string raw;
+		while (i < s.size()) {
+			if (s[i] == '"') {
+				i++;
+				break;
 			}
-			i++;
+
+			if (s[i] == '\\') {
+				if (i + 1 >= s.size()) break; // некорректный конец
+				raw += s[i];   // '\'
+				raw += s[i+1]; // следующий символ ('n', 'u', '"', и т.д.)
+				i += 2;
+				if (raw.back() == 'u') {
+					// захватываем еще 4 hex-цифры для \uXXXX
+					if (i + 4 <= s.size()) {
+						raw += s.substr(i, 4);
+						i += 4;
+					} else {
+						break; // некорректный \uXXXX
+					}
+				}
+			} else {
+				raw += s[i++];
+			}
 		}
-		if(i < s.size() && s[i] == '"') i++;
-		return unescape_string(result);
+
+		return unescape_json(raw);
 	}
 
 	NodeValue parseNumber() {
@@ -482,7 +551,7 @@ class NodeParser {
 	}
 
 public:
-	NodeParser(const string& input) : s(input), i(0) {}
+	NodeParser(const string& input) : s(input) {}
 
 	NodeValue parse() {
 		return parseValue();
