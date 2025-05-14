@@ -15,7 +15,7 @@ body {
 	z-index: 2;
 
 	form {
-		background: rgba(87.5% 87.5% 87.5% / 50%);
+		background: rgba(87.5% 87.5% 87.5% / 87.5%);
 		backdrop-filter: blur(4px);
 		position: fixed;
 		padding: 24px;
@@ -181,7 +181,7 @@ body {
 	}
 
 	.consoleInput {
-		background: rgb(87.5% 87.5% 87.5%);
+		background: none;
 		border: none;
 		font-family: monospace;
 		font-size: 12px;

@@ -138,6 +138,8 @@ private:
 
 			clientsFDs.insert(clientFD);
 
+			cout << getLogPrefix() << "Client " << socketFD << " connected\n";
+
 			if(connectionHandler) {
 				connectionHandler(clientFD);
 			}

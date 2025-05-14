@@ -20,14 +20,15 @@ thread getServerThread() {
 thread getClientThread() {
 	sharedClient = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Client);
 
-	/*
 	sharedClient->setConnectionHandler(
 		[](int) {
 			thread([]() {
 				while(sharedClient->isRunning()) {
+					auto tokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
+
 					Interface::sendToServer({
 						{"action", "heartbeat"},
-						{"processID", (int)getpid()}
+						{"tokens", tokens}
 					});
 
 					this_thread::sleep_for(10s);
@@ -36,7 +37,6 @@ thread getClientThread() {
 		},
 		nullptr
 	);
-	*/
 	sharedClient->setMessageHandler([&](int, const string& message) {
 		cout << "[Client] Received message: " << message << endl;
 
@@ -59,9 +59,7 @@ thread getClientThread() {
 		if(action == "lex") {
 			auto lock = lock_guard<mutex>(interpreterLock);
 
-			cout << "Code raw: " << node->get<string>("code") << endl;
 			code = node->get<string>("code");
-			cout << "Code cur: " << *code << endl;
 			tokens = Lexer(*code).tokenize();
 		} else
 		if(action == "parse") {

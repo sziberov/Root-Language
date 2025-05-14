@@ -258,11 +258,15 @@ namespace Interface {
 		}
 	}
 
-	void sendToClients(const Node& node) {
+	void sendToClients(Node node) {
+		node.get("processID") = (int)getpid();
+
 		sendToClients(to_string(node));
 	}
 
-	void sendToServer(const Node& node) {
+	void sendToServer(Node node) {
+		node.get("processID") = (int)getpid();
+
 		sendToServer(to_string(node));
 	}
 }
