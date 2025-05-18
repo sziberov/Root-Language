@@ -161,3 +161,13 @@ optional<string> read_file(const filesystem::path& path) {
 
 	return ss.str();
 }
+
+template<typename... Args>
+void println(Args&&... args) {
+    static mutex coutMutex;
+    ostringstream oss;
+    (oss << ... << args) << '\n';
+	lock_guard<mutex> lock(coutMutex);
+
+	cout << oss.str();
+}

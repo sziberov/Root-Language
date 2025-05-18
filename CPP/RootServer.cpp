@@ -3,15 +3,143 @@
 optional<string> code;
 optional<deque<Lexer::Token>> tokens;
 optional<NodeSP> tree;
-mutex interpreterLock;
+mutex interpreterMutex;
+struct Request {
+	string receiverToken;
+	int receiverProcessID = 0,  // 0 - Any, 1+ - specific
+		timeout = 0;  // 0 - Infinity, 1+ - seconds
+	bool reauthReceivers = false,
+		 multipleResponses = false;
+	unordered_map<int, bool> receiversFDs;  // [Client FD : Responded]
+};
+struct Client {
+	int processID = 0;
+	enum class State {
+		Pending,  // For spawned processes (if dashboard will ever able to have own child processes)
+		Connected,
+		Unresponsive
+	} state;
+	unordered_set<string> tokens;
+	unordered_map<string, Request> requests;
+
+	bool match(const string& token, int processID) {
+		return tokens.contains(token) && (processID == 0 || processID == this->processID);
+	}
+};
+unordered_map<int, Client> clients;
+mutex clientsMutex;
 
 thread getServerThread() {
 	sharedServer = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Server);
 
-	sharedServer->setMessageHandler([](int, const string& message) {
-		cout << "[Server] Received message: " << message << endl;
+	sharedServer->setConnectionHandler(
+		[](int clientFD) {
+			ucred credentials;
+			socklen_t len = sizeof(ucred);
+			if(getsockopt(clientFD, SOL_SOCKET, SO_PEERCRED, &credentials, &len) < 0) {
+				println(sharedServer->getLogPrefix(), "getsockopt(SO_PEERCRED) failed for ", clientFD);
+			}
+			lock_guard<mutex> lock(clientsMutex);
+			clients[clientFD] = { credentials.pid, Client::State::Connected };
+		},
+		[](int clientFD) {
+			lock_guard<mutex> lock(clientsMutex);
+			clients.erase(clientFD);
+		}
+	);
+	sharedServer->setMessageHandler([](int senderFD, const string& rawMessage) {
+		lock_guard<mutex> lock(clientsMutex);
 
-		Interface::sendToClients(message);
+		/* Assume that clients list is synchronized well
+		if(clients.empty() || !clients.contains(senderFD)) {
+			return;
+		}
+		*/
+
+		Client& sender = clients.at(senderFD);
+
+		if(NodeSP message = NodeParser(rawMessage).parse()) {
+			string type = message->get("type"),
+				   action = message->get("action");
+
+			if(type == "notification" && action == "heartbeat") {
+				if(NodeArraySP senderTokens = message->get("senderTokens")) {
+					sender.state = Client::State::Connected;
+					sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
+				}
+			} else
+			if(type == "notification" && action == "cancelRequest") {
+				string requestID = message->get("requestID");
+
+				sender.requests.erase(requestID);  // Unregister pending request
+			} else
+			if(type == "response") {
+				string responseID = message->get("responseID");
+
+				for(auto& [clientFD, client] : clients) {
+					auto it = client.requests.find(responseID);
+
+					if(it != client.requests.end()) {
+						Request& request = it->second;
+
+						if(request.receiversFDs.contains(senderFD)) {
+							if(request.reauthReceivers && !sender.match(request.receiverToken, request.receiverProcessID)) {
+								println(sharedServer->getLogPrefix(), "Responder ", senderFD, " has failed to reauthentificate");
+
+								return;
+							}
+
+							sharedServer->send(clientFD, rawMessage); // Respond
+							request.receiversFDs.at(senderFD) = true;
+
+							if(!request.multipleResponses || !some(request.receiversFDs, [](auto& v) { return !v.second; })) {
+								client.requests.erase(it);  // Unregister fulfilled request
+							}
+						}
+					}
+				}
+			} else {
+				string receiverToken = message->get("receiverToken");
+				int receiverProcessID = message->get("receiverProcessID");
+
+				if(type == "notification") {
+					for(auto& [clientFD, client] : clients) {
+						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
+							sharedServer->send(clientFD, rawMessage);  // Notify
+						}
+					}
+				} else
+				if(type == "request") {
+					string requestID = message->get("requestID");
+
+					if(sender.requests.contains(requestID)) {
+						println(sharedServer->getLogPrefix(), "Request with ID \"", requestID, "\" is already created by ", senderFD, " and will not be replaced");
+
+						return;
+					}
+
+					int timeout = message->get("timeout");
+					bool reauthReceivers = message->get("reauthReceivers"),
+						 multipleResponses = message->get("multipleResponses");
+					Request& request = (sender.requests[requestID] = {  // Register request
+						receiverToken,
+						receiverProcessID,
+						timeout,
+						reauthReceivers,
+						multipleResponses
+					});
+
+					for(auto& [clientFD, client] : clients) {
+						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
+							request.receiversFDs[clientFD] = false;  // Register responder
+						}
+					}
+					for(auto& [receiverFD, responded] : request.receiversFDs) {
+						sharedServer->send(receiverFD, rawMessage);  // Request responce
+					}
+				}
+			}
+		}
 	});
 
 	return thread(&Socket::start, sharedServer.get());
@@ -24,11 +152,12 @@ thread getClientThread() {
 		[](int) {
 			thread([]() {
 				while(sharedClient->isRunning()) {
-					auto tokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
+					auto senderTokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
 
 					Interface::sendToServer({
+						{"type", "notification"},
 						{"action", "heartbeat"},
-						{"tokens", tokens}
+						{"senderTokens", senderTokens}
 					});
 
 					this_thread::sleep_for(10s);
@@ -37,52 +166,55 @@ thread getClientThread() {
 		},
 		nullptr
 	);
-	sharedClient->setMessageHandler([&](int, const string& message) {
-		cout << "[Client] Received message: " << message << endl;
+	sharedClient->setMessageHandler([&](int, const string& rawMessage) {
+		NodeSP message = NodeParser(rawMessage).parse();
 
-		NodeSP node = NodeParser(message).parse();
-
-		if(!node) {
+		if(!message) {
 			return;
 		}
 
-		string token = node->get("token");
+		string receiverToken = message->get("receiverToken");
 
-		if(!contains(Interface::preferences.tokens, token)) {
-			cerr << "Tokens list does not contain '" << token << "', message ignored" << endl;
+		if(!contains(Interface::preferences.tokens, receiverToken)) {  // Do not trust to server with 100% confidence
+			println(sharedClient->getLogPrefix(), "Tokens list does not contain '", receiverToken, "', message ignored");
 
 			return;
 		}
 
-		string action = node->get("action");
+		string type = message->get("type"),
+			   action = message->get("action");
 
-		if(action == "lex") {
-			auto lock = lock_guard<mutex>(interpreterLock);
+		if(type == "notification") {
+			if(action == "lex") {
+				lock_guard<mutex> lock(interpreterMutex);
 
-			code = node->get<string>("code");
-			tokens = Lexer(*code).tokenize();
-		} else
-		if(action == "parse") {
-			auto lock = lock_guard<mutex>(interpreterLock);
+				code = message->get<string>("code");
+				tokens = Lexer(*code).tokenize();
+			} else
+			if(action == "parse") {
+				lock_guard<mutex> lock(interpreterMutex);
 
-			if(tokens) {
-				tree = Parser(*tokens).parse();
+				if(tokens) {
+					tree = Parser(*tokens).parse();
+				}
+			} else
+			if(action == "interpret") {
+				lock_guard<mutex> lock(interpreterMutex);
+
+				if(code && tokens && tree) {
+					sharedInterpreter->clean();
+					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
+				}
 			}
 		} else
-		if(action == "interpret") {
-			auto lock = lock_guard<mutex>(interpreterLock);
+		if(type == "request") {
+			if(action == "evaluate") {
+				string code = message->get("code");
+				auto tokens = Lexer(code).tokenize();
+				auto tree = Parser(tokens).parse();
 
-			if(code && tokens && tree) {
-				sharedInterpreter->clean();
-				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
+				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true), code, tokens, tree)->interpret();
 			}
-		} else
-		if(action == "evaluate") {
-			string code = node->get("code");
-			auto tokens = Lexer(code).tokenize();
-			auto tree = Parser(tokens).parse();
-
-			SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true), code, tokens, tree)->interpret();
 		}
 	});
 
@@ -104,7 +236,7 @@ int main(int argc, char* argv[]) {
 				clientThread = getClientThread();
 			}
 			if(Interface::preferences.scriptPath) {
-				auto lock = lock_guard<mutex>(interpreterLock);
+				lock_guard<mutex> lock(interpreterMutex);
 
 				if(optional<string> code = read_file(*Interface::preferences.scriptPath)) {
 					tokens = Lexer(*code).tokenize();

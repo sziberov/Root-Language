@@ -34,7 +34,7 @@ public:
 
 	void send(int clientFD, const string& message) {
 		if(!running) {
-			cout << getLogPrefix() << "Can't send messages while is not running" << endl;
+			println(getLogPrefix(), "Can't send messages while is not running");
 
 			return;
 		}
@@ -45,8 +45,7 @@ public:
 		memcpy(&packet[0], &size, 4);  // Копируем длину
 		memcpy(&packet[4], message.data(), message.size());  // Копируем сообщение
 		::send(clientFD, packet.data(), packet.size(), 0);  // Отправка полного пакета
-
-		cout << getLogPrefix() << "Sent to " << clientFD << ": " << message << endl;
+		println(getLogPrefix(), "Sent to ", clientFD, ": ", message);
 	}
 
 	void send(const string& message) {
@@ -56,6 +55,34 @@ public:
 		for(int clientFD : clientsFDs) {
 			send(clientFD, message);
 		}
+	}
+
+	void disconnect(int FD) {
+		if(mode == Mode::Client) {
+			if(FD == socketFD) {
+				stop();
+			} else {
+				println(getLogPrefix(), "Can only disconnect self");
+			}
+
+			return;
+		}
+
+		{
+			lock_guard<mutex> lock(clientsMutex);
+
+			if(clientsFDs.find(FD) == clientsFDs.end()) {
+				return;
+			}
+
+			clientsFDs.erase(FD);
+		}
+
+		if(disconnectionHandler) {
+			disconnectionHandler(FD);
+		}
+
+		close(FD);
 	}
 
     void start() {
@@ -90,6 +117,10 @@ public:
 		return clientsFDs;
 	}
 
+	string getLogPrefix() {
+		return (mode == Mode::Client ? "[Client: " : "[Server: ")+to_string(socketFD)+"] ";
+	}
+
 private:
 	filesystem::path path;
 	Mode mode;
@@ -100,6 +131,7 @@ private:
 	ConnectionHandler connectionHandler,
 					  disconnectionHandler;
 
+	mutex clientsMutex;
 	unordered_set<int> clientsFDs;
 
 	/**
@@ -108,7 +140,8 @@ private:
 	void startServer() {
 		socketFD = socket(AF_UNIX, SOCK_STREAM, 0);  // Создание UNIX-сокета
 		if(socketFD == -1) {
-			perror("socket");
+			println(getLogPrefix(), "Failed to create socket");
+			running = false;
 			return;
 		}
 
@@ -117,28 +150,37 @@ private:
 		strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path)-1);
 		unlink(path.c_str());  // Удалить старый файл сокета, если существует
 
-		if(bind(socketFD, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-			perror("bind");
+		if(bind(socketFD, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			println(getLogPrefix(), "Failed to bind socket");
 			close(socketFD);
+			running = false;
 			return;
 		}
 
-		if(listen(socketFD, SOMAXCONN) == -1) {
-			perror("listen");
+		if(listen(socketFD, SOMAXCONN) < 0) {
+			println(getLogPrefix(), "Failed to listen on socket");
 			close(socketFD);
+			running = false;
 			return;
 		}
 
-		cout << getLogPrefix() << "Started (" << socketFD << ") at " << path << "\n";
+		println(getLogPrefix(), "Started at ", path);
 
 		// Цикл обработки новых подключений
 		while(running) {
 			int clientFD = accept(socketFD, nullptr, nullptr);  // Ожидание подключения
-			if(clientFD == -1) continue;
+			if(clientFD < 0) {
+				println(getLogPrefix(), "Accept failed");
+				running = false;
+				break;
+			}
 
-			clientsFDs.insert(clientFD);
+			{
+				lock_guard<mutex> lock(clientsMutex);
+				clientsFDs.insert(clientFD);
+			}
 
-			cout << getLogPrefix() << "Client " << socketFD << " connected\n";
+			println(getLogPrefix(), "Client ", clientFD, " connected");
 
 			if(connectionHandler) {
 				connectionHandler(clientFD);
@@ -153,8 +195,9 @@ private:
      */
 	void startClient() {
 		socketFD = socket(AF_UNIX, SOCK_STREAM, 0);
-		if(socketFD == -1) {
-			perror("socket");
+		if(socketFD < 0) {
+			println(getLogPrefix(), "Failed to create socket");
+        	running = false;
 			return;
 		}
 
@@ -162,13 +205,14 @@ private:
 		addr.sun_family = AF_UNIX;
 		strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path)-1);
 
-		if(connect(socketFD, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
-			perror("connect");
+		if(connect(socketFD, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+			println(getLogPrefix(), "Failed to connect to server");
 			close(socketFD);
+			running = false;
 			return;
 		}
 
-		cout << getLogPrefix() << "Started (" << socketFD << ") and connected to server at " << path << "\n";
+		println(getLogPrefix(), "Started and connected to server at ", path);
 
 		if(connectionHandler) {
 			connectionHandler(socketFD);
@@ -188,15 +232,20 @@ private:
 			char tmp[4096];  // Временный буфер
 			ssize_t bytes = read(FD, tmp, sizeof(tmp));
 
-			if(bytes == 0) {
-				cout << getLogPrefix() << "Client " << FD << " closed connection" << endl;
-				break;
-			} else
-			if(bytes < 0) {
+			if(bytes <= 0) {
+				if(bytes == 0) {
+					println(getLogPrefix(), "Connection closed at ", FD);
+				} else
 				if(errno == EINTR || errno == EAGAIN) {
 					continue; // временная ошибка, продолжаем чтение
+				} else {
+					println(getLogPrefix(), "Read error on FD ", FD, ": ", strerror(errno));
 				}
-				cout << getLogPrefix() << "Read error on FD " << FD << ": " << strerror(errno) << endl;
+
+				if(mode == Mode::Client) {
+					running = false;
+				}
+
 				break;
 			}
 
@@ -209,7 +258,7 @@ private:
 				size = ntohl(size);  // Преобразуем из сетевого порядка в хостовый
 
 				if(size == 0 || size > maxSize) {
-					cout << getLogPrefix() << "Invalid message length (" << size << "), discarding 4 bytes and resynchronizing." << endl;
+					println(getLogPrefix(), "Invalid message length (", size, "), discarding 4 bytes and resynchronizing.");
 					readBuffer.erase(0, 4);  // Попытка восстановиться
 					continue;
 				}
@@ -217,6 +266,8 @@ private:
 				if(readBuffer.size() < 4+size) break;  // Проверка, достаточно ли данных для полного сообщения (ждём, пока всё сообщение не придёт)
 
 				string message = readBuffer.substr(4, size);
+
+				println(getLogPrefix(), "Received from ", FD, ": ", message);
 
 				if(messageHandler) {
 					messageHandler(FD, message);
@@ -227,6 +278,7 @@ private:
 		}
 
 		if(mode == Mode::Server) {
+			lock_guard<mutex> lock(clientsMutex);
 			clientsFDs.erase(FD);
 		}
 
@@ -235,10 +287,6 @@ private:
 		}
 
 		close(FD);
-	}
-
-	string getLogPrefix() {
-		return mode == Mode::Client ? "[Client] " : "[Server] ";
 	}
 };
 
