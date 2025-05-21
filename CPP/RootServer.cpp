@@ -20,6 +20,7 @@ struct Client {
 		Connected,
 		Unresponsive
 	} state;
+	usize heartbeatTaskID;
 	unordered_set<string> tokens;
 	unordered_map<string, Request> requests;
 
@@ -29,6 +30,7 @@ struct Client {
 };
 unordered_map<int, Client> clients;
 mutex clientsMutex;
+int clientHeartbeatTaskID = -1;
 
 thread getServerThread() {
 	sharedServer = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Server);
@@ -41,10 +43,32 @@ thread getServerThread() {
 				println(sharedServer->getLogPrefix(), "Can't get credentials of ", clientFD);
 			}
 			lock_guard lock(clientsMutex);
-			clients[clientFD] = { credentials.pid, Client::State::Connected };
+			clients[clientFD] = {
+				credentials.pid,
+				Client::State::Connected,
+				sharedScheduler.schedule([clientFD](int taskID) {
+					unique_lock lock(clientsMutex);
+
+					if(!sharedServer->isRunning() || !clients.contains(clientFD)) {
+						sharedScheduler.cancel(taskID);
+					}
+
+					switch(clients[clientFD].state) {
+						case Client::State::Connected:
+							clients[clientFD].state = Client::State::Unresponsive;
+							println(sharedServer->getLogPrefix(), "Client ", clientFD, " has been marked as unresponsive");
+						break;
+						case Client::State::Unresponsive:
+							lock.unlock();
+							sharedServer->disconnect(clientFD);
+						break;
+					}
+				}, 10000, true)
+			};
 		},
 		[](int clientFD) {
 			lock_guard lock(clientsMutex);
+			sharedScheduler.cancel(clients[clientFD].heartbeatTaskID);
 			clients.erase(clientFD);
 		}
 	);
@@ -64,6 +88,8 @@ thread getServerThread() {
 						if(NodeArraySP senderTokens = message->get("senderTokens")) {
 							sender.state = Client::State::Connected;
 							sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
+
+							sharedScheduler.reset(sender.heartbeatTaskID);
 						}
 					} else
 					if(action == "cancelRequest") {
@@ -150,30 +176,25 @@ thread getClientThread() {
 
 	sharedClient->setConnectionHandler(
 		[](int) {
-			println("Heartbeating");
-			int taskID_ = sharedScheduler.schedule([](int taskID) {
+			clientHeartbeatTaskID = sharedScheduler.schedule([](int taskID) {
 				if(!sharedClient->isRunning()) {
-					println("Client is not running");
 					sharedScheduler.cancel(taskID);
-
-					return;
 				}
 
 				auto senderTokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
 
+				/*
 				Interface::sendToServer({
 					{"type", "notification"},
 					{"action", "heartbeat"},
 					{"senderTokens", senderTokens}
 				});
-			}, 5000, true, true);
-
-			while(true) {
-				sharedScheduler.await(taskID_);
-				println("Iteration finished");
-			}
+				*/
+			}, 10000, true, true);
 		},
-		nullptr
+		[](int) {
+			sharedScheduler.cancel(clientHeartbeatTaskID);
+		}
 	);
 	sharedClient->setMessageHandler([&](int, const string& rawMessage) {
 		NodeSP message = NodeParser(rawMessage).parse();
@@ -230,6 +251,34 @@ thread getClientThread() {
 	return thread(&Socket::start, sharedClient.get());
 }
 
+thread getClientAutoThread() {
+	return thread([]() {
+		while(true) {
+			thread clientThread;
+
+			int clientAutoTaskID = sharedScheduler.schedule([&clientThread](int taskID) {
+				if(sharedClient && sharedClient->isRunning()) {
+					sharedScheduler.cancel(taskID);
+
+					return;
+				}
+
+				if(clientThread.joinable()) {
+					clientThread.join();  // Wait for failed thread to stop
+				}
+
+				clientThread = getClientThread();
+			}, 5000, true, true);
+
+			sharedScheduler.await(clientAutoTaskID);
+
+			if(clientThread.joinable()) {
+				clientThread.join();  // Wait for started thread to fail
+			}
+		}
+	});
+}
+
 int main(int argc, char* argv[]) {
 	if(!Interface::parseArguments(argc, argv)) {
 		return 1;
@@ -239,10 +288,10 @@ int main(int argc, char* argv[]) {
 
 	switch(Interface::preferences.mode) {
 		case Interface::Preferences::Mode::Interpret: {
-			optional<thread> clientThread;
+			optional<thread> clientAutoThread;
 
 			if(Interface::preferences.socketPath) {
-				clientThread = getClientThread();
+				clientAutoThread = getClientAutoThread();
 			}
 			if(Interface::preferences.scriptPath) {
 				lock_guard lock(interpreterMutex);
@@ -255,18 +304,17 @@ int main(int argc, char* argv[]) {
 					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
 				}
 			}
-			if(clientThread) {
-				clientThread->join();
+			if(clientAutoThread) {
+				clientAutoThread->join();
 			}
 
 			break;
 		}
 		case Interface::Preferences::Mode::Dashboard: {
-			thread serverThread = getServerThread();
-			this_thread::sleep_for(500ms);
-			thread clientThread = getClientThread();
+			thread serverThread = getServerThread(),
+				   clientAutoThread = getClientAutoThread();
 
-			clientThread.join();
+			clientAutoThread.join();
 			serverThread.join();
 
 			break;

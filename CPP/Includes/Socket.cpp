@@ -68,20 +68,7 @@ public:
 			return;
 		}
 
-		{
-			lock_guard lock(clientsFDsMutex);
-
-			if(clientsFDs.find(FD) == clientsFDs.end()) {
-				return;
-			}
-
-			clientsFDs.erase(FD);
-		}
-
-		if(disconnectionHandler) {
-			disconnectionHandler(FD);
-		}
-
+		shutdown(FD, SHUT_RDWR);
 		close(FD);
 	}
 
