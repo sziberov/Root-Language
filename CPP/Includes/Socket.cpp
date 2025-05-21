@@ -69,7 +69,7 @@ public:
 		}
 
 		{
-			lock_guard<mutex> lock(clientsMutex);
+			lock_guard lock(clientsFDsMutex);
 
 			if(clientsFDs.find(FD) == clientsFDs.end()) {
 				return;
@@ -109,15 +109,15 @@ public:
 		}
 	}
 
-	bool isRunning() {
+	bool isRunning() const {
 		return running;
 	}
 
-	unordered_set<int> getClientsFDs() {
+	unordered_set<int> getClientsFDs() const {
 		return clientsFDs;
 	}
 
-	string getLogPrefix() {
+	string getLogPrefix() const {
 		return (mode == Mode::Client ? "[Client: " : "[Server: ")+to_string(socketFD)+"] ";
 	}
 
@@ -131,8 +131,8 @@ private:
 	ConnectionHandler connectionHandler,
 					  disconnectionHandler;
 
-	mutex clientsMutex;
 	unordered_set<int> clientsFDs;
+	mutex clientsFDsMutex;
 
 	/**
      * Запуск сервера: ожидание подключений и приём сообщений от клиентов
@@ -176,7 +176,7 @@ private:
 			}
 
 			{
-				lock_guard<mutex> lock(clientsMutex);
+				lock_guard lock(clientsFDsMutex);
 				clientsFDs.insert(clientFD);
 			}
 
@@ -278,7 +278,7 @@ private:
 		}
 
 		if(mode == Mode::Server) {
-			lock_guard<mutex> lock(clientsMutex);
+			lock_guard lock(clientsFDsMutex);
 			clientsFDs.erase(FD);
 		}
 
