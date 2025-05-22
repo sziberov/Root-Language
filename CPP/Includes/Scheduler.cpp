@@ -54,7 +54,7 @@ public:
 		lock_guard lock(mutex);
 		auto it = tasks.find(ID);
 
-		if(it == tasks.end()) {
+		if(it != tasks.end()) {
 			auto ST = it->second;
 
 			if(ST->cancelled) {
@@ -136,6 +136,8 @@ private:
 	int nextID = 0;
 
 	void run() {
+		prctl(PR_SET_NAME, "Scheduler", 0, 0, 0);
+
 		while(running) {
 			sp<ScheduledTask> ST;
 			unique_lock lock(mutex);

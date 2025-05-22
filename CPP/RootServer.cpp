@@ -1,78 +1,138 @@
 #include "Interpreter.cpp"
 #include "Scheduler.cpp"
 
-optional<string> code;
-optional<deque<Lexer::Token>> tokens;
-optional<NodeSP> tree;
-mutex interpreterMutex;
-struct Request {
-	string receiverToken;
-	int receiverProcessID = 0,  // 0 - Any, 1+ - specific
-		timeout = 0;  // 0 - Infinity, 1+ - seconds
-	bool reauthReceivers = false,
-		 multipleResponses = false;
-	unordered_map<int, bool> receiversFDs;  // [Client FD : Responded]
-};
-struct Client {
-	int processID = 0;
-	enum class State {
-		Pending,  // For spawned processes (if dashboard will ever able to have own child processes)
-		Connected,
-		Unresponsive
-	} state;
-	usize heartbeatTaskID;
-	unordered_set<string> tokens;
-	unordered_map<string, Request> requests;
+namespace RootServer {
+	optional<string> code;
+	optional<deque<Lexer::Token>> tokens;
+	optional<NodeSP> tree;
+	mutex interpreterMutex;
 
-	bool match(const string& token, int processID) {
-		return tokens.contains(token) && (processID == 0 || processID == this->processID);
-	}
-};
-unordered_map<int, Client> clients;
-mutex clientsMutex;
-int clientHeartbeatTaskID = -1;
+	struct Request {
+		string receiverToken;
+		int receiverProcessID = 0,  // 0 - Any, 1+ - specific
+			timeout = 0;  // 0 - Infinity, 1+ - seconds
+		optional<usize> timeoutTaskID;
+		bool reauthReceivers = false,
+			 multipleResponses = false;
+		unordered_map<int, bool> receiversFDs;  // [Client FD : Responded]
+	};
 
-thread getServerThread() {
-	sharedServer = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Server);
+	struct Client {
+		int processID = 0;
+		enum class State {
+			Pending,  // For spawned processes (if dashboard will ever able to have own child processes)
+			Connected,
+			Unresponsive
+		} state;
+		usize heartbeatTaskID = 0;
+		unordered_set<string> tokens;
+		unordered_map<string, Request> requests;
 
-	sharedServer->setConnectionHandler(
-		[](int clientFD) {
-			ucred credentials;
-			socklen_t len = sizeof(ucred);
-			if(getsockopt(clientFD, SOL_SOCKET, SO_PEERCRED, &credentials, &len) < 0) {
-				println(sharedServer->getLogPrefix(), "Can't get credentials of ", clientFD);
-			}
-			lock_guard lock(clientsMutex);
-			clients[clientFD] = {
-				credentials.pid,
-				Client::State::Connected,
-				sharedScheduler.schedule([clientFD](int taskID) {
-					unique_lock lock(clientsMutex);
-
-					if(!sharedServer->isRunning() || !clients.contains(clientFD)) {
-						sharedScheduler.cancel(taskID);
-					}
-
-					switch(clients[clientFD].state) {
-						case Client::State::Connected:
-							clients[clientFD].state = Client::State::Unresponsive;
-							println(sharedServer->getLogPrefix(), "Client ", clientFD, " has been marked as unresponsive");
-						break;
-						case Client::State::Unresponsive:
-							lock.unlock();
-							sharedServer->disconnect(clientFD);
-						break;
-					}
-				}, 10000, true)
-			};
-		},
-		[](int clientFD) {
-			lock_guard lock(clientsMutex);
-			sharedScheduler.cancel(clients[clientFD].heartbeatTaskID);
-			clients.erase(clientFD);
+		bool match(const string& token, int processID) {
+			return tokens.contains(token) && (processID == 0 || processID == this->processID);
 		}
-	);
-	sharedServer->setMessageHandler([](int senderFD, const string& rawMessage) {
+	};
+
+	unordered_map<int, Client> clients;
+	mutex clientsMutex;
+
+	// ----------------------------------------------------------------
+
+	optional<usize> scheduleRequestTimeout(int senderFD, string requestID, int timeout) {
+		if(timeout == 0) {
+			return nullopt;
+		}
+
+		return sharedScheduler.schedule([senderFD, requestID](usize timeoutTaskID) {
+			lock_guard lock(clientsMutex);
+
+			if(Client* client = find_ptr(clients, senderFD)) {
+				auto it = client->requests.find(requestID);
+
+				if(it != client->requests.end()) {
+					if(!some(it->second.receiversFDs, [](auto& v) { return v.second; })) {
+						println(sharedServer->getLogPrefix(), "Request \"", requestID, "\" from ", senderFD, " has timed out with no response");
+					}
+
+					client->requests.erase(it);
+				}
+			}
+
+			sharedScheduler.cancel(timeoutTaskID);
+		}, timeout*1000);
+	}
+
+	usize scheduleServerHeartbeat(int clientFD) {
+		return sharedScheduler.schedule([clientFD](int taskID) {
+			unique_lock lock(clientsMutex);
+
+			if(!sharedServer->isRunning() || !clients.contains(clientFD)) {
+				sharedScheduler.cancel(taskID);
+			}
+
+			switch(clients[clientFD].state) {
+				case Client::State::Connected:
+					clients[clientFD].state = Client::State::Unresponsive;
+					println(sharedServer->getLogPrefix(), "Cautiously awaiting heartbeat from ", clientFD);
+				break;
+				case Client::State::Unresponsive:
+					lock.unlock();
+					sharedServer->disconnect(clientFD);
+				break;
+			}
+		}, 15000, true);
+	}
+
+	usize scheduleClientHeartbeat() {
+		return sharedScheduler.schedule([](int taskID) {
+			if(!sharedClient->isRunning()) {
+				sharedScheduler.cancel(taskID);
+			}
+
+			auto senderTokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
+
+			Interface::sendToServer({
+				{"type", "notification"},
+				{"action", "heartbeat"},
+				{"senderTokens", senderTokens}
+			});
+		}, 7500, true, true);
+	}
+
+	// ----------------------------------------------------------------
+
+	void handleServerConnect(int clientFD) {
+		lock_guard lock(clientsMutex);
+		ucred credentials;
+		socklen_t len = sizeof(ucred);
+
+		if(getsockopt(clientFD, SOL_SOCKET, SO_PEERCRED, &credentials, &len) < 0) {
+			println(sharedServer->getLogPrefix(), "Can't get credentials of ", clientFD);
+		}
+
+		clients[clientFD] = {
+			.processID = credentials.pid,
+			.state = Client::State::Connected,
+			.heartbeatTaskID = scheduleServerHeartbeat(clientFD)
+		};
+	}
+
+	void handleServerDisconnect(int clientFD) {
+		lock_guard lock(clientsMutex);
+		Client& client = clients.at(clientFD);
+
+		sharedScheduler.cancel(client.heartbeatTaskID);
+
+		for(auto& [requestID, request] : client.requests) {
+			if(request.timeoutTaskID) {
+				sharedScheduler.cancel(*request.timeoutTaskID);
+			}
+		}
+
+		clients.erase(clientFD);
+	}
+
+	void handleServerMessage(int senderFD, const string& rawMessage) {
 		lock_guard lock(clientsMutex);
 		Client& sender = clients.at(senderFD);
 
@@ -86,10 +146,14 @@ thread getServerThread() {
 				if(type == "notification") {
 					if(action == "heartbeat") {
 						if(NodeArraySP senderTokens = message->get("senderTokens")) {
-							sender.state = Client::State::Connected;
-							sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
-
 							sharedScheduler.reset(sender.heartbeatTaskID);
+
+							if(sender.state == Client::State::Unresponsive) {
+								sender.state = Client::State::Connected;
+								println(sharedServer->getLogPrefix(), "Late heartbeat from ", senderFD);
+							}
+
+							sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
 						}
 					} else
 					if(action == "cancelRequest") {
@@ -110,7 +174,7 @@ thread getServerThread() {
 					string requestID = message->get("requestID");
 
 					if(sender.requests.contains(requestID)) {
-						println(sharedServer->getLogPrefix(), "Request with ID \"", requestID, "\" is already created by ", senderFD, " and will not be replaced");
+						println(sharedServer->getLogPrefix(), "Request \"", requestID, "\" is already created by ", senderFD, " and will not be replaced");
 
 						return;
 					}
@@ -122,6 +186,7 @@ thread getServerThread() {
 						receiverToken,
 						receiverProcessID,
 						timeout,
+						scheduleRequestTimeout(senderFD, requestID, timeout),
 						reauthReceivers,
 						multipleResponses
 					});
@@ -166,37 +231,30 @@ thread getServerThread() {
 				}
 			}
 		}
-	});
+	}
 
-	return thread(&Socket::start, sharedServer.get());
-}
+	void startServer() {
+		sharedServer = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Server);
 
-thread getClientThread() {
-	sharedClient = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Client);
+		sharedServer->setConnectionHandler(&handleServerConnect, &handleServerDisconnect);
+		sharedServer->setMessageHandler(&handleServerMessage);
 
-	sharedClient->setConnectionHandler(
-		[](int) {
-			clientHeartbeatTaskID = sharedScheduler.schedule([](int taskID) {
-				if(!sharedClient->isRunning()) {
-					sharedScheduler.cancel(taskID);
-				}
+		sharedServer->start();
+	}
 
-				auto senderTokens = NodeArray(Interface::preferences.tokens.begin(), Interface::preferences.tokens.end());
+	// ----------------------------------------------------------------
 
-				/*
-				Interface::sendToServer({
-					{"type", "notification"},
-					{"action", "heartbeat"},
-					{"senderTokens", senderTokens}
-				});
-				*/
-			}, 10000, true, true);
-		},
-		[](int) {
-			sharedScheduler.cancel(clientHeartbeatTaskID);
-		}
-	);
-	sharedClient->setMessageHandler([&](int, const string& rawMessage) {
+	int clientHeartbeatTaskID = -1;
+
+	void handleClientConnect(int) {
+		clientHeartbeatTaskID = scheduleClientHeartbeat();
+	}
+
+	void handleClientDisconnect(int) {
+		sharedScheduler.cancel(clientHeartbeatTaskID);
+	}
+
+	void handleClientMessage(int, const string& rawMessage) {
 		NodeSP message = NodeParser(rawMessage).parse();
 
 		if(!message) {
@@ -246,38 +304,20 @@ thread getClientThread() {
 				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true), code, tokens, tree)->interpret();
 			}
 		}
-	});
+	}
 
-	return thread(&Socket::start, sharedClient.get());
-}
+	void startClient() {
+		sharedClient = SP<Socket>(*Interface::preferences.socketPath, Socket::Mode::Client);
 
-thread getClientAutoThread() {
-	return thread([]() {
+		sharedClient->setConnectionHandler(&handleClientConnect, &handleClientDisconnect);
+		sharedClient->setMessageHandler(&handleClientMessage);
+
 		while(true) {
-			thread clientThread;
-
-			int clientAutoTaskID = sharedScheduler.schedule([&clientThread](int taskID) {
-				if(sharedClient && sharedClient->isRunning()) {
-					sharedScheduler.cancel(taskID);
-
-					return;
-				}
-
-				if(clientThread.joinable()) {
-					clientThread.join();  // Wait for failed thread to stop
-				}
-
-				clientThread = getClientThread();
-			}, 5000, true, true);
-
-			sharedScheduler.await(clientAutoTaskID);
-
-			if(clientThread.joinable()) {
-				clientThread.join();  // Wait for started thread to fail
-			}
+			sharedClient->start();
+			this_thread::sleep_for(5s);
 		}
-	});
-}
+	}
+};
 
 int main(int argc, char* argv[]) {
 	if(!Interface::parseArguments(argc, argv)) {
@@ -286,12 +326,14 @@ int main(int argc, char* argv[]) {
 
 	Interface::printPreferences();
 
+	using namespace RootServer;
+
 	switch(Interface::preferences.mode) {
 		case Interface::Preferences::Mode::Interpret: {
-			optional<thread> clientAutoThread;
+			optional<thread> clientThread;
 
 			if(Interface::preferences.socketPath) {
-				clientAutoThread = getClientAutoThread();
+				clientThread = thread(&startClient);
 			}
 			if(Interface::preferences.scriptPath) {
 				lock_guard lock(interpreterMutex);
@@ -304,17 +346,17 @@ int main(int argc, char* argv[]) {
 					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
 				}
 			}
-			if(clientAutoThread) {
-				clientAutoThread->join();
+			if(clientThread) {
+				clientThread->join();
 			}
 
 			break;
 		}
 		case Interface::Preferences::Mode::Dashboard: {
-			thread serverThread = getServerThread(),
-				   clientAutoThread = getClientAutoThread();
+			thread serverThread(&startServer),
+				   clientThread(&startClient);
 
-			clientAutoThread.join();
+			clientThread.join();
 			serverThread.join();
 
 			break;

@@ -105,7 +105,7 @@ public:
 	}
 
 	string getLogPrefix() const {
-		return (mode == Mode::Client ? "[Client: " : "[Server: ")+to_string(socketFD)+"] ";
+		return (mode == Mode::Server ? "[Server " : "[Client ")+to_string(socketFD)+"] ";
 	}
 
 private:
@@ -151,6 +151,7 @@ private:
 			return;
 		}
 
+		prctl(PR_SET_NAME, ("Server "+to_string(socketFD)).c_str(), 0, 0, 0);
 		println(getLogPrefix(), "Started at ", path);
 
 		// Цикл обработки новых подключений
@@ -199,6 +200,7 @@ private:
 			return;
 		}
 
+		prctl(PR_SET_NAME, ("Client "+to_string(socketFD)).c_str(), 0, 0, 0);
 		println(getLogPrefix(), "Started and connected to server at ", path);
 
 		if(connectionHandler) {
@@ -212,6 +214,10 @@ private:
      * Обработка соединения: чтение, разбор и вызов обработчика
      */
 	void handleMessages(int FD) {
+		if(mode == Mode::Server) {
+			prctl(PR_SET_NAME, ("SC "+to_string(FD)).c_str(), 0, 0, 0);  // Server Connection
+		}
+
 		string readBuffer;
 		constexpr usize maxSize = 10*1024*1024; // 10 MiB — максимум разумного сообщения
 
@@ -224,7 +230,7 @@ private:
 					println(getLogPrefix(), "Connection closed at ", FD);
 				} else
 				if(errno == EINTR || errno == EAGAIN) {
-					continue; // временная ошибка, продолжаем чтение
+					continue; // Временная ошибка, продолжаем чтение
 				} else {
 					println(getLogPrefix(), "Read error on FD ", FD, ": ", strerror(errno));
 				}

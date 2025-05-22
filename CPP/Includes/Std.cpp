@@ -20,6 +20,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <thread>
@@ -99,6 +100,17 @@ int find_index(Container container, Predicate predicate) {
 	auto it = find_if(container.begin(), container.end(), predicate);
 
 	return it != container.end() ? it-container.begin() : -1;
+}
+
+template <typename Map>
+typename Map::mapped_type* find_ptr(Map& map, const typename Map::key_type& key) {
+    auto it = map.find(key);
+
+    if(it != map.end()) {
+        return &it->second;
+    }
+
+    return nullptr;
 }
 
 template <typename T>
