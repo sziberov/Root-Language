@@ -770,6 +770,7 @@ struct Lexer {
 
 	deque<Token> tokenize() {
 		Interface::sendToServer({
+			{"type", "notification"},
 			{"source", "lexer"},
 			{"action", "removeAll"},
 			{"moduleID", -1}
@@ -780,6 +781,7 @@ struct Lexer {
 		}
 
 		Interface::sendToServer({
+			{"type", "notification"},
 			{"source", "lexer"},
 			{"action", "tokenized"},
 			{"tokens", NodeValue(to_string(tokens), true)}

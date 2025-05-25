@@ -38,12 +38,13 @@ function openSocket(path, token) {
         client.setNoDelay(true);
         auth.style.display = 'none';
 
-        send({ action: 'listProcesses' });
-    //	clearInterval(heartbeatInterval);
-    //	heartbeatInterval = setInterval(() => send({ action: 'heartbeat' }), 10000);
+        send({ type: 'request', action: 'listProcesses' });
+        send({ type: 'notification', action: 'heartbeat', senderTokens: [''] });
+    	clearInterval(heartbeatInterval);
+    	heartbeatInterval = setInterval(() => send({ type: 'notification', action: 'heartbeat', senderTokens: [''] }), 7500);
 
     //	clearInterval(processListInterval);
-    //	processListInterval = setInterval(() => send({ action: 'listProcesses', token: token }), 10000);
+    //	processListInterval = setInterval(() => send({ type: 'request', action: 'listProcesses', token: token }), 10000);
     });
 
     client.on('data', (data) => {
@@ -54,14 +55,14 @@ function openSocket(path, token) {
         while (readBuffer.length >= 4) {
             const messageLength = readBuffer.readUInt32BE(0);
 
-            if (readBuffer.length < 4 + messageLength) {
+            if (readBuffer.length < 4+messageLength) {
                 break; // ждём оставшуюся часть сообщения
             }
 
-            const message = readBuffer.slice(4, 4 + messageLength).toString('utf-8');
+            const message = readBuffer.subarray(4, 4+messageLength).toString('utf-8');
             handleMessage(message);
 
-            readBuffer = readBuffer.slice(4 + messageLength); // убираем обработанное сообщение
+            readBuffer = readBuffer.subarray(4+messageLength); // убираем обработанное сообщение
         }
     });
 
@@ -91,7 +92,7 @@ function handleMessage(message) {
 
     if(report.action === 'tokenized') {
         let view = document.getElementById('client-0');
-    //	let view = document.getElementById('client-' + report.clientId);
+    //	let view = document.getElementById('client-'+report.clientId);
         if (!view) return;
 
         let inputLint = view.querySelector('.inputLint');
@@ -188,7 +189,7 @@ function handleMessage(message) {
     } else
     if(report.action === 'parsed') {
         let view = document.getElementById('client-0');
-    //	let view = document.getElementById('client-' + report.clientId);
+    //	let view = document.getElementById('client-'+report.clientId);
         if (!view) return;
 
         let ASTOutput = view.querySelector('.ASTOutput');
@@ -199,7 +200,7 @@ function handleMessage(message) {
 
     if(report.action === 'add') {
         let view = document.getElementById('client-0');
-    //	let view = document.getElementById('client-' + report.clientId);
+    //	let view = document.getElementById('client-'+report.clientId);
         if (!view) return;
 
         let consoleOutput = view.querySelector('.consoleOutput');
@@ -259,7 +260,7 @@ function handleMessage(message) {
     } else
     if(report.action === 'removeAfterPosition') {
         let view = document.getElementById('client-0');
-    //	let view = document.getElementById('client-' + report.clientId);
+    //	let view = document.getElementById('client-'+report.clientId);
         if (!view) return;
 
         let consoleOutput = view.querySelector('.consoleOutput');
@@ -274,7 +275,7 @@ function handleMessage(message) {
     } else
     if(report.action === 'removeAll') {
         let view = document.getElementById('client-0');
-    //	let view = document.getElementById('client-' + report.clientId);
+    //	let view = document.getElementById('client-'+report.clientId);
         if (!view) return;
 
         let consoleOutput = view.querySelector('.consoleOutput');
@@ -338,7 +339,7 @@ function updateProcessTabs(processes) {
         if (!existingViews.has(id)) {
             let template = document.getElementById('clientTemplate');
             let view = document.createElement('div');
-            view.id = 'client-' + id;
+            view.id = 'client-'+id;
             view.dataset.id = id;
             view.style.display = 'none';
 
@@ -363,8 +364,8 @@ function initializeClientInterface(container, clientId) {
 
     inputText.oninput = () => {
         inputLint.innerHTML = '';
-        send({ action: 'lex', code: inputText.value, clientId });
-        send({ action: 'parse', clientId });
+        send({ receiverToken: socketToken.value, type: 'notification', action: 'lex', code: inputText.value, clientId });
+        send({ receiverToken: socketToken.value, type: 'notification', action: 'parse', clientId });
     };
 
     inputText.onscroll = () => {
@@ -386,19 +387,19 @@ function initializeClientInterface(container, clientId) {
     };
 
     interpret.onclick = () => {
-        send({ action: 'interpret', clientId });
+        send({ receiverToken: socketToken.value, type: 'notification', action: 'interpret', clientId });
     };
 
     consoleInput.onkeypress = (e) => {
         if (e.key === 'Enter') {
-            send({ action: 'evaluate', code: consoleInput.value, clientId });
+            send({ receiverToken: socketToken.value, type: 'notification', action: 'evaluate', code: consoleInput.value, clientId });
         }
     };
 }
 
 function showClient(id) {
     [...clientViews.children].forEach(c => c.style.display = 'none');
-    let view = document.getElementById('client-' + id);
+    let view = document.getElementById('client-'+id);
     if (view) view.style.display = '';
 }
 

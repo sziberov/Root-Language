@@ -15,7 +15,12 @@ body {
 	z-index: 2;
 
 	form {
-		background: rgba(87.5% 87.5% 87.5% / 87.5%);
+		background:
+			linear-gradient(to bottom,
+				rgba(0% 0% 0% / 33.3%) 0,
+				transparent 24px
+			),
+			rgba(87.5% 87.5% 87.5% / 87.5%);
 		backdrop-filter: blur(4px);
 		position: fixed;
 		padding: 24px;
@@ -25,6 +30,7 @@ body {
 		box-shadow:
 			0 0 0 1px rgba(0% 0% 0% / 12.5%),
 			0 8px 32px rgba(0% 0% 0% / 50%);
+		border-radius: 0 0 2px 2px;
 		display: flex;
 		flex-direction: column;
 		align-items: start;

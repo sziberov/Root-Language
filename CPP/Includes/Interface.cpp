@@ -15,7 +15,7 @@ namespace Interface {
 		vector<string> scriptArguments;
 
 		optional<filesystem::path> socketPath;
-		vector<string> tokens;
+		unordered_set<string> tokens;
 
 		usize callStackSize = 128,
 			  reportsLevel = 3,
@@ -70,7 +70,7 @@ namespace Interface {
 			cout << "          Socket Path: " << *preferences.socketPath << endl;
 		}
 
-		cout << "                Token: " << preferences.tokens[0] << endl;  // TODO: Should be hidden
+		cout << "                Token: " << *preferences.tokens.begin() << endl;  // TODO: Should be hidden
 		cout << "      Call Stack Size: " << preferences.callStackSize << endl;
 		cout << "        Reports Level: " << preferences.reportsLevel << endl;
 		cout << "Metaprogramming Level: " << preferences.metaprogrammingLevel << endl;
@@ -128,9 +128,9 @@ namespace Interface {
 			}},
 			{"--token", [&](int& i) {
 				if(i+1 < argc && argv[i+1][0] != '-') {
-					preferences.tokens.emplace_back(argv[++i]);
+					preferences.tokens.insert(argv[++i]);
 				} else {
-					preferences.tokens.emplace_back();
+					preferences.tokens.insert("");
 				}
 
 				return true;
@@ -218,7 +218,7 @@ namespace Interface {
 				cin.clear();
 			}
 
-			preferences.tokens.push_back(token);
+			preferences.tokens.insert(token);
 		}
 
 		return true;
@@ -259,12 +259,14 @@ namespace Interface {
 	}
 
 	void sendToClients(Node node) {
+		node.get("receiverProcessID") = 0;
 		node.get("processID") = (int)getpid();
 
 		sendToClients(to_string(node));
 	}
 
 	void sendToServer(Node node) {
+		node.get("receiverProcessID") = 0;
 		node.get("processID") = (int)getpid();
 
 		sendToServer(to_string(node));

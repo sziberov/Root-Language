@@ -200,6 +200,46 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 	// ----------------------------------------------------------------
 
+	struct AccessPath {
+		variant<string, vector<TypeSP>> key;
+		bool internal = false;
+	};
+
+	enum class AccessMode : u8 {
+		Get,
+		Set,
+		Delete
+	};
+
+	struct AccessRequest {
+		const AccessMode mode;
+
+		AccessRequest(AccessMode m) : mode(m) {}
+	};
+
+	struct GetRequest : AccessRequest {
+		optional<vector<TypeSP>> arguments;
+		TypeSP getType;
+
+		GetRequest() : AccessRequest(AccessMode::Get) {}
+		GetRequest(TypeSP t) : AccessRequest(AccessMode::Get), getType(t) {}
+		GetRequest(optional<vector<TypeSP>> a) : AccessRequest(AccessMode::Get), arguments(a) {}
+		GetRequest(optional<vector<TypeSP>> a, TypeSP t) : AccessRequest(AccessMode::Get), arguments(a), getType(t) {}
+	};
+
+	struct SetRequest : AccessRequest {
+		TypeSP setValue;
+
+		SetRequest() : AccessRequest(AccessMode::Set) {}
+		SetRequest(TypeSP v) : AccessRequest(AccessMode::Set), setValue(v) {}
+	};
+
+	struct DeleteRequest : AccessRequest {
+		DeleteRequest() : AccessRequest(AccessMode::Delete) {}
+	};
+
+	// ----------------------------------------------------------------
+
 	struct Type : enable_shared_from_this<Type> {
 		const TypeID ID;
 		const bool concrete;
@@ -214,54 +254,54 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 		// Cast
 
-		virtual operator bool() const { return bool(); }
-		virtual operator double() const { return double(); }
-		virtual operator int() const { return operator double(); }
-		virtual operator string() const { return string(); }  // Machine-friendly representation
+			virtual operator bool() const { return bool(); }
+			virtual operator double() const { return double(); }
+			virtual operator int() const { return operator double(); }
+			virtual operator string() const { return string(); }  // Machine-friendly representation
 
 		// Self access
 
-		// var a: getType = self
-		// var a: getType = self(...arguments)
-		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) { return shared_from_this(); }
+			// var a: getType = self
+			// var a: getType = self(...arguments)
+			virtual TypeSP access(GetRequest GR) { return shared_from_this(); }
 
-		// self = setValue
-		virtual void set(TypeSP setValue = nullptr) {}
+			// self = setValue
+			virtual void access(SetRequest SR) {}
 
-		// delete self
-		virtual void delete_() {}
+			// delete self
+			virtual void access(DeleteRequest DR) {}
 
 		// Member access
 
-		// var a: getType = self.key
-		// var a: getType = self.key(...arguments)
-		// var a: getType = self[...key]
-		// var a: getType = self[...key](...arguments)
-		virtual TypeSP get(variant<string, vector<TypeSP>> key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool internal = false) { return nullptr; }
+			// var a: getType = self.key
+			// var a: getType = self.key(...arguments)
+			// var a: getType = self[...key]
+			// var a: getType = self[...key](...arguments)
+			virtual TypeSP access(AccessPath AP, GetRequest GR) { return nullptr; }
 
-		// self.key = setValue
-		// self[...key] = setValue
-		virtual void set(variant<string, vector<TypeSP>> key, TypeSP setValue = nullptr, bool internal = false) {}
+			// self.key = setValue
+			// self[...key] = setValue
+			virtual void access(AccessPath AP, SetRequest SR) {}
 
-		// delete self.key
-		// delete self[...key]
-		virtual void delete_(variant<string, vector<TypeSP>> key, bool internal = false) {}
+			// delete self.key
+			// delete self[...key]
+			virtual void access(AccessPath AP, DeleteRequest DR) {}
 
 		// Operators
 
-		virtual TypeSP positive() const { return SP<Type>(); }
-		virtual TypeSP negative() const { return SP<Type>(); }
-		virtual TypeSP plus(TypeSP type) const { return SP<Type>(); }
-		virtual TypeSP minus(TypeSP type) const { return plus(static_pointer_cast<Type>(type)->negative()); }
-		virtual TypeSP preIncrement() { return shared_from_this(); }
-		virtual TypeSP preDecrement() { return shared_from_this(); }
-		virtual TypeSP postIncrement() { return SP<Type>(); }
-		virtual TypeSP postDecrement() { return SP<Type>(); }
-		virtual TypeSP multiply(TypeSP type) const { return SP<Type>(); }
-		virtual TypeSP divide(TypeSP type) const { return SP<Type>(); }
-		virtual bool not_() const { return !operator bool(); }
-		virtual bool equalsTo(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
-		virtual bool notEqualsTo(const TypeSP& type) { return !equalsTo(type); }
+			virtual TypeSP positive() const { return SP<Type>(); }
+			virtual TypeSP negative() const { return SP<Type>(); }
+			virtual TypeSP plus(TypeSP type) const { return SP<Type>(); }
+			virtual TypeSP minus(TypeSP type) const { return plus(static_pointer_cast<Type>(type)->negative()); }
+			virtual TypeSP preIncrement() { return shared_from_this(); }
+			virtual TypeSP preDecrement() { return shared_from_this(); }
+			virtual TypeSP postIncrement() { return SP<Type>(); }
+			virtual TypeSP postDecrement() { return SP<Type>(); }
+			virtual TypeSP multiply(TypeSP type) const { return SP<Type>(); }
+			virtual TypeSP divide(TypeSP type) const { return SP<Type>(); }
+			virtual bool not_() const { return !operator bool(); }
+			virtual bool equalsTo(const TypeSP& type) { return acceptsA(type) && conformsTo(type); }
+			virtual bool notEqualsTo(const TypeSP& type) { return !equalsTo(type); }
 
 		// Now we are planning to normalize all types for one single time before subsequent comparisons, or using this/similar to this function at worst case, as this is performant-costly operation in C++
 		// One thing that also should be mentioned here is that types can't be normalized without losing their initial string representation at the moment
@@ -565,9 +605,10 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 			}
 		}
 
-		void set(TypeSP setValue = nullptr) override {
-			if(setValue->ID == TypeID::Primitive) {
-				auto primType = static_pointer_cast<PrimitiveType>(setValue);
+		// self = setValue
+		void access(SetRequest SR) override {
+			if(SR.setValue && SR.setValue->ID == TypeID::Primitive) {
+				auto primType = static_pointer_cast<PrimitiveType>(SR.setValue);
 
 				if(primType->subID == subID) {
 					value = primType->value;
@@ -626,27 +667,33 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		// Although (!) it may be too memory-consuming without real excuse, as this is the only case.
 		//
 		// And to contrast that two, there is idea where no special mechanism exist. This is no go, as changes can't be observed at all.
+		//
+		// UPDATE:
+		// Pre/Post and many others operators probably should not be accessed directly as now there is Inout type present.
+		// In theory, Inout will make it possible to "observe" member changes automatically.
+		// In reality, it should call target's accessors which will do all the work.
+		// For example: a++ decomposes to something like scope()->access(AccessPath("a"), SetRequest(scope()->access(AccessPath("a"), GetRequest())->plus(SP<PrimitiveType>(1))))
 
 		TypeSP preIncrement() override {
-			set(positive()->plus(SP<PrimitiveType>(1)));
+			access(SetRequest(positive()->plus(SP<PrimitiveType>(1))));
 
 			return shared_from_this();
 		}
 
 		TypeSP preDecrement() override {
-			set(positive()->minus(SP<PrimitiveType>(1)));
+			access(SetRequest(positive()->minus(SP<PrimitiveType>(1))));
 
 			return shared_from_this();
 		}
 
 		TypeSP postIncrement() override {
-			set(positive()->plus(SP<PrimitiveType>(1)));
+			access(SetRequest(positive()->plus(SP<PrimitiveType>(1))));
 
 			return minus(SP<PrimitiveType>(1));
 		}
 
 		TypeSP postDecrement() override {
-			set(positive()->minus(SP<PrimitiveType>(1)));
+			access(SetRequest(positive()->minus(SP<PrimitiveType>(1))));
 
 			return plus(SP<PrimitiveType>(1));
 		}
@@ -755,52 +802,54 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		}
 
 		// var a: getType = this
-		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) override {
-			if(arguments) {
+		virtual TypeSP access(GetRequest GR) override {
+			if(GR.arguments) {
 				throw invalid_argument("Can't call a dictionary");
 			}
+
+			// TODO: getType check
 
 			return shared_from_this();
 		}
 
 		// this[arguments[0]] = setValue
-		virtual void set(TypeSP setValue = nullptr) override {
+		virtual void access(SetRequest SR) override {
 			throw invalid_argument("Can't set a dictionary");
 		}
 
 		// delete this[arguments[0]]
-		virtual void delete_() override {
+		virtual void access(DeleteRequest DR) override {
 			throw invalid_argument("Can't delete a dictionary");
 		}
 
 		// var a: getType = this[key[0]]
 		// var a: getType = this[key[0]](...arguments)
-		virtual TypeSP get(variant<string, vector<TypeSP>> key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool internal = false) override {
-			if(key.index() != 1 || std::get<1>(key).size() != 1) {
+		virtual TypeSP access(AccessPath AP, GetRequest GR) override {
+			if(AP.key.index() != 1 || std::get<1>(AP.key).size() != 1) {
 				throw invalid_argument("Only single-argument subscripted get is allowed for a dictionary");
 			}
 
-		//	cout << "getting: " << std::get<1>(key).at(0) << endl;
+		//	cout << "getting: " << std::get<1>(AP.key).at(0) << endl;
 
-			return get(std::get<1>(key).at(0));
+			return get(std::get<1>(AP.key).at(0));
 		}
 
 		// this[key[0]] = setValue
-		virtual void set(variant<string, vector<TypeSP>> key, TypeSP setValue = nullptr, bool internal = false) override {
-			if(key.index() != 1 || std::get<1>(key).size() != 1) {
+		virtual void access(AccessPath AP, SetRequest SR) override {
+			if(AP.key.index() != 1 || std::get<1>(AP.key).size() != 1) {
 				throw invalid_argument("Only single-argument subscripted set is allowed for a dictionary");
 			}
 
-			emplace(std::get<1>(key).at(0), setValue);
+			emplace(std::get<1>(AP.key).at(0), SR.setValue);
 		}
 
 		// delete this[key[0]]
-		virtual void delete_(variant<string, vector<TypeSP>> key, bool internal = false) override {
-			if(key.index() != 1 || std::get<1>(key).size() != 1) {
+		virtual void access(AccessPath AP, DeleteRequest DR) override {
+			if(AP.key.index() != 1 || std::get<1>(AP.key).size() != 1) {
 				throw invalid_argument("Only single-argument subscripted delete is allowed for a dictionary");
 			}
 
-			removeLast(std::get<1>(key).at(0));
+			removeLast(std::get<1>(AP.key).at(0));
 		}
 
 		bool equalsTo(const TypeSP& type) override {
@@ -1111,25 +1160,27 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 		// var a: getType = this
 		// var a: getType = this(...arguments)
-		virtual TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) {
-			if(!arguments) {
+		virtual TypeSP access(GetRequest GR) {
+			if(!GR.arguments) {
 				return shared_from_this();
 			}
 			if(!isCallable()) {
 				throw invalid_argument("Composite is not callable");
 			}
 			if(subID != CompositeTypeID::Function) {
-				return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { shared_from_this(), "init" }, true)->get(arguments, getType);
+				return SP<InoutType>(true, SP<NillableType>(PredefinedEAnyTypeSP), InoutType::Path { shared_from_this(), "init" }, true)->access(GR);
 			}
+
+			// TODO: Function call logic
 
 			return nullptr;
 		}
 
-		virtual void set(TypeSP setValue = nullptr) override {
+		virtual void access(SetRequest SR) override {
 			throw invalid_argument("Can't set a composite");
 		}
 
-		virtual void delete_() override {
+		virtual void access(DeleteRequest DR) override {
 			throw invalid_argument("Can't delete a composite");
 		}
 
@@ -1137,15 +1188,15 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		// var a: getType = this.key(...arguments)
 		// var a: getType = this[...key]
 		// var a: getType = this[...key](...arguments)
-		virtual TypeSP get(variant<string, vector<TypeSP>> key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool internal = false) override { return nullptr; }
+		virtual TypeSP access(AccessPath AP, GetRequest GR) override { return nullptr; }
 
 		// this.key = setValue
 		// this[...key] = setValue
-		virtual void set(variant<string, vector<TypeSP>> key, TypeSP setValue = nullptr, bool internal = false) override {}
+		virtual void access(AccessPath AP, SetRequest SR) override {}
 
 		// delete this.key
 		// delete this[...key]
-		virtual void delete_(variant<string, vector<TypeSP>> key, bool internal = false) override {}
+		virtual void access(AccessPath AP, DeleteRequest DR) override {}
 
 		void destroy() {
 			cout << "destroyComposite("+getTitle()+")" << endl;
@@ -1571,12 +1622,6 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 			optional<Observers> observers;
 		};
 
-		enum class AccessMode : u8 {
-			Get,
-			Set,
-			Delete
-		};
-
 		/**
 		 * TODO:
 		 * - Rework acceptsA/conformsTo() to support ranged response: -1 == false, 0+ == count of an actions to find a conforming type (lower is better).
@@ -1921,43 +1966,43 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 			switch(mode) {
 				case AccessMode::Get:
 					if(observers.willGet) {
-						observers.willGet->get(arguments, nullptr);
+						observers.willGet->access(GetRequest(arguments));
 					}
 					if(observers.get) {
-						value = observers.get->get(arguments, nullptr);
+						value = observers.get->access(GetRequest(arguments));
 					} else
 					if(overload) {
 						value = overload->value;
 					}
 					if(observers.didGet) {
-						observers.didGet->get(arguments, nullptr);
+						observers.didGet->access(GetRequest(arguments));
 					}
 				break;
 				case AccessMode::Set:
 					arguments.push_back(setValue);
 
 					if(observers.willSet) {
-						observers.willSet->get(arguments, nullptr);
+						observers.willSet->access(GetRequest(arguments));
 					}
 					if(observers.set) {
-						observers.set->get(arguments, nullptr);
+						observers.set->access(GetRequest(arguments));
 					} else
 					if(overload) {
 						overload->value = setValue;
 					}
 					if(observers.didSet) {
-						observers.didSet->get(arguments, nullptr);
+						observers.didSet->access(GetRequest(arguments));
 					}
 				break;
 				case AccessMode::Delete:
 					if(observers.willDelete) {
-						observers.willDelete->get(arguments, nullptr);
+						observers.willDelete->access(GetRequest(arguments));
 					}
 					if(observers.delete_) {
-						observers.delete_->get(arguments, nullptr);
+						observers.delete_->access(GetRequest(arguments));
 					}
 					if(observers.didDelete) {
-						observers.didDelete->get(arguments, nullptr);
+						observers.didDelete->access(GetRequest(arguments));
 					}
 				break;
 			}
@@ -2231,40 +2276,40 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 			if(!implicit) {
 				return "inout "+innerType->toString();
 			} else {
-				return to_string(const_cast<InoutType*>(this)->get());  // Unsafe cast
+				return to_string(const_cast<InoutType*>(this)->access(GetRequest()));  // Unsafe cast
 			}
 		}
 
 		// var a: getType = path
 		// var a: getType = path(...arguments)
-		TypeSP get(optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr) override {
+		TypeSP access(GetRequest GR) override {
 			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
-				return target->get(arguments, getType);
+				return target->access(GR);
 			} else
 			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
-				return target->get(pathPartToKey(path.back()), arguments, getType);
+				return target->access(AccessPath(pathPartToKey(path.back()), path.size() == 2 || true), GR);
 			}
 
 			return nullptr;
 		}
 
 		// path = setValue
-		void set(TypeSP setValue = nullptr) override {
+		void access(SetRequest SR) override {
 			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
-				target->set(setValue);
+				target->access(SR);
 			} else
 			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
-				target->set(pathPartToKey(path.back()), setValue);
+				target->access(AccessPath(pathPartToKey(path.back()), path.size() == 2 || true), SR);
 			}
 		}
 
 		// delete path
-		void delete_() override {
+		void access(DeleteRequest DR) override {
 			if(path.size() == 1; TypeSP target = evaluatedPath(path)) {
-				target->delete_();
+				target->access(DR);
 			} else
 			if(path.size() >  1; TypeSP target = evaluatedPath(Path(path.begin(), path.end()-1))) {
-				target->delete_(pathPartToKey(path.back()));
+				target->access(AccessPath(pathPartToKey(path.back()), path.size() == 2 || true), DR);
 			}
 		}
 
@@ -2272,9 +2317,9 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		// var a: getType = path.key(...arguments)
 		// var a: getType = path[...key]
 		// var a: getType = path[...key](...arguments)
-		TypeSP get(variant<string, vector<TypeSP>> key, optional<vector<TypeSP>> arguments = nullopt, TypeSP getType = nullptr, bool internal = false) override {
+		TypeSP access(AccessPath AP, GetRequest GR) override {
 			if(TypeSP target = evaluatedPath(path)) {
-				target->get(key, arguments, getType, true);
+				target->access(AccessPath(AP.key, true), GR);
 			}
 
 			return nullptr;
@@ -2282,17 +2327,17 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 		// path.key = setValue
 		// path[...key] = setValue
-		void set(variant<string, vector<TypeSP>> key, TypeSP setValue = nullptr, bool internal = false) override {
+		void access(AccessPath AP, SetRequest SR) override {
 			if(TypeSP target = evaluatedPath(path)) {
-				target->set(key, setValue, true);
+				target->access(AccessPath(AP.key, true), SR);
 			}
 		}
 
 		// delete path.key
 		// delete path[...key]
-		void delete_(variant<string, vector<TypeSP>> key, bool internal = false) override {
+		void access(AccessPath AP, DeleteRequest DR) override {
 			if(TypeSP target = evaluatedPath(path)) {
-				target->delete_(key, true);
+				target->access(AccessPath(AP.key, true), DR);
 			}
 		}
 
@@ -2347,7 +2392,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 					break;
 				}
 
-				target = target->get(pathPartToKey(path.at(i)), nullopt, nullptr, i != 1 || internal);
+				target = target->access(AccessPath(pathPartToKey(path.at(i)), i != 1 || internal), GetRequest());
 			}
 
 			return target;
@@ -2835,7 +2880,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 				return nullptr;
 			}
 
-			value->delete_();
+			value->access(DeleteRequest());
 		} else
 		if(type == "dictionaryLiteral") {
 			auto value = SP<DictionaryType>(
@@ -2856,7 +2901,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		} else
 		if(type == "dictionaryType") {
 			TypeSP keyType = executeNode(n->get("key"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP),
-					valueType = executeNode(n->get("value"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP);
+				   valueType = executeNode(n->get("value"), false) ?: SP<NillableType>(PredefinedEAnyTypeSP);
 			CompositeTypeSP composite = getValueComposite(nullptr/*findOverload(scope, "Dictionary")?.value*/);
 
 			if(composite) {
@@ -3294,6 +3339,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		}
 
 		Interface::sendToServer({
+			{"type", "notification"},
 			{"source", "interpreter"},
 			{"action", "add"},
 			{"parentModuleID", -1},
@@ -3321,14 +3367,16 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 
 	TypeSP interpret() {
 		Interface::sendToServer({
-			{"source", "interpreter"},
+			{"type", "notification"},
 			{"action", "removeAll"},
+			{"source", "interpreter"},
 			{"moduleID", -1}
 		});
 
 		TypeSP value = executeNode(tree);
 
 		Interface::sendToServer({
+			{"type", "notification"},
 			{"source", "interpreter"},
 			{"action", "evaluated"},
 			{"value", to_string(value)}

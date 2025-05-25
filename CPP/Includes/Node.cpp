@@ -255,6 +255,10 @@ public:
 		return it != data.end() && !it->second.empty() ? it->second : defaultValue;
 	}
 
+	/**
+	 * Automatically creates key and should not be naively used for (and before)
+	 * checking if it exists, if the latter can have logical impact.
+	 */
 	NodeValue& get(const string& key) {
 		return data[key];
 	}
@@ -272,7 +276,7 @@ public:
 	}
 
 	bool contains(const string& key) {
-		return data.count(key) > 0;
+		return data.contains(key);
 	}
 
 	bool empty(const string& key) const {

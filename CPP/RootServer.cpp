@@ -138,21 +138,23 @@ namespace RootServer {
 
 		if(NodeSP message = NodeParser(rawMessage).parse()) {
 			string type = message->get("type"),
-				   action = message->get("action"),
-				   receiverToken = message->get("receiverToken");
-			int receiverProcessID = message->get("receiverProcessID");
+				   action = message->get("action");
 
-			if(receiverToken.empty() && receiverProcessID == 0) {  // Server-side message (no rerouting)
+			if(!message->contains("receiverToken") && !message->contains("receiverProcessID")) {  // Server-side message (no rerouting)
+				println(sharedServer->getLogPrefix(), "Handling server-side message: ", rawMessage);
+
 				if(type == "notification") {
 					if(action == "heartbeat") {
+						sharedScheduler.reset(sender.heartbeatTaskID);
+
+						if(sender.state == Client::State::Unresponsive) {
+							sender.state = Client::State::Connected;
+							println(sharedServer->getLogPrefix(), "Late heartbeat from ", senderFD);
+						} else {
+							println(sharedServer->getLogPrefix(), "Heartbeat from ", senderFD);
+						}
+
 						if(NodeArraySP senderTokens = message->get("senderTokens")) {
-							sharedScheduler.reset(sender.heartbeatTaskID);
-
-							if(sender.state == Client::State::Unresponsive) {
-								sender.state = Client::State::Connected;
-								println(sharedServer->getLogPrefix(), "Late heartbeat from ", senderFD);
-							}
-
 							sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
 						}
 					} else
@@ -160,9 +162,18 @@ namespace RootServer {
 						string requestID = message->get("requestID");
 
 						sender.requests.erase(requestID);  // Unregister pending request
+					} else {
+						println(sharedServer->getLogPrefix(), "Unknown server-side notification action from ", senderFD, ": \"", action, "\"");
 					}
+				} else {
+					println(sharedServer->getLogPrefix(), "Unknown server-side message type from ", senderFD, ": \"", type, "\"");
 				}
 			} else {  // Client-side message (rerouting)
+				println(sharedServer->getLogPrefix(), "Handling client-side message: ", rawMessage);
+
+				string receiverToken = message->get("receiverToken");
+				int receiverProcessID = message->get("receiverProcessID");
+
 				if(type == "notification") {
 					for(auto& [clientFD, client] : clients) {
 						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
@@ -228,6 +239,8 @@ namespace RootServer {
 							client.requests.erase(it);  // Unregister fulfilled request
 						}
 					}
+				} else {
+					println(sharedServer->getLogPrefix(), "Unknown client-side message type from ", senderFD, ": \"", type, "\"");
 				}
 			}
 		}
@@ -293,6 +306,8 @@ namespace RootServer {
 					sharedInterpreter->clean();
 					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
 				}
+			} else {
+				println(sharedClient->getLogPrefix(), "Unknown notification action: \"", action, "\"");
 			}
 		} else
 		if(type == "request") {
@@ -302,7 +317,11 @@ namespace RootServer {
 				auto tree = Parser(tokens).parse();
 
 				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true), code, tokens, tree)->interpret();
+			} else {
+				println(sharedClient->getLogPrefix(), "Unknown request action: \"", action, "\"");
 			}
+		} else {
+			println(sharedServer->getLogPrefix(), "Unknown message type: \"", type, "\"");
 		}
 	}
 
