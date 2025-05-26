@@ -36,7 +36,8 @@ namespace Interface {
 
 			 << "Debugging:\n"
 			 << "    (-s | --socket) [PATH]                   Path of the socket (default - \"/tmp/RootServer.sock\" if enabled; always enabled for dashboard)\n"
-			 << "    (-t | --token) [TOKEN]                   Security token (required if socket enabled, either as argument or standard input)\n\n"
+			 << "    (-t | --token) (DIRECTION)[TOKEN]        Security token (at least one of \"<\" or \"=\" direction is required if socket enabled,\n"
+			 << "                                             either as argument or standard input): < - input, > - output, = - universal\n\n"
 
 			 << "Execution:\n"
 			 << "    (-css | --callStackSize) NUMBER          Call stack size (default - 128)\n"
@@ -87,6 +88,38 @@ namespace Interface {
 		return true;
 	}
 
+	bool isToken(const string& t, const string& d = "<>=") {
+		for(char c : d) {
+			if(t.starts_with(c)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	bool isInputToken(const string& t) {
+		return isToken(t, "<=");
+	}
+
+	bool isOutputToken(const string& t) {
+		return isToken(t, ">=");
+	}
+
+	bool isUniversalToken(const string& t) {
+		return isToken(t, "=");
+	}
+
+	bool containsToken(const unordered_set<string>& tokens, const string& undirectedToken) {
+		for(const string& t : tokens) {
+			if(isInputToken(t) && t.substr(1) == undirectedToken) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	bool parseArguments(int argc, char* argv[]) {
 		unordered_map<string, string> aliases = {
 			{"-i", "--interpret"},
@@ -127,11 +160,16 @@ namespace Interface {
 				return true;
 			}},
 			{"--token", [&](int& i) {
-				if(i+1 < argc && argv[i+1][0] != '-') {
-					preferences.tokens.insert(argv[++i]);
-				} else {
-					preferences.tokens.insert("");
+				char direction = '-';
+
+				if(i+1 < argc) {
+					direction = argv[i+1][0];
 				}
+				if(direction != '-' && direction != '<' && direction != '>' && direction != '=') {
+					return false;
+				}
+
+				preferences.tokens.insert(direction == '-' ? "=" : argv[++i]);
 
 				return true;
 			}},
@@ -207,10 +245,10 @@ namespace Interface {
 			return false;
 		}
 
-		if(preferences.socketPath && preferences.tokens.empty()) {
+		while(preferences.socketPath && !some(preferences.tokens, &isInputToken)) {
 			string token;
 
-			cout << "Token: ";
+			cout << "Input token: ";
 
 			getline(cin, token);
 
@@ -218,7 +256,14 @@ namespace Interface {
 				cin.clear();
 			}
 
-			preferences.tokens.insert(token);
+			if(token.empty()) {
+				preferences.tokens.insert("=");
+			} else
+			if(isInputToken(token)) {
+				preferences.tokens.insert(token);
+			} else {
+				println("Wrong token format, expected input (<) or universal (=) direction specifier as a first character");
+			}
 		}
 
 		return true;
@@ -246,13 +291,7 @@ namespace Interface {
 
 	// ----------------------------------------------------------------
 
-	void sendToClients(const string& output) {
-		if(sharedServer) {
-			sharedServer->send(output);
-		}
-	}
-
-	void sendToServer(const string& input) {
+	void send(const string& input) {
 		if(sharedClient) {
 			sharedClient->send(input);
 		}
@@ -262,13 +301,12 @@ namespace Interface {
 		node.get("receiverProcessID") = 0;
 		node.get("processID") = (int)getpid();
 
-		sendToClients(to_string(node));
+		send(to_string(node));
 	}
 
 	void sendToServer(Node node) {
-		node.get("receiverProcessID") = 0;
 		node.get("processID") = (int)getpid();
 
-		sendToServer(to_string(node));
+		send(to_string(node));
 	}
 }

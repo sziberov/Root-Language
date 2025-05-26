@@ -3202,7 +3202,7 @@ struct Parser {
 
 		void update(int previous) {
 			if(value < previous) {  // Rollback global changes
-				Interface::sendToServer({
+				Interface::sendToClients({
 					{"type", "notification"},
 					{"source", "parser"},
 					{"action", "removeAfterPosition"},
@@ -3271,7 +3271,7 @@ struct Parser {
 
 		string = type+" -> "+string;
 
-		Interface::sendToServer({
+		Interface::sendToClients({
 			{"type", "notification"},
 			{"source", "parser"},
 			{"action", "add"},
@@ -3286,7 +3286,7 @@ struct Parser {
 	}
 
 	NodeSP parse() {
-		Interface::sendToServer({
+		Interface::sendToClients({
 			{"type", "notification"},
 			{"source", "parser"},
 			{"action", "removeAll"},
@@ -3295,7 +3295,7 @@ struct Parser {
 
 		NodeSP tree = rules("module");
 
-		Interface::sendToServer({
+		Interface::sendToClients({
 			{"type", "notification"},
 			{"source", "parser"},
 			{"action", "parsed"},

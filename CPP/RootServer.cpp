@@ -28,8 +28,8 @@ namespace RootServer {
 		unordered_set<string> tokens;
 		unordered_map<string, Request> requests;
 
-		bool match(const string& token, int processID) {
-			return tokens.contains(token) && (processID == 0 || processID == this->processID);
+		bool match(const string& undirectedToken, int processID) {
+			return Interface::containsToken(tokens, undirectedToken) && (processID == 0 || processID == this->processID);
 		}
 	};
 
@@ -140,7 +140,7 @@ namespace RootServer {
 			string type = message->get("type"),
 				   action = message->get("action");
 
-			if(!message->contains("receiverToken") && !message->contains("receiverProcessID")) {  // Server-side message (no rerouting)
+			if(!message->contains("receiverToken") && !message->contains("receiverProcessID")) {
 				println(sharedServer->getLogPrefix(), "Handling server-side message: ", rawMessage);
 
 				if(type == "notification") {
@@ -155,7 +155,14 @@ namespace RootServer {
 						}
 
 						if(NodeArraySP senderTokens = message->get("senderTokens")) {
-							sender.tokens = unordered_set<string>(senderTokens->begin(), senderTokens->end());
+							sender.tokens = {};
+
+							for(string t : *senderTokens) {
+								if(Interface::isToken(t)) {
+									println(sharedServer->getLogPrefix(), "Inserting token for ", senderFD, ": ", t);
+									sender.tokens.insert(t);
+								}
+							}
 						}
 					} else
 					if(action == "cancelRequest") {
@@ -168,16 +175,18 @@ namespace RootServer {
 				} else {
 					println(sharedServer->getLogPrefix(), "Unknown server-side message type from ", senderFD, ": \"", type, "\"");
 				}
-			} else {  // Client-side message (rerouting)
+			} else {
 				println(sharedServer->getLogPrefix(), "Handling client-side message: ", rawMessage);
 
 				string receiverToken = message->get("receiverToken");
-				int receiverProcessID = message->get("receiverProcessID");
+				int receiverProcessID = message->get("receiverProcessID"),
+					receivers = 0;
 
 				if(type == "notification") {
 					for(auto& [clientFD, client] : clients) {
 						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
 							sharedServer->send(clientFD, rawMessage);  // Notify
+							receivers++;
 						}
 					}
 				} else
@@ -209,6 +218,7 @@ namespace RootServer {
 					}
 					for(auto& [receiverFD, responded] : request.receiversFDs) {
 						sharedServer->send(receiverFD, rawMessage);  // Request responce
+						receivers++;
 					}
 				} else
 				if(type == "response") {
@@ -233,6 +243,7 @@ namespace RootServer {
 						}
 
 						sharedServer->send(clientFD, rawMessage);  // Respond
+						receivers++;
 						request.receiversFDs.at(senderFD) = true;
 
 						if(!request.multipleResponses || !some(request.receiversFDs, [](auto& v) { return !v.second; })) {
@@ -241,6 +252,10 @@ namespace RootServer {
 					}
 				} else {
 					println(sharedServer->getLogPrefix(), "Unknown client-side message type from ", senderFD, ": \"", type, "\"");
+				}
+
+				if(receivers == 0) {
+					println(sharedServer->getLogPrefix(), "Message was not properly handled: ", rawMessage);
 				}
 			}
 		}
@@ -276,7 +291,7 @@ namespace RootServer {
 
 		string receiverToken = message->get("receiverToken");
 
-		if(!contains(Interface::preferences.tokens, receiverToken)) {  // Do not trust to server with 100% confidence
+		if(!Interface::containsToken(Interface::preferences.tokens, receiverToken)) {  // Do not trust to server with 100% confidence
 			println(sharedClient->getLogPrefix(), "Tokens list does not contain '", receiverToken, "', message ignored");
 
 			return;

@@ -39,9 +39,9 @@ function openSocket(path, token) {
         auth.style.display = 'none';
 
         send({ type: 'request', action: 'listProcesses' });
-        send({ type: 'notification', action: 'heartbeat', senderTokens: [''] });
+        send({ type: 'notification', action: 'heartbeat', senderTokens: ['='] });
     	clearInterval(heartbeatInterval);
-    	heartbeatInterval = setInterval(() => send({ type: 'notification', action: 'heartbeat', senderTokens: [''] }), 7500);
+    	heartbeatInterval = setInterval(() => send({ type: 'notification', action: 'heartbeat', senderTokens: ['='] }), 7500);
 
     //	clearInterval(processListInterval);
     //	processListInterval = setInterval(() => send({ type: 'request', action: 'listProcesses', token: token }), 10000);

@@ -769,7 +769,7 @@ struct Lexer {
 	}
 
 	deque<Token> tokenize() {
-		Interface::sendToServer({
+		Interface::sendToClients({
 			{"type", "notification"},
 			{"source", "lexer"},
 			{"action", "removeAll"},
@@ -780,7 +780,7 @@ struct Lexer {
 			nextToken();  // Zero-length position commits will lead to forever loop, rules developer attention is advised
 		}
 
-		Interface::sendToServer({
+		Interface::sendToClients({
 			{"type", "notification"},
 			{"source", "lexer"},
 			{"action", "tokenized"},
