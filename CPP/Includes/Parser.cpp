@@ -836,7 +836,7 @@ struct Parser {
 				rules("expressionsSequence") ?:
 				rules("ifStatement");
 
-			if(node == nullptr) {
+			if(!node) {
 				report(0, start, "elseClause", "No value.");
 			}
 
@@ -1169,7 +1169,7 @@ struct Parser {
 			for(const string& type : *types) {
 				NodeSP node = rules(type);
 
-				if(node != nullptr) {
+				if(node) {
 					return node;
 				}
 			}
@@ -1438,7 +1438,7 @@ struct Parser {
 				while(!tokensEnd()) {
 					NodeSP node_ = rules("chainIdentifier", node.get<NodeSP>("value"));
 
-					if(node_ == nullptr) {
+					if(!node_) {
 						break;
 					}
 
@@ -1511,7 +1511,7 @@ struct Parser {
 			position++;
 			node = rules("expressionsSequence");
 
-			if(node == nullptr) {
+			if(!node) {
 				report(0, start, "initializerClause", "No value.");
 			}
 
@@ -1903,7 +1903,7 @@ struct Parser {
 				"willDelete",
 				"delete",
 				"didDelete"
-			}.contains(identifier != nullptr ? identifier->get("value") : "")) {
+			}.contains(identifier ? identifier->get("value") : "")) {
 				position = node.get<Node&>("range").get("start");
 
 				return nullptr;
@@ -1923,7 +1923,7 @@ struct Parser {
 			bool strict = !arguments.empty() && any_cast<bool>(arguments[0]);
 			NodeSP node = rules("body", "observers");
 
-			if(node != nullptr && strict && !some(node->get<NodeArray&>("statements"), [](const Node& v) { return v.get("type") != "unsupported"; })) {
+			if(node && strict && !some(node->get<NodeArray&>("statements"), [](const Node& v) { return v.get("type") != "unsupported"; })) {
 				position = node->get<Node&>("range").get("start");
 
 				return nullptr;
@@ -2127,7 +2127,7 @@ struct Parser {
 					rules("nillableExpression", value) ?:
 					rules("subscriptExpression", value);
 
-				if(node_ == nullptr) {
+				if(!node_) {
 					break;
 				}
 
@@ -2166,7 +2166,7 @@ struct Parser {
 		if(type == "postfixType") {
 			NodeSP node = rules("primaryType");
 
-			if(node == nullptr) {
+			if(!node) {
 				return nullptr;
 			}
 
@@ -2175,7 +2175,7 @@ struct Parser {
 					rules("defaultType", node) ?:
 					rules("nillableType", node);
 
-				if(node_ == nullptr) {
+				if(!node_) {
 					break;
 				}
 
@@ -2728,7 +2728,7 @@ struct Parser {
 			position++;
 			node = rules("type");
 
-			if(node == nullptr) {
+			if(!node) {
 				report(0, start, "typeClause", "No value.");
 			}
 
@@ -2780,7 +2780,7 @@ struct Parser {
 			while(!tokensEnd()) {
 				NodeSP node_ = rules("chainIdentifier", node.get<NodeSP>("identifier"));
 
-				if(node_ == nullptr) {
+				if(!node_) {
 					break;
 				}
 
@@ -3004,13 +3004,13 @@ struct Parser {
 			string type = types[offset%types.size()];
 			NodeSP node = rules(type);
 
-			if(node == nullptr) {
+			if(!node) {
 				break;
 			}
 
 			nodes.push_back(node);
 
-			if(subsequentialTypes == nullopt || !subsequentialTypes->contains(node->get("type"))) {
+			if(!subsequentialTypes || !subsequentialTypes->contains(node->get("type"))) {
 				offset++;
 			}
 
@@ -3039,7 +3039,7 @@ struct Parser {
 		NodeSP node = rules(type);
 		int scopeLevel = 1;
 
-		if(node != nullptr || closing() || tokensEnd()) {
+		if(node || closing() || tokensEnd()) {
 			return node;
 		}
 
@@ -3060,7 +3060,7 @@ struct Parser {
 				break;
 			}
 
-			node->get<NodeArray&>("tokens").push_back(make_any<Token&>(token()));
+			node->get<NodeArray&>("tokens").push_back(NodeParser(Lexer::to_string(token())).parse());
 			node->get<Node&>("range").get("end") = position++;
 		}
 
@@ -3098,7 +3098,7 @@ struct Parser {
 				for(const string& type : types) {
 					node = rules(type);
 
-					if(node != nullptr) {
+					if(node) {
 						nodes.push_back(node);
 
 						break;
@@ -3113,7 +3113,7 @@ struct Parser {
 			if(separating && separating()) {
 				node = !nodes.empty() ? nodes.back().get<NodeSP>() : nullptr;
 
-				if(node != nullptr) {
+				if(node) {
 					if(node->get("type") != "separator") {
 						node = SP<Node>({
 							{"type", "separator"},
@@ -3132,13 +3132,13 @@ struct Parser {
 				position++;
 			}
 
-			if(node != nullptr) {
+			if(node) {
 				continue;
 			}
 
 			node = !nodes.empty() ? nodes.back().get<NodeSP>() : nullptr;
 
-			if(node == nullptr || node->get("type") != "unsupported") {
+			if(!node || node->get("type") != "unsupported") {
 				node = SP<Node>({
 					{"type", "unsupported"},
 					{"range", {
@@ -3156,7 +3156,7 @@ struct Parser {
 				break;
 			}
 
-			node->get<NodeArray&>("tokens").push_back(make_any<Token&>(token()));
+			node->get<NodeArray&>("tokens").push_back(NodeParser(Lexer::to_string(token())).parse());
 			node->get<Node&>("range").get("end") = position++;
 
 			if(node != (!nodes.empty() ? nodes.back().get<NodeSP>() : nullptr)) {

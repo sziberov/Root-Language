@@ -137,10 +137,11 @@ namespace RootServer {
 		Client& sender = clients.at(senderFD);
 
 		if(NodeSP message = NodeParser(rawMessage).parse()) {
-			string type = message->get("type"),
+			string receiver = message->get("receiver"),
+				   type = message->get("type"),
 				   action = message->get("action");
 
-			if(!message->contains("receiverToken") && !message->contains("receiverProcessID")) {
+			if(receiver == "server") {
 				println(sharedServer->getLogPrefix(), "Handling server-side message: ", rawMessage);
 
 				if(type == "notification") {
@@ -175,7 +176,8 @@ namespace RootServer {
 				} else {
 					println(sharedServer->getLogPrefix(), "Unknown server-side message type from ", senderFD, ": \"", type, "\"");
 				}
-			} else {
+			} else
+			if(receiver == "client") {
 				println(sharedServer->getLogPrefix(), "Handling client-side message: ", rawMessage);
 
 				string receiverToken = message->get("receiverToken");
@@ -255,8 +257,10 @@ namespace RootServer {
 				}
 
 				if(receivers == 0) {
-					println(sharedServer->getLogPrefix(), "Message was not properly handled: ", rawMessage);
+					println(sharedServer->getLogPrefix(), "No message was sent to clients while handling: ", rawMessage);
 				}
+			} else {
+				println(sharedServer->getLogPrefix(), "Unknown receiver kind from ", senderFD, ": \"", receiver, "\"");
 			}
 		}
 	}

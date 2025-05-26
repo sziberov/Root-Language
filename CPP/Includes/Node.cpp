@@ -42,7 +42,7 @@ static string to_string(const NodeArray& node);
 
 class NodeValue {
 private:
-	mutable variant<nullptr_t, bool, int, double, string, NodeSP, NodeArraySP, any> value;
+	mutable variant<nullptr_t, bool, int, double, string, NodeSP, NodeArraySP> value;
 
 public:
 	bool serialized = false;
@@ -58,7 +58,6 @@ public:
 	NodeValue(const NodeSP& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
 	NodeValue(const NodeArray& v) : value(SP<NodeArray>(v)) {}
 	NodeValue(const NodeArraySP& v) : value(v ?: static_cast<decltype(value)>(nullptr)) {}
-	NodeValue(const any& v) : value(v) {}
 
 	NodeValue(initializer_list<pair<const string, NodeValue>> v) : value(SP<Node>(v)) {}
 
@@ -80,9 +79,8 @@ public:
 
 	template <typename T>
 	operator T() const {
-		if(holds_alternative<T>(value))										return get<T>();
-		if(holds_alternative<any>(value) && get<any>().type() == typeid(T)) return any_cast<T>(get<any>());
-		if(holds_alternative<nullptr_t>(value))								return T();
+		if(holds_alternative<T>(value))			return get<T>();
+		if(holds_alternative<nullptr_t>(value))	return T();
 
 		cout << "Invalid type chosen to cast-access value (" << type_name<T>() << "), factual is [" << type() << "]" << endl;
 

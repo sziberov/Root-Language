@@ -38,17 +38,16 @@ function openSocket(path, token) {
         client.setNoDelay(true);
         auth.style.display = 'none';
 
-        send({ type: 'request', action: 'listProcesses' });
-        send({ type: 'notification', action: 'heartbeat', senderTokens: ['='] });
+        send({ receiver: 'server', type: 'request', action: 'listProcesses' });
+        send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['='] });
     	clearInterval(heartbeatInterval);
-    	heartbeatInterval = setInterval(() => send({ type: 'notification', action: 'heartbeat', senderTokens: ['='] }), 7500);
+    	heartbeatInterval = setInterval(() => send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['='] }), 7500);
 
     //	clearInterval(processListInterval);
-    //	processListInterval = setInterval(() => send({ type: 'request', action: 'listProcesses', token: token }), 10000);
+    //	processListInterval = setInterval(() => send({ receiver: 'server', type: 'request', action: 'listProcesses', token: token }), 10000);
     });
 
     client.on('data', (data) => {
-        console.log('chunk size', data.length);
         console.log('Received raw: ', data);
         readBuffer = Buffer.concat([readBuffer, data]);
 
@@ -364,8 +363,8 @@ function initializeClientInterface(container, clientId) {
 
     inputText.oninput = () => {
         inputLint.innerHTML = '';
-        send({ receiverToken: socketToken.value, type: 'notification', action: 'lex', code: inputText.value, clientId });
-        send({ receiverToken: socketToken.value, type: 'notification', action: 'parse', clientId });
+        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'lex', code: inputText.value, clientId });
+        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'parse', clientId });
     };
 
     inputText.onscroll = () => {
@@ -374,10 +373,11 @@ function initializeClientInterface(container, clientId) {
     };
 
     changeTree.onclick = () => {
-        if (tokensOutput.style.display !== 'none') {
+        if(tokensOutput.style.display !== 'none') {
             ASTOutput.style.display = '';
             tokensOutput.style.display = compositesOutput.style.display = 'none';
-        } else if (ASTOutput.style.display !== 'none') {
+        } else
+        if(ASTOutput.style.display !== 'none') {
             compositesOutput.style.display = '';
             tokensOutput.style.display = ASTOutput.style.display = 'none';
         } else {
@@ -387,12 +387,12 @@ function initializeClientInterface(container, clientId) {
     };
 
     interpret.onclick = () => {
-        send({ receiverToken: socketToken.value, type: 'notification', action: 'interpret', clientId });
+        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'interpret', clientId });
     };
 
     consoleInput.onkeypress = (e) => {
         if (e.key === 'Enter') {
-            send({ receiverToken: socketToken.value, type: 'notification', action: 'evaluate', code: consoleInput.value, clientId });
+            send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'evaluate', code: consoleInput.value, clientId });
         }
     };
 }
