@@ -39,9 +39,9 @@ function openSocket(path, token) {
         auth.style.display = 'none';
 
         send({ receiver: 'server', type: 'request', action: 'listProcesses' });
-        send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['='] });
+        send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['>'+token] });
     	clearInterval(heartbeatInterval);
-    	heartbeatInterval = setInterval(() => send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['='] }), 7500);
+    	heartbeatInterval = setInterval(() => send({ receiver: 'server', type: 'notification', action: 'heartbeat', senderTokens: ['>'+token] }), 7500);
 
     //	clearInterval(processListInterval);
     //	processListInterval = setInterval(() => send({ receiver: 'server', type: 'request', action: 'listProcesses', token: token }), 10000);
@@ -363,8 +363,8 @@ function initializeClientInterface(container, clientId) {
 
     inputText.oninput = () => {
         inputLint.innerHTML = '';
-        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'lex', code: inputText.value, clientId });
-        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'parse', clientId });
+        send({ receiver: 'client', receiverTokens: [socketToken.value], type: 'notification', action: 'lex', code: inputText.value, clientId });
+        send({ receiver: 'client', receiverTokens: [socketToken.value], type: 'notification', action: 'parse', clientId });
     };
 
     inputText.onscroll = () => {
@@ -387,12 +387,12 @@ function initializeClientInterface(container, clientId) {
     };
 
     interpret.onclick = () => {
-        send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'interpret', clientId });
+        send({ receiver: 'client', receiverTokens: [socketToken.value], type: 'notification', action: 'interpret', clientId });
     };
 
     consoleInput.onkeypress = (e) => {
         if (e.key === 'Enter') {
-            send({ receiver: 'client', receiverToken: socketToken.value, type: 'notification', action: 'evaluate', code: consoleInput.value, clientId });
+            send({ receiver: 'client', receiverTokens: [socketToken.value], type: 'notification', action: 'evaluate', code: consoleInput.value, clientId });
         }
     };
 }

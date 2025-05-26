@@ -8,9 +8,9 @@ namespace RootServer {
 	mutex interpreterMutex;
 
 	struct Request {
-		string receiverToken;
-		int receiverProcessID = 0,  // 0 - Any, 1+ - specific
-			timeout = 0;  // 0 - Infinity, 1+ - seconds
+		unordered_set<string> receiverTokens;  // Empty - inherit from sender, non-empty - specific
+		unordered_set<int> receiverProcessesIDs;  // Empty - any, non-empty - specific
+		int timeout = 0;  // 0 - Infinity, 1+ - seconds
 		optional<usize> timeoutTaskID;
 		bool reauthReceivers = false,
 			 multipleResponses = false;
@@ -28,8 +28,12 @@ namespace RootServer {
 		unordered_set<string> tokens;
 		unordered_map<string, Request> requests;
 
-		bool match(const string& undirectedToken, int processID) {
-			return Interface::containsToken(tokens, undirectedToken) && (processID == 0 || processID == this->processID);
+		bool match(const unordered_set<string>& senderTokens, const unordered_set<int>& processesIDs) {
+			return Interface::tokensMatch(tokens, senderTokens) && (processesIDs.empty() || processesIDs.contains(processID));
+		}
+
+		bool reverseMatch(const unordered_set<string>& senderTokens) {
+			return Interface::tokensMatch(senderTokens, tokens);
 		}
 	};
 
@@ -142,7 +146,7 @@ namespace RootServer {
 				   action = message->get("action");
 
 			if(receiver == "server") {
-				println(sharedServer->getLogPrefix(), "Handling server-side message: ", rawMessage);
+				println(sharedServer->getLogPrefix(), "Handling server-side message from ", senderFD, ": ", rawMessage);
 
 				if(type == "notification") {
 					if(action == "heartbeat") {
@@ -160,10 +164,11 @@ namespace RootServer {
 
 							for(string t : *senderTokens) {
 								if(Interface::isToken(t)) {
-									println(sharedServer->getLogPrefix(), "Inserting token for ", senderFD, ": ", t);
 									sender.tokens.insert(t);
 								}
 							}
+
+							println(sharedServer->getLogPrefix(), "Tokens set for ", senderFD, ": ", join(sender.tokens, ", "));
 						}
 					} else
 					if(action == "cancelRequest") {
@@ -178,15 +183,29 @@ namespace RootServer {
 				}
 			} else
 			if(receiver == "client") {
-				println(sharedServer->getLogPrefix(), "Handling client-side message: ", rawMessage);
+				println(sharedServer->getLogPrefix(), "Handling client-side message from ", senderFD, ": ", rawMessage);
 
-				string receiverToken = message->get("receiverToken");
-				int receiverProcessID = message->get("receiverProcessID"),
-					receivers = 0;
+				unordered_set<string> senderTokens;
+				unordered_set<int> receiverProcessesIDs;
+				int receivers = 0;
+
+				if(NodeArraySP RT = message->get("receiverTokens")) {
+					for(const string& receiverToken : *RT) {
+						senderTokens.insert(">"+receiverToken);
+					}
+				} else {
+					senderTokens = sender.tokens;
+				}
+
+				if(NodeArraySP RPID = message->get("receiverProcessesIDs")) {
+					receiverProcessesIDs = { RPID->begin(), RPID->end() };
+				}
 
 				if(type == "notification") {
+					println("Trying to notify clients from ", senderFD, ": ", join(senderTokens, ", "));
+
 					for(auto& [clientFD, client] : clients) {
-						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
+						if(clientFD != senderFD && (client.match(senderTokens, receiverProcessesIDs) || client.reverseMatch(senderTokens))) {
 							sharedServer->send(clientFD, rawMessage);  // Notify
 							receivers++;
 						}
@@ -205,8 +224,8 @@ namespace RootServer {
 					bool reauthReceivers = message->get("reauthReceivers"),
 						 multipleResponses = message->get("multipleResponses");
 					Request& request = (sender.requests[requestID] = {  // Register request
-						receiverToken,
-						receiverProcessID,
+						senderTokens,
+						receiverProcessesIDs,
 						timeout,
 						scheduleRequestTimeout(senderFD, requestID, timeout),
 						reauthReceivers,
@@ -214,7 +233,7 @@ namespace RootServer {
 					});
 
 					for(auto& [clientFD, client] : clients) {
-						if(clientFD != senderFD && client.match(receiverToken, receiverProcessID)) {
+						if(clientFD != senderFD && client.match(senderTokens, receiverProcessesIDs)) {
 							request.receiversFDs[clientFD] = false;  // Register responder
 						}
 					}
@@ -238,7 +257,7 @@ namespace RootServer {
 						if(request.receiversFDs.contains(senderFD)) {
 							continue;
 						}
-						if(request.reauthReceivers && !sender.match(request.receiverToken, request.receiverProcessID)) {
+						if(request.reauthReceivers && !sender.match(request.receiverTokens, request.receiverProcessesIDs)) {
 							println(sharedServer->getLogPrefix(), "Responder ", senderFD, " has failed to reauthentificate");
 
 							continue;
@@ -293,10 +312,16 @@ namespace RootServer {
 			return;
 		}
 
-		string receiverToken = message->get("receiverToken");
+		unordered_set<string> senderTokens;
 
-		if(!Interface::containsToken(Interface::preferences.tokens, receiverToken)) {  // Do not trust to server with 100% confidence
-			println(sharedClient->getLogPrefix(), "Tokens list does not contain '", receiverToken, "', message ignored");
+		if(NodeArraySP RT = message->get("receiverTokens")) {
+			for(const string& receiverToken : *RT) {
+				senderTokens.insert(">"+receiverToken);
+			}
+		}
+
+		if(!Interface::tokensMatch(Interface::preferences.tokens, senderTokens)) {  // Do not trust to server with 100% confidence
+			println(sharedClient->getLogPrefix(), "Tokens list does not contain any of [", join(senderTokens, ", "), "], message ignored");
 
 			return;
 		}

@@ -71,7 +71,7 @@ namespace Interface {
 			cout << "          Socket Path: " << *preferences.socketPath << endl;
 		}
 
-		cout << "                Token: " << *preferences.tokens.begin() << endl;  // TODO: Should be hidden
+		cout << "               Tokens: " << join(preferences.tokens, ", ") << endl;  // TODO: Should be hidden
 		cout << "      Call Stack Size: " << preferences.callStackSize << endl;
 		cout << "        Reports Level: " << preferences.reportsLevel << endl;
 		cout << "Metaprogramming Level: " << preferences.metaprogrammingLevel << endl;
@@ -110,10 +110,24 @@ namespace Interface {
 		return isToken(t, "=");
 	}
 
-	bool containsToken(const unordered_set<string>& tokens, const string& undirectedToken) {
-		for(const string& t : tokens) {
-			if(isInputToken(t) && t.substr(1) == undirectedToken) {
-				return true;
+	bool tokensMatch(const unordered_set<string>& receiverTokens, const unordered_set<string>& senderTokens) {
+		println("Matching: ", join(receiverTokens, ","), " and: ", join(senderTokens, ","));
+
+		unordered_set<string> undirectedOutputSenderTokens;
+
+		for(const string& senderToken : senderTokens) {
+			if(isOutputToken(senderToken)) {
+				undirectedOutputSenderTokens.insert(senderToken.substr(1));
+			}
+		}
+
+		for(const string& receiverToken : receiverTokens) {
+			if(isInputToken(receiverToken)) {
+				string undirectedInputReceiverToken = receiverToken.substr(1);
+
+				if(undirectedOutputSenderTokens.contains(undirectedInputReceiverToken)) {
+					return true;
+				}
 			}
 		}
 

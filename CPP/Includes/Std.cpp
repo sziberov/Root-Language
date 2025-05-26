@@ -76,30 +76,61 @@ bool contains(const Container& container, const T& value) {
 template <typename Container, typename UnaryPredicate>
 Container filter(const Container& container, UnaryPredicate predicate) {
 	Container result;
+
 	copy_if(container.begin(), container.end(), back_inserter(result), predicate);
+
 	return result;
 }
 
 template <typename Container, typename UnaryPredicate>
 Container transform(const Container& container, UnaryPredicate predicate) {
 	Container result;
+
 	result.reserve(container.size());
 	transform(container.begin(), container.end(), back_inserter(result), predicate);
+
 	return result;
 }
 
 template <typename Container, typename T>
-int index_of(Container container, const T& value) {
+int index_of(const Container& container, const T& value) {
 	auto it = find(container.begin(), container.end(), value);
 
 	return it != container.end() ? it-container.begin() : -1;
 }
 
 template <typename Container, typename Predicate>
-int find_index(Container container, Predicate predicate) {
+int find_index(const Container& container, Predicate predicate) {
 	auto it = find_if(container.begin(), container.end(), predicate);
 
 	return it != container.end() ? it-container.begin() : -1;
+}
+
+template <typename Container>
+Container concat(const Container& LHS, const Container& RHS) {
+    Container result(LHS);
+
+    result.insert(RHS.begin(), RHS.end());
+
+    return result;
+}
+
+template <typename Container>
+string join(const Container& container, const string& separator) {
+	string result;
+	bool separated;
+
+	for(const auto& element : container) {
+		result += element;
+		result += separator;
+		separated = true;
+	}
+
+	if(separated) {
+		result.erase(result.length()-separator.length());
+	}
+
+	return result;
 }
 
 template <typename Map>

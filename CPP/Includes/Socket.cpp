@@ -45,7 +45,7 @@ public:
 		memcpy(&packet[0], &size, 4);  // Копируем длину
 		memcpy(&packet[4], message.data(), message.size());  // Копируем сообщение
 		::send(clientFD, packet.data(), packet.size(), 0);  // Отправка полного пакета
-		println(getLogPrefix(), "Sent to ", clientFD, ": ", message);
+		println(getLogPrefix(), "Sent", (mode == Mode::Server ? " to "+to_string(clientFD) : ""), ": ", message);
 	}
 
 	void send(const string& message) {
@@ -105,7 +105,7 @@ public:
 	}
 
 	string getLogPrefix() const {
-		return (mode == Mode::Server ? "[Server " : "[Client ")+to_string(socketFD)+"] ";
+		return mode == Mode::Server ? "[Server "+to_string(socketFD)+"] " : "[Client] ";
 	}
 
 private:
@@ -260,7 +260,7 @@ private:
 
 				string message = readBuffer.substr(4, size);
 
-				println(getLogPrefix(), "Received from ", FD, ": ", message);
+				println(getLogPrefix(), "Received", (mode == Mode::Server ? " from "+to_string(FD) : ""), ": ", message);
 
 				if(messageHandler) {
 					messageHandler(FD, message);
