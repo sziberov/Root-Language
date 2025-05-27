@@ -24,7 +24,7 @@ body {
 		backdrop-filter: blur(4px);
 		position: fixed;
 		padding: 24px;
-		top: 0;
+		top: 24px;
 		left: 50%;
 		transform: translateX(-50%);
 		box-shadow:
@@ -53,12 +53,23 @@ body {
 	z-index: 1;
 
 	button {
+		position: relative;
 		background: none;
 		color: white;
-		border-width: 0 1px 0 0;
+		border-width: 0 1px 0 1px;
 		border-style: solid;
-		border-color: black;
+		border-color: transparent;
 		text-shadow: 0 -1px black;
+
+		&:not(:first-child):after {
+			content: '';
+			position:absolute;
+			top: 4px;
+			right: 100%;
+			bottom: 4px;
+			width: 1px;
+			background: black;
+		}
 	}
 
 	button:active {
@@ -69,6 +80,11 @@ body {
 		border-color: rgba(100% 100% 100% / 12.5%);
 		box-shadow: inset 0 1px 4px rgba(0% 0% 0% / 75%);
 		text-shadow: 0 1px 2px black;
+
+		&:after,
+		+ button:after {
+			content: none;
+		}
 	}
 }
 

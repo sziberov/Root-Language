@@ -121,6 +121,7 @@ public:
 
 	operator string() const {
 		switch(type()) {
+			case 0:		return "null";
 			case 1:		return get<bool>() ? "true" : "false";
 			case 2:		return to_string(get<int>());
 			case 3:		return to_string(get<double>());
@@ -247,22 +248,32 @@ public:
 	Node(initializer_list<pair<const string, NodeValue>> items) : data(items) {}
 
 	template <typename T>
-	T get(const string& key, const NodeValue& defaultValue = nullptr) const {
+	T get(const string& key) const {
+		auto it = data.find(key);
+
+		return it != data.end() && !it->second.empty() ? it->second : NodeValue();
+	}
+
+	NodeValue get(const string& key, const NodeValue& defaultValue) const {
 		auto it = data.find(key);
 
 		return it != data.end() && !it->second.empty() ? it->second : defaultValue;
+	}
+
+	const NodeValue& get(const string& key) const {
+		return data.at(key);
 	}
 
 	/**
 	 * Automatically creates key and should not be naively used for (and before)
 	 * checking if it exists, if the latter can have logical impact.
 	 */
-	NodeValue& get(const string& key) {
+	NodeValue& operator[](const string& key) {
 		return data[key];
 	}
 
-	const NodeValue& get(const string& key) const {
-		return data.at(key);
+	operator string() const {
+		return to_string(*this);
 	}
 
 	auto begin() const {
@@ -273,7 +284,7 @@ public:
 		return data.end();
 	}
 
-	bool contains(const string& key) {
+	bool contains(const string& key) const {
 		return data.contains(key);
 	}
 
@@ -391,27 +402,19 @@ static string to_string(const NodeValue& value) {
 }
 
 static string to_string(const Node& node) {
-	string result = "{";
-	auto it = node.begin();
+    vector<string> content;
 
-	while(it != node.end()) {
-		auto& [k, v] = *it;
-		string s = to_string(v);
+    for(const auto& [k, v] : node) {
+        string s = to_string(v);
 
-		if(!s.empty()) {
-			result += "\""+k+"\": "+s;
-
-			if(next(it) != node.end()) {
-				result += ", ";
-			}
+        if(!s.empty()) {
+            content.push_back("\""+k+"\": "+s);
+        } else {
+			println(k, " is empty (why?)");  // Probably will not occur (if this is the case, the entire algorithm can be simplified eliminating if/else)
 		}
+    }
 
-		it++;
-	}
-
-	result += "}";
-
-	return result;
+    return "{"+join(content, ", ")+"}";
 }
 
 static string to_string(const NodeArray& node) {
@@ -526,7 +529,7 @@ class NodeParser {
 			skipWhitespace();
 			if(s[i] == ':') i++;
 			skipWhitespace();
-			node.get(key) = parseValue();
+			node[key] = parseValue();
 			skipWhitespace();
 			if(s[i] == ',') i++;
 			else if(s[i] == '}') { i++; break; }

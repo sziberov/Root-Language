@@ -9,16 +9,18 @@ namespace RootServer {
 
 	struct Request {
 		unordered_set<string> receiverTokens;  // Empty - inherit from sender, non-empty - specific
-		unordered_set<int> receiverProcessesIDs;  // Empty - any, non-empty - specific
+		unordered_set<int> receiverFDs,           // Empty - any, non-empty - specific
+						   receiverProcessesIDs;
 		int timeout = 0;  // 0 - Infinity, 1+ - seconds
 		optional<usize> timeoutTaskID;
-		bool reauthReceivers = false,
+		bool reauthReceiver = false,
 			 multipleResponses = false;
-		unordered_map<int, bool> receiversFDs;  // [Client FD : Responded]
+		unordered_map<int, bool> responderFDs;  // [Client FD : Responded]
 	};
 
 	struct Client {
-		int processID = 0;
+		int FD = 0,
+			processID = 0;
 		enum class State {
 			Pending,  // For spawned processes (if dashboard will ever able to have own child processes)
 			Connected,
@@ -28,12 +30,13 @@ namespace RootServer {
 		unordered_set<string> tokens;
 		unordered_map<string, Request> requests;
 
-		bool match(const unordered_set<string>& senderTokens, const unordered_set<int>& processesIDs) {
-			return Interface::tokensMatch(tokens, senderTokens) && (processesIDs.empty() || processesIDs.contains(processID));
-		}
-
-		bool reverseMatch(const unordered_set<string>& senderTokens) {
-			return Interface::tokensMatch(senderTokens, tokens);
+		bool match(const unordered_set<int>& FDs, const unordered_set<int>& processesIDs, const unordered_set<string>& senderTokens, bool fallback = false) {
+			return (FDs.empty() ||
+					FDs.contains(FD)) &&
+				   (processesIDs.empty() ||
+					processesIDs.contains(processID)) &&
+				   (Interface::tokensMatch(tokens, senderTokens) || fallback &&
+				    Interface::tokensMatch(senderTokens, tokens));
 		}
 	};
 
@@ -43,7 +46,7 @@ namespace RootServer {
 	// ----------------------------------------------------------------
 
 	optional<usize> scheduleRequestTimeout(int senderFD, string requestID, int timeout) {
-		if(timeout == 0) {
+		if(timeout <= 0) {
 			return nullopt;
 		}
 
@@ -54,7 +57,7 @@ namespace RootServer {
 				auto it = client->requests.find(requestID);
 
 				if(it != client->requests.end()) {
-					if(!some(it->second.receiversFDs, [](auto& v) { return v.second; })) {
+					if(!some(it->second.responderFDs, [](auto& v) { return v.second; })) {
 						println(sharedServer->getLogPrefix(), "Request \"", requestID, "\" from ", senderFD, " has timed out with no response");
 					}
 
@@ -115,6 +118,7 @@ namespace RootServer {
 		}
 
 		clients[clientFD] = {
+			.FD = clientFD,
 			.processID = credentials.pid,
 			.state = Client::State::Connected,
 			.heartbeatTaskID = scheduleServerHeartbeat(clientFD)
@@ -142,11 +146,12 @@ namespace RootServer {
 
 		if(NodeSP message = NodeParser(rawMessage).parse()) {
 			string receiver = message->get("receiver"),
-				   type = message->get("type"),
-				   action = message->get("action");
+				   type = message->get("type");
 
 			if(receiver == "server") {
 				println(sharedServer->getLogPrefix(), "Handling server-side message from ", senderFD, ": ", rawMessage);
+
+				string action = message->get("action");
 
 				if(type == "notification") {
 					if(action == "heartbeat") {
@@ -178,6 +183,22 @@ namespace RootServer {
 					} else {
 						println(sharedServer->getLogPrefix(), "Unknown server-side notification action from ", senderFD, ": \"", action, "\"");
 					}
+				} else
+				if(type == "request") {
+					string requestID = message->get("requestID");
+
+					if(action == "listClients") {
+						auto clientsFDs = clients | views::keys;
+
+						sharedServer->send(senderFD, Node {
+							{"type", "response"},
+							{"responseID", requestID},
+							{"clientsFDs", NodeArray(clientsFDs.begin(), clientsFDs.end())},
+							{"receiverFD", senderFD}
+						});
+					} else {
+						println(sharedServer->getLogPrefix(), "Unknown server-side request action from ", senderFD, ": \"", action, "\"");
+					}
 				} else {
 					println(sharedServer->getLogPrefix(), "Unknown server-side message type from ", senderFD, ": \"", type, "\"");
 				}
@@ -185,11 +206,26 @@ namespace RootServer {
 			if(receiver == "client") {
 				println(sharedServer->getLogPrefix(), "Handling client-side message from ", senderFD, ": ", rawMessage);
 
+				unordered_set<int> receiverFDs,
+								   receiverProcessesIDs;
 				unordered_set<string> senderTokens;
-				unordered_set<int> receiverProcessesIDs;
-				int receivers = 0;
+				int sends = 0;
 
-				if(NodeArraySP RT = message->get("receiverTokens")) {
+				message->remove("receiver");
+
+				if(NodeArraySP RFD = message->get("receiverFDs", nullptr)) {
+									 message->remove("receiverFDs");
+
+					receiverFDs = { RFD->begin(), RFD->end() };
+				}
+				if(NodeArraySP RPID = message->get("receiverProcessesIDs", nullptr)) {
+									  message->remove("receiverProcessesIDs");
+
+					receiverProcessesIDs = { RPID->begin(), RPID->end() };
+				}
+				if(NodeArraySP RT = message->get("receiverTokens", nullptr)) {
+									message->remove("receiverTokens");
+
 					for(const string& receiverToken : *RT) {
 						senderTokens.insert(">"+receiverToken);
 					}
@@ -197,17 +233,16 @@ namespace RootServer {
 					senderTokens = sender.tokens;
 				}
 
-				if(NodeArraySP RPID = message->get("receiverProcessesIDs")) {
-					receiverProcessesIDs = { RPID->begin(), RPID->end() };
-				}
+				(*message)["senderFD"] = senderFD;
+				(*message)["senderProcessID"] = sender.processID;
+
+				string dryMessage = *message;
 
 				if(type == "notification") {
-					println("Trying to notify clients from ", senderFD, ": ", join(senderTokens, ", "));
-
 					for(auto& [clientFD, client] : clients) {
-						if(clientFD != senderFD && (client.match(senderTokens, receiverProcessesIDs) || client.reverseMatch(senderTokens))) {
-							sharedServer->send(clientFD, rawMessage);  // Notify
-							receivers++;
+						if(clientFD != senderFD && client.match(receiverFDs, receiverProcessesIDs, senderTokens, true)) {
+							sharedServer->send(clientFD, dryMessage);  // Notify
+							sends++;
 						}
 					}
 				} else
@@ -220,26 +255,27 @@ namespace RootServer {
 						return;
 					}
 
-					int timeout = message->get("timeout");
-					bool reauthReceivers = message->get("reauthReceivers"),
+					int timeout = message->contains("timeout") ? message->get<int>("timeout") : 30;
+					bool reauthReceiver = message->get("reauthReceiver"),
 						 multipleResponses = message->get("multipleResponses");
 					Request& request = (sender.requests[requestID] = {  // Register request
 						senderTokens,
+						receiverFDs,
 						receiverProcessesIDs,
 						timeout,
 						scheduleRequestTimeout(senderFD, requestID, timeout),
-						reauthReceivers,
+						reauthReceiver,
 						multipleResponses
 					});
 
 					for(auto& [clientFD, client] : clients) {
-						if(clientFD != senderFD && client.match(senderTokens, receiverProcessesIDs)) {
-							request.receiversFDs[clientFD] = false;  // Register responder
+						if(clientFD != senderFD && client.match(receiverFDs, receiverProcessesIDs, senderTokens)) {
+							request.responderFDs[clientFD] = false;  // Register responder
 						}
 					}
-					for(auto& [receiverFD, responded] : request.receiversFDs) {
-						sharedServer->send(receiverFD, rawMessage);  // Request responce
-						receivers++;
+					for(auto& [responderFD, responded] : request.responderFDs) {
+						sharedServer->send(responderFD, dryMessage);  // Request responce
+						sends++;
 					}
 				} else
 				if(type == "response") {
@@ -254,20 +290,20 @@ namespace RootServer {
 
 						Request& request = it->second;
 
-						if(request.receiversFDs.contains(senderFD)) {
-							continue;
+						if(!request.responderFDs.contains(senderFD)) {
+							continue;  // Allow only previously registered responders to handle request with that ID
 						}
-						if(request.reauthReceivers && !sender.match(request.receiverTokens, request.receiverProcessesIDs)) {
+						if(request.reauthReceiver && !sender.match(request.receiverFDs, request.receiverProcessesIDs, request.receiverTokens)) {
 							println(sharedServer->getLogPrefix(), "Responder ", senderFD, " has failed to reauthentificate");
 
 							continue;
 						}
 
-						sharedServer->send(clientFD, rawMessage);  // Respond
-						receivers++;
-						request.receiversFDs.at(senderFD) = true;
+						sharedServer->send(clientFD, dryMessage);  // Respond
+						sends++;
+						request.responderFDs.at(senderFD) = true;
 
-						if(!request.multipleResponses || !some(request.receiversFDs, [](auto& v) { return !v.second; })) {
+						if(!request.multipleResponses || !some(request.responderFDs, [](auto& v) { return !v.second; })) {
 							client.requests.erase(it);  // Unregister fulfilled request
 						}
 					}
@@ -275,7 +311,7 @@ namespace RootServer {
 					println(sharedServer->getLogPrefix(), "Unknown client-side message type from ", senderFD, ": \"", type, "\"");
 				}
 
-				if(receivers == 0) {
+				if(sends == 0) {
 					println(sharedServer->getLogPrefix(), "No message was sent to clients while handling: ", rawMessage);
 				}
 			} else {
@@ -309,20 +345,6 @@ namespace RootServer {
 		NodeSP message = NodeParser(rawMessage).parse();
 
 		if(!message) {
-			return;
-		}
-
-		unordered_set<string> senderTokens;
-
-		if(NodeArraySP RT = message->get("receiverTokens")) {
-			for(const string& receiverToken : *RT) {
-				senderTokens.insert(">"+receiverToken);
-			}
-		}
-
-		if(!Interface::tokensMatch(Interface::preferences.tokens, senderTokens)) {  // Do not trust to server with 100% confidence
-			println(sharedClient->getLogPrefix(), "Tokens list does not contain any of [", join(senderTokens, ", "), "], message ignored");
-
 			return;
 		}
 

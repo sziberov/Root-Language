@@ -28,16 +28,16 @@ struct Parser {
 				position++;
 			} else {
 				position = node.get<Node&>("range").get("start");
-				node.get("label") = nullptr;
+				node["label"] = nullptr;
 			}
 
-			node.get("value") = rules("expressionsSequence");
+			node["value"] = rules("expressionsSequence");
 
 			if(node.empty("label") && node.empty("value")) {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -52,8 +52,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("values") = helpers_sequentialNodes(
+			node.get<Node&>("range")["start"] = position++;
+			node["values"] = helpers_sequentialNodes(
 				{"expressionsSequence"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
@@ -64,7 +64,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -79,8 +79,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("type");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("type");
 
 			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
@@ -88,7 +88,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -103,8 +103,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("expression");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("expression");
 
 			if(node.empty("value")) {
 				position--;
@@ -112,7 +112,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -132,7 +132,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("type_") = rules("type");
+			node["type_"] = rules("type");
 
 			if(node.empty("type_")) {
 				position = node.get<Node&>("range").get("start");
@@ -140,7 +140,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -155,8 +155,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("expression");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("expression");
 
 			if(node.empty("value")) {
 				position--;
@@ -164,7 +164,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -180,17 +180,17 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("statements") = rules(type+"Statements");
+			node.get<Node&>("range")["start"] = position++;
+			node["statements"] = rules(type+"Statements");
 
 			if(node.get<NodeArray&>("statements").empty()) {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			} else {
-				node.get<Node&>("range").get("end") = position-1;
+				node.get<Node&>("range")["end"] = position-1;
 
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
@@ -208,9 +208,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -225,9 +225,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("label") = rules("identifier");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["label"] = rules("identifier");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -246,7 +246,7 @@ struct Parser {
 
 			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
-				node.get("genericArguments") = helpers_sequentialNodes(
+				node["genericArguments"] = helpers_sequentialNodes(
 					{"type"},
 					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
@@ -258,11 +258,11 @@ struct Parser {
 				}
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			if(token().type == "parenthesisOpen") {
 				position++;
-				node.get("arguments") = helpers_skippableNodes(
+				node["arguments"] = helpers_skippableNodes(
 					{"argument"},
 					[this]() { return token().type == "parenthesisOpen"; },
 					[this]() { return token().type == "parenthesisClosed"; },
@@ -272,7 +272,7 @@ struct Parser {
 				if(token().type == "parenthesisClosed") {
 					position++;
 				} else {
-					node.get<Node&>("range").get("end") = position-1;
+					node.get<Node&>("range")["end"] = position-1;
 
 					report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 
@@ -280,7 +280,7 @@ struct Parser {
 				}
 			}
 
-			node.get("closure") = rules("closureExpression");
+			node["closure"] = rules("closureExpression");
 
 			if(node.empty("closure") && node.get<Node&>("range").get("end") == position-1) {
 				position = node_->get<Node&>("range").get<int>("end")+1;
@@ -288,7 +288,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -303,8 +303,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("identifiers") = helpers_sequentialNodes(
+			node.get<Node&>("range")["start"] = position++;
+			node["identifiers"] = helpers_sequentialNodes(
 				{"identifier"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
@@ -313,7 +313,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No identifiers(s).");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -330,13 +330,13 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("typeIdentifiers") = helpers_sequentialNodes(
+			node.get<Node&>("range")["start"] = position++;
+			node["typeIdentifiers"] = helpers_sequentialNodes(
 				{"typeIdentifier"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
-			node.get("body") = rules("functionBody");
-			node.get("catch") = rules("catchClause");
+			node["body"] = rules("functionBody");
+			node["catch"] = rules("catchClause");
 
 			if(node.get<NodeArray&>("typeIdentifiers").empty()) {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No type identifiers.");
@@ -345,7 +345,7 @@ struct Parser {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -365,8 +365,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("body") = rules("observersBody");
+			node.get<Node&>("range")["start"] = position++;
+			node["body"] = rules("observersBody");
 
 			if(some(node.get<NodeArray&>("modifiers"), [](auto& v) { return v != "static"; })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Can only have specific modifier (static).");
@@ -375,7 +375,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -395,7 +395,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("member") = rules("identifier") ?:
+			node["member"] = rules("identifier") ?:
 								 rules("stringLiteral");
 
 			if(node.empty("member")) {
@@ -404,7 +404,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("member").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("member").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -424,7 +424,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("value") = rules("identifier");
+			node["value"] = rules("identifier");
 
 			if(node.empty("value")) {
 				position = node_->get<Node&>("range").get<int>("end")+1;
@@ -432,7 +432,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("value").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("value").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -463,7 +463,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArray&>("modifiers").empty() || !node.empty("identifier")) {
@@ -479,9 +479,9 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("genericParameters") = rules("genericParametersClause");
-			node.get("inheritedTypes") = rules("inheritedTypesClause");
-			node.get("body") = rules("classBody");
+			node["genericParameters"] = rules("genericParametersClause");
+			node["inheritedTypes"] = rules("inheritedTypesClause");
+			node["body"] = rules("classBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -490,7 +490,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -524,8 +524,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("signature") = rules("functionSignature");
+			node.get<Node&>("range")["start"] = position++;
+			node["signature"] = rules("functionSignature");
 
 			if(!node.empty("signature")) {
 				if(token().type != "keywordIn") {
@@ -539,16 +539,16 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No signature.");
 			}
 
-			node.get("statements") = rules("functionStatements");
+			node["statements"] = rules("functionStatements");
 
 			if(node.get<NodeArray&>("statements").empty()) {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No statements.");
 			}
 
 			if(!tokensEnd()) {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			} else {
-				node.get<Node&>("range").get("end") = position-1;
+				node.get<Node&>("range")["end"] = position-1;
 
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing brace and was decided to be autoclosed at the end of stream.");
 			}
@@ -566,8 +566,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("expression") = rules("expressionsSequence");
+			node.get<Node&>("range")["start"] = position++;
+			node["expression"] = rules("expressionsSequence");
 
 			if(!token().type.starts_with("operator") || token().value != ":") {
 				position = node.get<Node&>("range").get("start");
@@ -575,7 +575,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -590,9 +590,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("label") = rules("identifier");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["label"] = rules("identifier");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -638,12 +638,12 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("type_") = rules("typeClause");
-			node.get("value") = rules("initializerClause");
+			node["type_"] = rules("typeClause");
+			node["value"] = rules("initializerClause");
 
 			helpers_bodyTrailedValue(node, "value", "body", false, [this]() { return rules("observersBody", true) ?: rules("functionBody"); });
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -661,7 +661,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -679,7 +679,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -695,13 +695,13 @@ struct Parser {
 			}
 
 			position++;
-			node.get("body") = rules("functionBody");
+			node["body"] = rules("functionBody");
 
 			if(node.empty("body")) {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -716,8 +716,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("expression");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("expression");
 
 			if(node.empty("value")) {
 				position--;
@@ -725,7 +725,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -740,8 +740,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("entries") = helpers_sequentialNodes(
+			node.get<Node&>("range")["start"] = position++;
+			node["entries"] = helpers_sequentialNodes(
 				{"entry"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
@@ -756,7 +756,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -772,8 +772,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("key") = rules("type");
+			node.get<Node&>("range")["start"] = position++;
+			node["key"] = rules("type");
 
 			if(!token().type.starts_with("operator") || token().value != ":") {
 				position = node.get<Node&>("range").get("start");
@@ -782,7 +782,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("key") = rules("type");
+			node["key"] = rules("type");
 
 
 			if(token().type != "bracketClosed") {
@@ -791,7 +791,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -807,9 +807,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("body") = rules("functionBody");
-			node.get("catch") = rules("catchClause");
+			node.get<Node&>("range")["start"] = position++;
+			node["body"] = rules("functionBody");
+			node["catch"] = rules("catchClause");
 
 			if(node.empty("body")) {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
@@ -818,7 +818,7 @@ struct Parser {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "No catch.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -859,7 +859,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("value") = rules("expressionsSequence");
+			node["value"] = rules("expressionsSequence");
 
 			if(node.empty("value")) {
 				position = node.get<Node&>("range").get("start");
@@ -867,7 +867,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -894,7 +894,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArray&>("modifiers").empty() || !node.empty("identifier")) {
@@ -910,8 +910,8 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("inheritedTypes") = rules("inheritedTypesClause");
-			node.get("body") = rules("enumerationBody");
+			node["inheritedTypes"] = rules("inheritedTypesClause");
+			node["body"] = rules("enumerationBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -920,7 +920,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -952,7 +952,7 @@ struct Parser {
 			};
 
 			set<string> subsequentialTypes = {"asOperator", "inOperator", "isOperator"};
-			NodeArray& values = node.get("values") = helpers_sequentialNodes({"expression", "infixExpression"}, nullptr, subsequentialTypes);
+			NodeArray& values = node["values"] = helpers_sequentialNodes({"expression", "infixExpression"}, nullptr, subsequentialTypes);
 
 			if(values.empty()) {
 				return nullptr;
@@ -966,7 +966,7 @@ struct Parser {
 				return values.at(0);
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -981,9 +981,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("label") = rules("identifier");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["label"] = rules("identifier");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -998,9 +998,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1018,16 +1018,16 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("identifier") = rules("identifier");
+			node.get<Node&>("range")["start"] = position++;
+			node["identifier"] = rules("identifier");
 
 			if(token().type == "keywordIn") {
 				position++;
-				node.get("in") = rules("expressionsSequence");
+				node["in"] = rules("expressionsSequence");
 			}
 			if(token().type == "keywordWhere") {
 				position++;
-				node.get("where") = rules("expressionsSequence");
+				node["where"] = rules("expressionsSequence");
 			}
 
 			helpers_bodyTrailedValue(node, !node.empty("where") ? "where" : "in", "value");
@@ -1042,7 +1042,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No value.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1069,7 +1069,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") =
+			node["identifier"] =
 				rules("identifier") ?:
 				rules("operator");
 
@@ -1087,8 +1087,8 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("signature") = rules("functionSignature");
-			node.get("body") = rules("functionBody");
+			node["signature"] = rules("functionSignature");
+			node["body"] = rules("functionBody");
 
 			if(node.empty("signature")) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "No signature.");
@@ -1097,7 +1097,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1121,7 +1121,7 @@ struct Parser {
 
 			if(token().type == "parenthesisOpen") {
 				position++;
-				node.get("parameters") = helpers_skippableNodes(
+				node["parameters"] = helpers_skippableNodes(
 					{"parameter"},
 					[this]() { return token().type == "parenthesisOpen"; },
 					[this]() { return token().type == "parenthesisClosed"; },
@@ -1131,7 +1131,7 @@ struct Parser {
 				if(token().type == "parenthesisClosed") {
 					position++;
 				} else {
-					node.get<Node&>("range").get("end") = position-1;
+					node.get<Node&>("range")["end"] = position-1;
 
 					report(1, node.get<Node&>("range").get("start"), node.get("type"), "Parameters don't have the closing parenthesis and were decided to be autoclosed at the end of stream.");
 
@@ -1142,20 +1142,20 @@ struct Parser {
 			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token().type)) {
 				if(token().type == "keywordAwaits") {
 					position++;
-					node.get("awaits") = 1;
+					node["awaits"] = 1;
 				}
 				if(token().type == "keywordThrows") {
 					position++;
-					node.get("throws") = 1;
+					node["throws"] = 1;
 				}
 			}
 
 			if(token().type.starts_with("operator") && token().value == "->") {
 				position++;
-				node.get("returnType") = rules("type");
+				node["returnType"] = rules("type");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			if(node.get<Node&>("range").get<int>("end") < node.get<Node&>("range").get<int>("start")) {
 				return nullptr;
@@ -1204,13 +1204,13 @@ struct Parser {
 
 			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
-				node.get("genericParameterTypes") = helpers_sequentialNodes(
+				node["genericParameterTypes"] = helpers_sequentialNodes(
 					{"type"},
 					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
 
 				if(token().type.starts_with("operator") && token().value == ">") {
-					node.get<Node&>("range").get("end") = position++;
+					node.get<Node&>("range")["end"] = position++;
 				} else {
 					position = node.get<Node&>("range").get("start");
 
@@ -1225,7 +1225,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("parameterTypes") = helpers_sequentialNodes(
+			node["parameterTypes"] = helpers_sequentialNodes(
 				{"type"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
@@ -1241,20 +1241,20 @@ struct Parser {
 			while(set<string> {"keywordAwaits", "keywordThrows"}.contains(token().type)) {
 				if(token().type == "keywordAwaits") {
 					position++;
-					node.get("awaits") = 1;
+					node["awaits"] = 1;
 
 					if(token().type == "operatorPostfix" && token().value == "?") {
 						position++;
-						node.get("awaits") = 0;
+						node["awaits"] = 0;
 					}
 				}
 				if(token().type == "keywordThrows") {
 					position++;
-					node.get("throws") = 1;
+					node["throws"] = 1;
 
 					if(token().type == "operatorPostfix" && token().value == "?") {
 						position++;
-						node.get("throws") = 0;
+						node["throws"] = 0;
 					}
 				}
 			}
@@ -1266,13 +1266,13 @@ struct Parser {
 			}
 
 			position++;
-			node.get("returnType") = rules("type");
+			node["returnType"] = rules("type");
 
 			if(node.empty("returnType")) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "No return type.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1290,8 +1290,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("type_") = rules("typeClause");
-			node.get<Node&>("range").get("end") = position-1;
+			node["type_"] = rules("typeClause");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1332,9 +1332,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1351,12 +1351,12 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("condition") = rules("expressionsSequence");
+			node.get<Node&>("range")["start"] = position++;
+			node["condition"] = rules("expressionsSequence");
 
 			helpers_bodyTrailedValue(node, "condition", "then");
 
-			node.get("else") = rules("elseClause");
+			node["else"] = rules("elseClause");
 
 			if(node.empty("condition")) {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No condition.");
@@ -1365,7 +1365,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No value.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1380,8 +1380,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("member") =
+			node.get<Node&>("range")["start"] = position++;
+			node["member"] =
 				rules("identifier") ?:
 				rules("stringLiteral");
 
@@ -1391,7 +1391,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("member").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("member").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -1406,8 +1406,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("identifier");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("identifier");
 
 			if(node.empty("value")) {
 				position--;
@@ -1415,7 +1415,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("value").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("value").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -1430,9 +1430,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
-			node.get("value") = rules("identifier");
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
+			node["value"] = rules("identifier");
 
 			if(!node.empty("value")) {
 				while(!tokensEnd()) {
@@ -1442,10 +1442,10 @@ struct Parser {
 						break;
 					}
 
-					node.get("value") = node_;
+					node["value"] = node_;
 				}
 
-				node.get<Node&>("range").get("end") = node.get<Node&>("value").get<Node&>("range").get("end");
+				node.get<Node&>("range")["end"] = node.get<Node&>("value").get<Node&>("range").get("end");
 			} else {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "No value.");
 			}
@@ -1474,9 +1474,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1539,11 +1539,11 @@ struct Parser {
 
 			if(token().type.starts_with("operator") && token().value == "?") {
 				position++;
-				node.get("nillable") = true;
+				node["nillable"] = true;
 			}
 
-			node.get("signature") = rules("functionSignature");
-			node.get("body") = rules("functionBody");
+			node["signature"] = rules("functionSignature");
+			node["body"] = rules("functionBody");
 
 			if(some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -1558,7 +1558,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1574,7 +1574,7 @@ struct Parser {
 
 			if(token().type == "operatorPrefix" && token().value == "!") {
 				position++;
-				node.get("inverted") = true;
+				node["inverted"] = true;
 			}
 
 			if(token().type != "keywordIn") {
@@ -1584,7 +1584,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("composite") = rules("expressionsSequence");
+			node["composite"] = rules("expressionsSequence");
 
 			if(node.empty("composite")) {
 				position = node.get<Node&>("range").get("start");
@@ -1592,7 +1592,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1607,8 +1607,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("postfixExpression");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("postfixExpression");
 
 			if(node.empty("value")) {
 				position--;
@@ -1616,7 +1616,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1631,9 +1631,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("unionType");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("unionType");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1648,9 +1648,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1675,7 +1675,7 @@ struct Parser {
 				return subtypes.at(0);
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1691,7 +1691,7 @@ struct Parser {
 
 			if(token().type == "operatorPrefix" && token().value == "!") {
 				position++;
-				node.get("inverted") = true;
+				node["inverted"] = true;
 			}
 
 			if(token().type != "keywordIs") {
@@ -1701,7 +1701,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("type_") = rules("type");
+			node["type_"] = rules("type");
 
 			if(node.empty("type_")) {
 				position = node.get<Node&>("range").get("start");
@@ -1709,7 +1709,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1769,7 +1769,7 @@ struct Parser {
 				{"statements", rules("functionStatements")}
 			};
 
-			node.get<Node&>("range").get("end") = !node.get<NodeArray&>("statements").empty() ? position-1 : 0;
+			node.get<Node&>("range")["end"] = !node.get<NodeArray&>("statements").empty() ? position-1 : 0;
 
 			return node;
 		} else
@@ -1795,7 +1795,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArray&>("modifiers").empty() || !node.empty("identifier")) {
@@ -1811,7 +1811,7 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("body") = rules("namespaceBody");
+			node["body"] = rules("namespaceBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -1820,7 +1820,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1844,7 +1844,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1862,7 +1862,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1876,8 +1876,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1909,13 +1909,13 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("body") = rules("functionBody");
+			node["body"] = rules("functionBody");
 
 			if(node.empty("body")) {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -1945,9 +1945,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -1972,8 +1972,8 @@ struct Parser {
 			}
 
 			position++;
-			node.get("operator") = rules("operator");
-			node.get("body") = rules("operatorBody");
+			node["operator"] = rules("operator");
+			node["body"] = rules("operatorBody");
 
 			if(!some(node.get<NodeArray&>("modifiers"), [](auto& v) { return set<string> {"infix", "postfix", "prefix"}.contains(v); })) {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "Should have specific modifier (infix, postfix, prefix).");
@@ -2011,7 +2011,7 @@ struct Parser {
 				}
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2034,16 +2034,16 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(node.empty("identifier")) {
-				node.get("identifier") = node.get("label");
-				node.get("label") = nullptr;
+				node["identifier"] = node.get("label");
+				node["label"] = nullptr;
 			}
 
-			node.get("type_") = rules("typeClause");
-			node.get("value") = rules("initializerClause");
-			node.get<Node&>("range").get("end") = position-1;
+			node["type_"] = rules("typeClause");
+			node["value"] = rules("initializerClause");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2058,18 +2058,18 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = helpers_skippableNode(
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = helpers_skippableNode(
 				"expressionsSequence",
 				[this]() { return token().type == "parenthesisOpen"; },
 				[this]() { return token().type == "parenthesisClosed"; }
 			);
 
 			if(token().type == "parenthesisClosed") {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			} else
 			if(tokensEnd()) {
-				node.get<Node&>("range").get("end") = position-1;
+				node.get<Node&>("range")["end"] = position-1;
 
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 			} else {
@@ -2091,8 +2091,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("type");
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("type");
 
 			if(token().type != "parenthesisClosed") {
 				position = node.get<Node&>("range").get("start");
@@ -2100,7 +2100,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position++;
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -2131,16 +2131,16 @@ struct Parser {
 					break;
 				}
 
-				node.get("value") = node_;
+				node["value"] = node_;
 			}
 
-			node.get("operator") = rules("postfixOperator");
+			node["operator"] = rules("postfixOperator");
 
 			if(node.empty("operator")) {
 				return node.get("value");
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("operator").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("operator").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -2157,9 +2157,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -2215,9 +2215,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -2231,7 +2231,7 @@ struct Parser {
 				{"value", nullptr}
 			};
 
-			node.get("value") = rules("postfixExpression");
+			node["value"] = rules("postfixExpression");
 
 			if(node.empty("value")) {
 				position = node.get<Node&>("range").get("start");
@@ -2242,7 +2242,7 @@ struct Parser {
 				return node.get("value");
 			}
 
-			node.get<Node&>("range").get("end") = node.get<Node&>("value").get<Node&>("range").get("end");
+			node.get<Node&>("range")["end"] = node.get<Node&>("value").get<Node&>("range").get("end");
 
 			return node;
 		} else
@@ -2259,9 +2259,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -2316,7 +2316,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArray&>("modifiers").empty() || node.empty("identifier")) {
@@ -2332,8 +2332,8 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("inheritedTypes") = rules("inheritedTypesClause");
-			node.get("body") = rules("protocolBody");
+			node["inheritedTypes"] = rules("inheritedTypesClause");
+			node["body"] = rules("protocolBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string>{"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -2342,7 +2342,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2373,7 +2373,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2388,9 +2388,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("expressionsSequence");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("expressionsSequence");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2427,18 +2427,18 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = helpers_skippableNode(
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = helpers_skippableNode(
 				"expressionsSequence",
 				[this]() { return token().type == "stringExpressionOpen"; },
 				[this]() { return token().type == "stringExpressionClosed"; }
 			);
 
 			if(token().type == "stringExpressionClosed") {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			} else
 			if(tokensEnd()) {
-				node.get<Node&>("range").get("end") = position-1;
+				node.get<Node&>("range")["end"] = position-1;
 
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing parenthesis and was decided to be autoclosed at the end of stream.");
 			} else {
@@ -2460,17 +2460,17 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("segments") = helpers_skippableNodes(
+			node.get<Node&>("range")["start"] = position++;
+			node["segments"] = helpers_skippableNodes(
 				{"stringSegment", "stringExpression"},
 				[this]() { return token().type == "stringOpen"; },
 				[this]() { return token().type == "stringClosed"; }
 			);
 
 			if(token().type == "stringClosed") {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			} else {
-				node.get<Node&>("range").get("end") = position-1;
+				node.get<Node&>("range")["end"] = position-1;
 
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing apostrophe and decided to be autoclosed at the end of stream.");
 			}
@@ -2488,9 +2488,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get("value") = token().value;
-			node.get<Node&>("range").get("start") =
-			node.get<Node&>("range").get("end") = position++;
+			node["value"] = token().value;
+			node.get<Node&>("range")["start"] =
+			node.get<Node&>("range")["end"] = position++;
 
 			return node;
 		} else
@@ -2518,7 +2518,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("identifier") = rules("identifier");
+			node["identifier"] = rules("identifier");
 
 			if(anonymous) {
 				if(!node.get<NodeArray&>("modifiers").empty() || !node.empty("identifier")) {
@@ -2534,9 +2534,9 @@ struct Parser {
 				report(2, node.get<Node&>("range").get("start"), node.get("type"), "No identifier.");
 			}
 
-			node.get("genericParameters") = rules("genericParametersClause");
-			node.get("inheritedTypes") = rules("inheritedTypesClause");
-			node.get("body") = rules("structureBody");
+			node["genericParameters"] = rules("genericParametersClause");
+			node["inheritedTypes"] = rules("inheritedTypesClause");
+			node["body"] = rules("structureBody");
 
 			if(!node.empty("modifiers") && some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static", "final"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -2545,7 +2545,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2584,9 +2584,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("signature") = rules("functionSignature");
-			node.get("body") = rules("observersBody", true) ?: rules("functionBody");
+			node.get<Node&>("range")["start"] = position++;
+			node["signature"] = rules("functionSignature");
+			node["body"] = rules("observersBody", true) ?: rules("functionBody");
 
 			if(some(node.get<NodeArray&>("modifiers"), [](auto& v) { return !set<string> {"private", "protected", "public", "static"}.contains(v); })) {
 				report(1, node.get<Node&>("range").get("start"), node.get("type"), "Wrong modifier(s).");
@@ -2598,7 +2598,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No body.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2616,7 +2616,7 @@ struct Parser {
 
 			if(token().type.starts_with("operator") && token().value == "<") {
 				position++;
-				node.get("genericArguments") = helpers_sequentialNodes(
+				node["genericArguments"] = helpers_sequentialNodes(
 					{"type"},
 					[this]() { return token().type.starts_with("operator") && token().value == ","; }
 				);
@@ -2628,11 +2628,11 @@ struct Parser {
 				}
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			if(token().type == "bracketOpen") {
 				position++;
-				node.get("arguments") = helpers_skippableNodes(
+				node["arguments"] = helpers_skippableNodes(
 					{"argument"},
 					[this]() { return token().type == "bracketOpen"; },
 					[this]() { return token().type == "bracketClosed"; },
@@ -2642,7 +2642,7 @@ struct Parser {
 				if(token().type == "bracketClosed") {
 					position++;
 				} else {
-					node.get<Node&>("range").get("end") = position-1;
+					node.get<Node&>("range")["end"] = position-1;
 
 					report(1, node.get<Node&>("range").get("start"), node.get("type"), "Node doesn't have the closing bracket and was decided to be autoclosed at the end of stream.");
 
@@ -2650,7 +2650,7 @@ struct Parser {
 				}
 			}
 
-			node.get("closure") = rules("closureExpression");
+			node["closure"] = rules("closureExpression");
 
 			if(node.empty("closure") && node.get<Node&>("range").get("end") == position-1) {
 				position = node_->get<Node&>("range").get<int>("end")+1;
@@ -2658,7 +2658,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2673,9 +2673,9 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("value") = rules("expressionsSequence");
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["start"] = position++;
+			node["value"] = rules("expressionsSequence");
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2691,14 +2691,14 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
+			node.get<Node&>("range")["start"] = position++;
 
 			if(token().type == "operatorPostfix" && token().value == "?") {
 				position++;
-				node.get("nillable") = true;
+				node["nillable"] = true;
 			}
 
-			node.get("value") = rules("expression");
+			node["value"] = rules("expression");
 
 			if(node.empty("value")) {
 				position = node.get<Node&>("range").get("start");
@@ -2706,7 +2706,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2748,7 +2748,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("type_") = rules("type");
+			node["type_"] = rules("type");
 
 			if(node.empty("type_")) {
 				position = node.get<Node&>("range").get("start");
@@ -2756,7 +2756,7 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2784,26 +2784,26 @@ struct Parser {
 					break;
 				}
 
-				node.get("identifier") = node_;
+				node["identifier"] = node_;
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			if(!token().type.starts_with("operator") || token().value != "<") {
 				return node;
 			}
 
 			position++;
-			node.get("genericArguments") = helpers_sequentialNodes(
+			node["genericArguments"] = helpers_sequentialNodes(
 				{"type"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
 
 			if(!token().type.starts_with("operator") || token().value != ">") {
 				position = node.get<Node&>("range").get<int>("end")+1;
-				node.get("genericArguments") = NodeArray();
+				node["genericArguments"] = NodeArray();
 			} else {
-				node.get<Node&>("range").get("end") = position++;
+				node.get<Node&>("range")["end"] = position++;
 			}
 
 			return node;
@@ -2829,7 +2829,7 @@ struct Parser {
 				return subtypes.at(0);
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2850,7 +2850,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get("declarators") = helpers_sequentialNodes(
+			node["declarators"] = helpers_sequentialNodes(
 				{"declarator"},
 				[this]() { return token().type.starts_with("operator") && token().value == ","; }
 			);
@@ -2862,7 +2862,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No declarator(s).");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2880,7 +2880,7 @@ struct Parser {
 			}
 
 			position++;
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		} else
@@ -2896,8 +2896,8 @@ struct Parser {
 				return nullptr;
 			}
 
-			node.get<Node&>("range").get("start") = position++;
-			node.get("condition") = rules("expressionsSequence");
+			node.get<Node&>("range")["start"] = position++;
+			node["condition"] = rules("expressionsSequence");
 
 			helpers_bodyTrailedValue(node, "condition", "value");
 
@@ -2908,7 +2908,7 @@ struct Parser {
 				report(0, node.get<Node&>("range").get("start"), node.get("type"), "No value.");
 			}
 
-			node.get<Node&>("range").get("end") = position-1;
+			node.get<Node&>("range")["end"] = position-1;
 
 			return node;
 		}
@@ -2932,7 +2932,7 @@ struct Parser {
 			body = [this]() { return rules("functionBody"); };
 		}
 
-		node.get(bodyKey) = body();
+		node[bodyKey] = body();
 
 		if(node.empty(valueKey) || !node.empty(bodyKey)) {
 			return;
@@ -2945,7 +2945,7 @@ struct Parser {
 				parse(n.get(valueKey));
 
 				if(end != -1) {
-					n.get(bodyKey) = body();
+					n[bodyKey] = body();
 				}
 			} else
 			if(n.get("type") == "expressionsSequence") {
@@ -2959,7 +2959,7 @@ struct Parser {
 			} else
 			if(!n.empty("closure") && n.get<Node&>("closure").empty("signature")) {
 				position = n.get<Node&>("closure").get<Node&>("range").get("start");
-				n.get("closure") = nullptr;
+				n["closure"] = nullptr;
 				end = position-1;
 
 				NodeSP lhs = n.get("callee") ?: n.get("composite");
@@ -2969,20 +2969,20 @@ struct Parser {
 					n.clear();
 
 					for(const auto& [k, v] : *lhs) {
-						n.get(k) = v;
+						n[k] = v;
 					}
 				}
 			}
 
 			if(end != -1) {
-				n.get<Node&>("range").get("end") = end;
+				n.get<Node&>("range")["end"] = end;
 			}
 		};
 
 		parse(node);
 
 		if(statementTrailed && node.empty(bodyKey)) {
-			node.get(bodyKey) = rules("functionStatement");
+			node[bodyKey] = rules("functionStatement");
 		}
 	}
 
@@ -3061,7 +3061,7 @@ struct Parser {
 			}
 
 			node->get<NodeArray&>("tokens").push_back(NodeParser(Lexer::to_string(token())).parse());
-			node->get<Node&>("range").get("end") = position++;
+			node->get<Node&>("range")["end"] = position++;
 		}
 
 		Node& nodeRange = node->get("range");
@@ -3125,7 +3125,7 @@ struct Parser {
 
 						nodes.push_back(node);
 					} else {
-						node->get<Node&>("range").get("end") = position;
+						node->get<Node&>("range")["end"] = position;
 					}
 				}
 
@@ -3157,7 +3157,7 @@ struct Parser {
 			}
 
 			node->get<NodeArray&>("tokens").push_back(NodeParser(Lexer::to_string(token())).parse());
-			node->get<Node&>("range").get("end") = position++;
+			node->get<Node&>("range")["end"] = position++;
 
 			if(node != (!nodes.empty() ? nodes.back().get<NodeSP>() : nullptr)) {
 				nodes.push_back(node);

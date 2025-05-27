@@ -312,16 +312,14 @@ namespace Interface {
 	}
 
 	void sendToClients(Node node) {
-		node.get("receiver") = "client";
-		node.get("processID") = (int)getpid();
+		node["receiver"] = "client";
 
-		send(to_string(node));
+		send(node);
 	}
 
 	void sendToServer(Node node) {
-		node.get("receiver") = "server";
-		node.get("processID") = (int)getpid();
+		node["receiver"] = "server";
 
-		send(to_string(node));
+		send(node);
 	}
 }

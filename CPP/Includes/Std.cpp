@@ -116,21 +116,21 @@ Container concat(const Container& LHS, const Container& RHS) {
 }
 
 template <typename Container>
-string join(const Container& container, const string& separator) {
-	string result;
-	bool separated;
+string join(const Container& container, const string& separator = ", ") {
+    string result;
+	auto it = container.begin();
 
-	for(const auto& element : container) {
-		result += element;
-		result += separator;
-		separated = true;
+	while(it != container.end()) {
+		result += *it;
+
+		if(next(it) != container.end()) {
+			result += separator;
+		}
+
+		it++;
 	}
 
-	if(separated) {
-		result.erase(result.length()-separator.length());
-	}
-
-	return result;
+    return result;
 }
 
 template <typename Map>
