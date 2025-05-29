@@ -23,7 +23,7 @@ namespace Grammar {
 		struct Field {
 			optional<string> title;  // Nil for implicit
 			Rule rule;
-			vector<string> requiredBy;  // Empty for non-optional, strings for conditionally non-optional, zero-length string for optional
+			bool optional = false;
 		};
 
 		vector<Field> fields;
@@ -56,8 +56,8 @@ namespace Grammar {
 
 	struct HierarchyRule {
 		string title;  // Of hierarchy field
-		RuleRef subrule;
-		vector<RuleRef> superrules;
+		Rule subrule;
+		VariantRule superrules;
 	};
 
 	// ----------------------------------------------------------------
@@ -67,7 +67,7 @@ namespace Grammar {
 			NodeRule({
 				{"label", "identifier"},
 				{nullopt, TokenRule(regex("operator*"), regex(":"))},
-				{"value", "expressionsSequence", {""}},
+				{"value", "expressionsSequence", true},
 			}),
 			NodeRule({
 				{"value", "expressionsSequence"}
@@ -105,7 +105,7 @@ namespace Grammar {
 		})},
 		{"breakStatement", NodeRule({
 			{nullopt, TokenRule(regex("keywordBreak"))},
-			{"label", "identifier", {""}}
+			{"label", "identifier", true}
 		})},
 		{"callExpression", NodeRule()},
 		{"caseDeclaration", NodeRule()},
@@ -131,7 +131,7 @@ namespace Grammar {
 		{"conditionalOperator", NodeRule()},
 		{"continueStatement", NodeRule({
 			{nullopt, TokenRule(regex("keywordContinue"))},
-			{"label", "identifier", {""}}
+			{"label", "identifier", true}
 		})},
 		{"controlTransferStatement", VariantRule({
 			"breakStatement",
@@ -159,7 +159,7 @@ namespace Grammar {
 		{"expressionsSequence", NodeRule()},
 		{"fallthroughStatement", NodeRule({
 			{nullopt, TokenRule(regex("keywordFallthrough"))},
-			{"label", "identifier", {""}}
+			{"label", "identifier", true}
 		})},
 		{"floatLiteral", NodeRule()},
 		{"forStatement", NodeRule()},
@@ -214,15 +214,15 @@ namespace Grammar {
 			{"value", HierarchyRule({
 				.title = "",
 				.subrule = "primaryExpression",
-				.superrules = {
+				.superrules = VariantRule({
 					"callExpression",
 					"chainExpression",
 					"defaultExpression",
 					"nillableExpression",
 					"subscriptExpression"
-				}
+				})
 			})},
-			{"operator", "postfixOperator", {""}}
+			{"operator", "postfixOperator", true}
 		}, true)},
 		{"postfixOperator", NodeRule()},
 		{"postfixType", NodeRule()},
@@ -238,7 +238,7 @@ namespace Grammar {
 		{"protocolType", NodeRule()},
 		{"returnStatement", NodeRule({
 			{nullopt, TokenRule(regex("keywordReturn"))},
-			{"value", "expressionsSequence", {""}}
+			{"value", "expressionsSequence", true}
 		})},
 		{"statements", NodeRule()},
 		{"stringExpression", NodeRule()},
@@ -247,16 +247,16 @@ namespace Grammar {
 		{"structureBody", NodeRule()},
 		{"structureDeclaration", NodeRule({
 			{nullopt, TokenRule(regex("keywordStruct"))},
-			{"modifiers", "modifiers", {""}},
+			{"modifiers", "modifiers", true},
 			{"identifier", "identifier"},
-			{"genericParameters", "genericParametersClause", {""}},
-			{"inheritedTypes", "inheritedTypesClause", {""}},
+			{"genericParameters", "genericParametersClause", true},
+			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody"}
 		})},
 		{"structureExpression", NodeRule({
 			{nullopt, TokenRule(regex("keywordStruct"))},
-			{"genericParameters", "genericParametersClause", {""}},
-			{"inheritedTypes", "inheritedTypesClause", {""}},
+			{"genericParameters", "genericParametersClause", true},
+			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody"}
 		})},
 		{"structureStatements", NodeRule()},
@@ -264,7 +264,7 @@ namespace Grammar {
 		{"subscriptExpression", NodeRule()},
 		{"throwStatement", NodeRule({
 			{nullopt, TokenRule(regex("keywordThrow"))},
-			{"value", "expressionsSequence", {""}}
+			{"value", "expressionsSequence", true}
 		})},
 		{"tryExpression", NodeRule()},
 		{"type", NodeRule()},
