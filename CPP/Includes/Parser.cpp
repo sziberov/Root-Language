@@ -396,7 +396,7 @@ struct Parser {
 
 			position++;
 			node["member"] = rules("identifier") ?:
-								 rules("stringLiteral");
+							 rules("stringLiteral");
 
 			if(node.empty("member")) {
 				position = node_->get<Node&>("range").get<int>("end")+1;
@@ -2120,7 +2120,7 @@ struct Parser {
 
 			while(!tokensEnd()) {
 				NodeSP value = node.get("value"),
-						node_ =
+					   node_ =
 					rules("callExpression", value) ?:
 					rules("chainExpression", value) ?:
 					rules("defaultExpression", value) ?:

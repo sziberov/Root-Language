@@ -2,425 +2,278 @@
 
 #include "Node.cpp";
 
-struct Grammar {
-	struct Rule;
+namespace Grammar {
+	struct NodeRule;
+	struct TokenRule;
+	struct VariantRule;
+	struct SequenceRule;
+	struct HierarchyRule;
 
-	using RuleReference = string;
+	using RuleRef = string;
+	using Rule = variant<RuleRef,
+						 NodeRule,
+						 TokenRule,
+						 VariantRule,
+						 SequenceRule,
+						 HierarchyRule>;
 
-	struct TokenRule {
-		optional<regex> type,
-						value;
-	};
+	// ----------------------------------------------------------------
 
-	struct VariantRule {  // ?: ?: ?: ...
-		vector<RuleReference> rules;
-	};
+	struct NodeRule {
+		struct Field {
+			optional<string> title;  // Nil for implicit
+			Rule rule;
+			vector<string> requiredBy;  // Empty for non-optional, strings for conditionally non-optional, zero-length string for optional
+		};
 
-	struct SequenceRule {  // Skippable enclosed sequential node(s)
-		vector<RuleReference> rules,
-							  subsequentRules;  // Disable strict order index impact (e.g. allow [1, 2, 2, 3] instead of [1, 2, 3, 1])
-							  					// May be useful to handle some child rule types
-		optional<TokenRule> opener,
-							separator,
-							closer;
-		bool strict = false;  // Require defined order
-		usize minCount = 0,  // 1+ for non-optional
-			  maxCount = 0;  // 1 for non-list result
-	};
-
-	struct HierarchyRule {
-		string title;  // Of subbest field
-		RuleReference subrule;
-		vector<RuleReference> superrules;
-	};
-
-	using LogicRule = variant<RuleReference,
-							  TokenRule,
-							  VariantRule,
-							  SequenceRule,
-							  HierarchyRule>;
-
-	struct Field {
-		string title;  // Empty for implicit
-		LogicRule rule;
-		bool optional;
-	};
-
-	struct Rule {
-		string type;
 		vector<Field> fields;
+		bool normalize = false;  // Unwrap single field
 		function<void(Node&)> post;
 	};
 
-	unordered_map<string, Rule> rules = {
-		{"argument", {
-			.type = "argument"
-		}},
-		{"arrayLiteral", {
-			.type = "arrayLiteral"
-		}},
-		{"arrayType", {
-			.type = "arrayType"
-		}},
-		{"asOperator", {
-			.type = "asOperator"
-		}},
-		{"asyncExpression", {
-			.type = "asyncExpression"
-		}},
-		{"awaitExpression", {
-			.type = "awaitExpression"
-		}},
-		{"body", {
-			.type = "body"
-		}},
-		{"booleanLiteral", {
-			.type = "booleanLiteral"
-		}},
-		{"breakStatement", {
-			.type = "breakStatement"
-		}},
-		{"callExpression", {
-			.type = "callExpression"
-		}},
-		{"caseDeclaration", {
-			.type = "caseDeclaration"
-		}},
-		{"catchClause", {
-			.type = "catchClause"
-		}},
-		{"chainDeclaration", {
-			.type = "chainDeclaration"
-		}},
-		{"chainExpression", {
-			.type = "chainExpression"
-		}},
-		{"chainIdentifier", {
-			.type = "chainIdentifier"
-		}},
-		{"chainStatements", {
-			.type = "chainStatements"
-		}},
-		{"classBody", {
-			.type = "classBody"
-		}},
-		{"classDeclaration", {
-			.type = "classDeclaration"
-		}},
-		{"classExpression", {
-			.type = "classExpression"
-		}},
-		{"classStatements", {
-			.type = "classStatements"
-		}},
-		{"closureExpression", {
-			.type = "closureExpression"
-		}},
-		{"conditionalOperator", {
-			.type = "conditionalOperator"
-		}},
-		{"continueStatement", {
-			.type = "continueStatement"
-		}},
-		{"controlTransferStatement", {
-			.type = "controlTransferStatement"
-		}},
-		{"declaration", {
-			.type = "declaration"
-		}},
-		{"declarator", {
-			.type = "declarator"
-		}},
-		{"defaultExpression", {
-			.type = "defaultExpression"
-		}},
-		{"defaultType", {
-			.type = "defaultType"
-		}},
-		{"deinitializerDeclaration", {
-			.type = "deinitializerDeclaration"
-		}},
-		{"deleteExpression", {
-			.type = "deleteExpression"
-		}},
-		{"dictionaryLiteral", {
-			.type = "dictionaryLiteral"
-		}},
-		{"dictionaryType", {
-			.type = "dictionaryType"
-		}},
-		{"doStatement", {
-			.type = "doStatement"
-		}},
-		{"elseClause", {
-			.type = "elseClause"
-		}},
-		{"entry", {
-			.type = "entry"
-		}},
-		{"enumerationBody", {
-			.type = "enumerationBody"
-		}},
-		{"enumerationDeclaration", {
-			.type = "enumerationDeclaration"
-		}},
-		{"enumerationExpression", {
-			.type = "enumerationExpression"
-		}},
-		{"enumerationStatements", {
-			.type = "enumerationStatements"
-		}},
-		{"expression", {
-			.type = "expression"
-		}},
-		{"expressionsSequence", {
-			.type = "expressionsSequence"
-		}},
-		{"fallthroughStatement", {
-			.type = "fallthroughStatement"
-		}},
-		{"floatLiteral", {
-			.type = "floatLiteral"
-		}},
-		{"forStatement", {
-			.type = "forStatement"
-		}},
-		{"functionBody", {
-			.type = "functionBody"
-		}},
-		{"functionDeclaration", {
-			.type = "functionDeclaration"
-		}},
-		{"functionExpression", {
-			.type = "functionExpression"
-		}},
-		{"functionSignature", {
-			.type = "functionSignature"
-		}},
-		{"functionStatement", {
-			.type = "functionStatement"
-		}},
-		{"functionStatements", {
-			.type = "functionStatements"
-		}},
-		{"functionType", {
-			.type = "functionType"
-		}},
-		{"genericParameter", {
-			.type = "genericParameter"
-		}},
-		{"genericParametersClause", {
-			.type = "genericParametersClause"
-		}},
-		{"identifier", {
-			.type = "identifier"
-		}},
-		{"ifStatement", {
-			.type = "ifStatement"
-		}},
-		{"implicitChainExpression", {
-			.type = "implicitChainExpression"
-		}},
-		{"implicitChainIdentifier", {
-			.type = "implicitChainIdentifier"
-		}},
-		{"importDeclaration", {
-			.type = "importDeclaration"
-		}},
-		{"infixExpression", {
-			.type = "infixExpression"
-		}},
-		{"infixOperator", {
-			.type = "infixOperator"
-		}},
-		{"inheritedTypesClause", {
-			.type = "inheritedTypesClause"
-		}},
-		{"initializerClause", {
-			.type = "initializerClause"
-		}},
-		{"initializerDeclaration", {
-			.type = "initializerDeclaration"
-		}},
-		{"inOperator", {
-			.type = "inOperator"
-		}},
-		{"inoutExpression", {
-			.type = "inoutExpression"
-		}},
-		{"inoutType", {
-			.type = "inoutType"
-		}},
-		{"integerLiteral", {
-			.type = "integerLiteral"
-		}},
-		{"intersectionType", {
-			.type = "intersectionType"
-		}},
-		{"isOperator", {
-			.type = "isOperator"
-		}},
-		{"literalExpression", {
-			.type = "literalExpression"
-		}},
-		{"modifiers", {
-			.type = "modifiers"
-		}},
-		{"module", {
-			.type = "module"
-		}},
-		{"namespaceBody", {
-			.type = "namespaceBody"
-		}},
-		{"namespaceDeclaration", {
-			.type = "namespaceDeclaration"
-		}},
-		{"namespaceExpression", {
-			.type = "namespaceExpression"
-		}},
-		{"namespaceStatements", {
-			.type = "namespaceStatements"
-		}},
-		{"nillableExpression", {
-			.type = "nillableExpression"
-		}},
-		{"nillableType", {
-			.type = "nillableType"
-		}},
-		{"nilLiteral", {
-			.type = "nilLiteral"
-		}},
-		{"observerDeclaration", {
-			.type = "observerDeclaration"
-		}},
-		{"observersBody", {
-			.type = "observersBody"
-		}},
-		{"observersStatements", {
-			.type = "observersStatements"
-		}},
-		{"operator", {
-			.type = "operator"
-		}},
-		{"operatorBody", {
-			.type = "operatorBody"
-		}},
-		{"operatorDeclaration", {
-			.type = "operatorDeclaration"
-		}},
-		{"operatorStatements", {
-			.type = "operatorStatements"
-		}},
-		{"parameter", {
-			.type = "parameter"
-		}},
-		{"parenthesizedExpression", {
-			.type = "parenthesizedExpression"
-		}},
-		{"parenthesizedType", {
-			.type = "parenthesizedType"
-		}},
-		{"postfixExpression", {
-			.type = "postfixExpression"
-		}},
-		{"postfixOperator", {
-			.type = "postfixOperator"
-		}},
-		{"postfixType", {
-			.type = "postfixType"
-		}},
-		{"predefinedType", {
-			.type = "predefinedType"
-		}},
-		{"prefixExpression", {
-			.type = "prefixExpression"
-		}},
-		{"prefixOperator", {
-			.type = "prefixOperator"
-		}},
-		{"primaryExpression", {
-			.type = "primaryExpression"
-		}},
-		{"primaryType", {
-			.type = "primaryType"
-		}},
-		{"protocolBody", {
-			.type = "protocolBody"
-		}},
-		{"protocolDeclaration", {
-			.type = "protocolDeclaration"
-		}},
-		{"protocolExpression", {
-			.type = "protocolExpression"
-		}},
-		{"protocolStatements", {
-			.type = "protocolStatements"
-		}},
-		{"protocolType", {
-			.type = "protocolType"
-		}},
-		{"returnStatement", {
-			.type = "returnStatement"
-		}},
-		{"statements", {
-			.type = "statements"
-		}},
-		{"stringExpression", {
-			.type = "stringExpression"
-		}},
-		{"stringLiteral", {
-			.type = "stringLiteral"
-		}},
-		{"stringSegment", {
-			.type = "stringSegment"
-		}},
-		{"structureBody", {
-			.type = "structureBody"
-		}},
-		{"structureDeclaration", {
-			.type = "structureDeclaration"
-		}},
-		{"structureExpression", {
-			.type = "structureExpression"
-		}},
-		{"structureStatements", {
-			.type = "structureStatements"
-		}},
-		{"subscriptDeclaration", {
-			.type = "subscriptDeclaration"
-		}},
-		{"subscriptExpression", {
-			.type = "subscriptExpression"
-		}},
-		{"throwStatement", {
-			.type = "throwStatement"
-		}},
-		{"tryExpression", {
-			.type = "tryExpression"
-		}},
-		{"type", {
-			.type = "type"
-		}},
-		{"typeClause", {
-			.type = "typeClause"
-		}},
-		{"typeExpression", {
-			.type = "typeExpression"
-		}},
-		{"typeIdentifier", {
-			.type = "typeIdentifier"
-		}},
-		{"unionType", {
-			.type = "unionType"
-		}},
-		{"variableDeclaration", {
-			.type = "variableDeclaration"
-		}},
-		{"variadicType", {
-			.type = "variadicType"
-		}},
-		{"whileStatement", {
-			.type = "whileStatement"
-		}}
+	struct TokenRule {  // Returns token value if nothing set, otherwise boolean
+		optional<regex> type,
+						value;
+	//	bool optional = false;
+	};
+
+	struct VariantRule {  // ?: ?: ?: ...
+		vector<Rule> rules;
+	};
+
+	struct SequenceRule {  // Skippable enclosed sequential node(s)
+		vector<RuleRef> rules,
+						subsequentRules;  // Disable strict order index impact (e.g. allow [1, 2, 2, 3] instead of [1, 2, 3, 1])
+						  				  // May be useful to handle some child rule types
+		optional<TokenRule> opener,
+							separator,
+							closer;
+		bool strict = false,  // Require defined order
+			 normalize = false;  // Unwrap single element
+		usize minCount = 0,  // 1+ for non-optional
+			  maxCount = 0;
+	};
+
+	struct HierarchyRule {
+		string title;  // Of hierarchy field
+		RuleRef subrule;
+		vector<RuleRef> superrules;
+	};
+
+	// ----------------------------------------------------------------
+
+	unordered_map<RuleRef, Rule> rules = {
+		{"argument", VariantRule({
+			NodeRule({
+				{"label", "identifier"},
+				{nullopt, TokenRule(regex("operator*"), regex(":"))},
+				{"value", "expressionsSequence", {""}},
+			}),
+			NodeRule({
+				{"value", "expressionsSequence"}
+			})
+		})},
+		{"arrayLiteral", NodeRule({
+			{nullopt, TokenRule(regex("bracketOpen"))},
+			{"values", SequenceRule {
+				.rules = {"expressionsSequence"},
+				.separator = TokenRule(regex("operator*"), regex(","))
+			}},
+			{nullopt, TokenRule(regex("bracketClosed"))}
+		})},
+		{"arrayType", NodeRule({
+			{nullopt, TokenRule(regex("bracketOpen"))},
+			{"value", "type"},
+			{nullopt, TokenRule(regex("bracketClosed"))}
+		})},
+		{"asOperator", NodeRule({
+			{nullopt, TokenRule(regex("keywordAs"))},
+			{"type_", "type"}
+		})},
+		{"asyncExpression", NodeRule({
+			{nullopt, TokenRule(regex("keywordAsync"))},
+			{"value", "expression"}
+		})},
+		{"awaitExpression", NodeRule({
+			{nullopt, TokenRule(regex("keywordAwait"))},
+			{"value", "expression"}
+		})},
+		{"body", NodeRule()},
+		{"booleanLiteral", NodeRule({
+			{nullopt, TokenRule(regex("keywordFalse|keywordTrue"))},
+			{"value", TokenRule()}
+		})},
+		{"breakStatement", NodeRule({
+			{nullopt, TokenRule(regex("keywordBreak"))},
+			{"label", "identifier", {""}}
+		})},
+		{"callExpression", NodeRule()},
+		{"caseDeclaration", NodeRule()},
+		{"catchClause", NodeRule()},
+		{"chainDeclaration", NodeRule()},
+		{"chainExpression", NodeRule({
+			{nullopt, TokenRule(regex("operator|operatorInfix"), regex("."))},
+			{"member", VariantRule({
+				"identifier",
+				"stringLiteral"
+			})}
+		})},
+		{"chainIdentifier", NodeRule({
+			{nullopt, TokenRule(regex("operatorPrefix|operatorInfix"), regex("."))},
+			{"value", "identifier"}
+		})},
+		{"chainStatements", NodeRule()},
+		{"classBody", NodeRule()},
+		{"classDeclaration", NodeRule()},
+		{"classExpression", NodeRule()},
+		{"classStatements", NodeRule()},
+		{"closureExpression", NodeRule()},
+		{"conditionalOperator", NodeRule()},
+		{"continueStatement", NodeRule({
+			{nullopt, TokenRule(regex("keywordContinue"))},
+			{"label", "identifier", {""}}
+		})},
+		{"controlTransferStatement", VariantRule({
+			"breakStatement",
+			"continueStatement",
+			"fallthroughStatement",
+			"returnStatement",
+			"throwStatement"
+		})},
+		{"declaration", NodeRule()},
+		{"declarator", NodeRule()},
+		{"defaultExpression", NodeRule()},
+		{"defaultType", NodeRule()},
+		{"deinitializerDeclaration", NodeRule()},
+		{"deleteExpression", NodeRule()},
+		{"dictionaryLiteral", NodeRule()},
+		{"dictionaryType", NodeRule()},
+		{"doStatement", NodeRule()},
+		{"elseClause", NodeRule()},
+		{"entry", NodeRule()},
+		{"enumerationBody", NodeRule()},
+		{"enumerationDeclaration", NodeRule()},
+		{"enumerationExpression", NodeRule()},
+		{"enumerationStatements", NodeRule()},
+		{"expression", NodeRule()},
+		{"expressionsSequence", NodeRule()},
+		{"fallthroughStatement", NodeRule({
+			{nullopt, TokenRule(regex("keywordFallthrough"))},
+			{"label", "identifier", {""}}
+		})},
+		{"floatLiteral", NodeRule()},
+		{"forStatement", NodeRule()},
+		{"functionBody", NodeRule()},
+		{"functionDeclaration", NodeRule()},
+		{"functionExpression", NodeRule()},
+		{"functionSignature", NodeRule()},
+		{"functionStatement", NodeRule()},
+		{"functionStatements", NodeRule()},
+		{"functionType", NodeRule()},
+		{"genericParameter", NodeRule()},
+		{"genericParametersClause", NodeRule()},
+		{"identifier", NodeRule({
+			{"value", TokenRule(regex("identifier"))}
+		})},
+		{"ifStatement", NodeRule()},
+		{"implicitChainExpression", NodeRule()},
+		{"implicitChainIdentifier", NodeRule()},
+		{"importDeclaration", NodeRule()},
+		{"infixExpression", NodeRule()},
+		{"infixOperator", NodeRule()},
+		{"inheritedTypesClause", NodeRule()},
+		{"initializerClause", NodeRule()},
+		{"initializerDeclaration", NodeRule()},
+		{"inOperator", NodeRule()},
+		{"inoutExpression", NodeRule()},
+		{"inoutType", NodeRule()},
+		{"integerLiteral", NodeRule()},
+		{"intersectionType", NodeRule()},
+		{"isOperator", NodeRule()},
+		{"literalExpression", NodeRule()},
+		{"modifiers", NodeRule()},
+		{"module", NodeRule()},
+		{"namespaceBody", NodeRule()},
+		{"namespaceDeclaration", NodeRule()},
+		{"namespaceExpression", NodeRule()},
+		{"namespaceStatements", NodeRule()},
+		{"nillableExpression", NodeRule()},
+		{"nillableType", NodeRule()},
+		{"nilLiteral", NodeRule()},
+		{"observerDeclaration", NodeRule()},
+		{"observersBody", NodeRule()},
+		{"observersStatements", NodeRule()},
+		{"operator", NodeRule()},
+		{"operatorBody", NodeRule()},
+		{"operatorDeclaration", NodeRule()},
+		{"operatorStatements", NodeRule()},
+		{"parameter", NodeRule()},
+		{"parenthesizedExpression", NodeRule()},
+		{"parenthesizedType", NodeRule()},
+		{"postfixExpression", NodeRule({
+			{"value", HierarchyRule({
+				.title = "",
+				.subrule = "primaryExpression",
+				.superrules = {
+					"callExpression",
+					"chainExpression",
+					"defaultExpression",
+					"nillableExpression",
+					"subscriptExpression"
+				}
+			})},
+			{"operator", "postfixOperator", {""}}
+		}, true)},
+		{"postfixOperator", NodeRule()},
+		{"postfixType", NodeRule()},
+		{"predefinedType", NodeRule()},
+		{"prefixExpression", NodeRule()},
+		{"prefixOperator", NodeRule()},
+		{"primaryExpression", NodeRule()},
+		{"primaryType", NodeRule()},
+		{"protocolBody", NodeRule()},
+		{"protocolDeclaration", NodeRule()},
+		{"protocolExpression", NodeRule()},
+		{"protocolStatements", NodeRule()},
+		{"protocolType", NodeRule()},
+		{"returnStatement", NodeRule({
+			{nullopt, TokenRule(regex("keywordReturn"))},
+			{"value", "expressionsSequence", {""}}
+		})},
+		{"statements", NodeRule()},
+		{"stringExpression", NodeRule()},
+		{"stringLiteral", NodeRule()},
+		{"stringSegment", NodeRule()},
+		{"structureBody", NodeRule()},
+		{"structureDeclaration", NodeRule({
+			{nullopt, TokenRule(regex("keywordStruct"))},
+			{"modifiers", "modifiers", {""}},
+			{"identifier", "identifier"},
+			{"genericParameters", "genericParametersClause", {""}},
+			{"inheritedTypes", "inheritedTypesClause", {""}},
+			{"body", "structureBody"}
+		})},
+		{"structureExpression", NodeRule({
+			{nullopt, TokenRule(regex("keywordStruct"))},
+			{"genericParameters", "genericParametersClause", {""}},
+			{"inheritedTypes", "inheritedTypesClause", {""}},
+			{"body", "structureBody"}
+		})},
+		{"structureStatements", NodeRule()},
+		{"subscriptDeclaration", NodeRule()},
+		{"subscriptExpression", NodeRule()},
+		{"throwStatement", NodeRule({
+			{nullopt, TokenRule(regex("keywordThrow"))},
+			{"value", "expressionsSequence", {""}}
+		})},
+		{"tryExpression", NodeRule()},
+		{"type", NodeRule()},
+		{"typeClause", NodeRule()},
+		{"typeExpression", NodeRule()},
+		{"typeIdentifier", NodeRule()},
+		{"unionType", NodeRule()},
+		{"variableDeclaration", NodeRule()},
+		{"variadicType", NodeRule()},
+		{"whileStatement", NodeRule()}
 	};
 };
