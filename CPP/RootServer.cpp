@@ -370,7 +370,7 @@ namespace RootServer {
 
 				if(code && tokens && tree) {
 					sharedInterpreter->clean();
-					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
+					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(2, 2, 2, 2), *code, *tokens, *tree)->interpret();
 				}
 			} else {
 				println(sharedClient->getLogPrefix(), "Unknown notification action: \"", action, "\"");
@@ -382,7 +382,7 @@ namespace RootServer {
 				auto tokens = Lexer(code).tokenize();
 				auto tree = Parser(tokens).parse();
 
-				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true), code, tokens, tree)->interpret();
+				SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(2), code, tokens, tree)->interpret();
 			} else {
 				println(sharedClient->getLogPrefix(), "Unknown request action: \"", action, "\"");
 			}
@@ -428,7 +428,7 @@ int main(int argc, char* argv[]) {
 					tree = Parser(*tokens).parse();
 
 					sharedInterpreter->clean();
-					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(true, true, true, true), *code, *tokens, *tree)->interpret();
+					SP<Interpreter>(sharedInterpreter, Interpreter::InheritedContext(2, 2, 2, 2), *code, *tokens, *tree)->interpret();
 				}
 			}
 			if(clientThread) {

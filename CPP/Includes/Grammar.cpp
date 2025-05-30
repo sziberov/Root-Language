@@ -19,26 +19,38 @@ namespace Grammar {
 
 	// ----------------------------------------------------------------
 
-	struct NodeRule {
-		struct Field {
-			optional<string> title;  // Nil for implicit
-			Rule rule;
-			bool optional = false;
-		};
+	struct NodeField {
+		optional<string> title;  // Nil for implicit
+		Rule rule;
+		bool optional = false;
+	};
 
-		vector<Field> fields;
+	struct NodeRule {
+		vector<NodeField> fields;
 		bool normalize = false;  // Unwrap single field
 		function<void(Node&)> post;
+
+		bool operator==(const NodeRule& r) const {
+			return fields == r.fields &&
+				   normalize == r.normalize &&
+				   post.target<void(Node&)>() == r.post.target<void(Node&)>();
+		}
 	};
 
 	struct TokenRule {  // Returns token value if nothing set, otherwise boolean
-		optional<regex> type,
-						value;
+		optional<string> type,
+						 value;
 	//	bool optional = false;
+
+		bool operator==(const TokenRule& r) const = default;
 	};
 
 	struct VariantRule {  // ?: ?: ?: ...
 		vector<Rule> rules;
+
+		bool operator==(const VariantRule& r) const {
+			return rules == r.rules;
+		}
 	};
 
 	struct SequenceRule {  // Skippable enclosed sequential node(s)
@@ -52,12 +64,20 @@ namespace Grammar {
 			 normalize = false;  // Unwrap single element
 		usize minCount = 0,  // 1+ for non-optional
 			  maxCount = 0;
+
+		bool operator==(const SequenceRule& r) const = default;
 	};
 
 	struct HierarchyRule {
 		string title;  // Of hierarchy field
 		Rule subrule;
 		VariantRule superrules;
+
+		bool operator==(const HierarchyRule& r) const {
+			return title == r.title &&
+				   subrule == r.subrule &&
+				   superrules == r.superrules;
+		}
 	};
 
 	// ----------------------------------------------------------------
@@ -66,7 +86,7 @@ namespace Grammar {
 		{"argument", VariantRule({
 			NodeRule({
 				{"label", "identifier"},
-				{nullopt, TokenRule(regex("operator*"), regex(":"))},
+				{nullopt, TokenRule("operator*", ":")},
 				{"value", "expressionsSequence", true},
 			}),
 			NodeRule({
@@ -74,37 +94,37 @@ namespace Grammar {
 			})
 		})},
 		{"arrayLiteral", NodeRule({
-			{nullopt, TokenRule(regex("bracketOpen"))},
+			{nullopt, TokenRule("bracketOpen")},
 			{"values", SequenceRule {
 				.rules = {"expressionsSequence"},
-				.separator = TokenRule(regex("operator*"), regex(","))
+				.separator = TokenRule("operator*", ",")
 			}},
-			{nullopt, TokenRule(regex("bracketClosed"))}
+			{nullopt, TokenRule("bracketClosed")}
 		})},
 		{"arrayType", NodeRule({
-			{nullopt, TokenRule(regex("bracketOpen"))},
+			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
-			{nullopt, TokenRule(regex("bracketClosed"))}
+			{nullopt, TokenRule("bracketClosed")}
 		})},
 		{"asOperator", NodeRule({
-			{nullopt, TokenRule(regex("keywordAs"))},
+			{nullopt, TokenRule("keywordAs")},
 			{"type_", "type"}
 		})},
 		{"asyncExpression", NodeRule({
-			{nullopt, TokenRule(regex("keywordAsync"))},
+			{nullopt, TokenRule("keywordAsync")},
 			{"value", "expression"}
 		})},
 		{"awaitExpression", NodeRule({
-			{nullopt, TokenRule(regex("keywordAwait"))},
+			{nullopt, TokenRule("keywordAwait")},
 			{"value", "expression"}
 		})},
 		{"body", NodeRule()},
 		{"booleanLiteral", NodeRule({
-			{nullopt, TokenRule(regex("keywordFalse|keywordTrue"))},
+			{nullopt, TokenRule("keywordFalse|keywordTrue")},
 			{"value", TokenRule()}
 		})},
 		{"breakStatement", NodeRule({
-			{nullopt, TokenRule(regex("keywordBreak"))},
+			{nullopt, TokenRule("keywordBreak")},
 			{"label", "identifier", true}
 		})},
 		{"callExpression", NodeRule()},
@@ -112,14 +132,14 @@ namespace Grammar {
 		{"catchClause", NodeRule()},
 		{"chainDeclaration", NodeRule()},
 		{"chainExpression", NodeRule({
-			{nullopt, TokenRule(regex("operator|operatorInfix"), regex("."))},
+			{nullopt, TokenRule("operator|operatorInfix", ".")},
 			{"member", VariantRule({
 				"identifier",
 				"stringLiteral"
 			})}
 		})},
 		{"chainIdentifier", NodeRule({
-			{nullopt, TokenRule(regex("operatorPrefix|operatorInfix"), regex("."))},
+			{nullopt, TokenRule("operatorPrefix|operatorInfix", ".")},
 			{"value", "identifier"}
 		})},
 		{"chainStatements", NodeRule()},
@@ -130,7 +150,7 @@ namespace Grammar {
 		{"closureExpression", NodeRule()},
 		{"conditionalOperator", NodeRule()},
 		{"continueStatement", NodeRule({
-			{nullopt, TokenRule(regex("keywordContinue"))},
+			{nullopt, TokenRule("keywordContinue")},
 			{"label", "identifier", true}
 		})},
 		{"controlTransferStatement", VariantRule({
@@ -158,7 +178,7 @@ namespace Grammar {
 		{"expression", NodeRule()},
 		{"expressionsSequence", NodeRule()},
 		{"fallthroughStatement", NodeRule({
-			{nullopt, TokenRule(regex("keywordFallthrough"))},
+			{nullopt, TokenRule("keywordFallthrough")},
 			{"label", "identifier", true}
 		})},
 		{"floatLiteral", NodeRule()},
@@ -173,7 +193,7 @@ namespace Grammar {
 		{"genericParameter", NodeRule()},
 		{"genericParametersClause", NodeRule()},
 		{"identifier", NodeRule({
-			{"value", TokenRule(regex("identifier"))}
+			{"value", TokenRule("identifier")}
 		})},
 		{"ifStatement", NodeRule()},
 		{"implicitChainExpression", NodeRule()},
@@ -237,7 +257,7 @@ namespace Grammar {
 		{"protocolStatements", NodeRule()},
 		{"protocolType", NodeRule()},
 		{"returnStatement", NodeRule({
-			{nullopt, TokenRule(regex("keywordReturn"))},
+			{nullopt, TokenRule("keywordReturn")},
 			{"value", "expressionsSequence", true}
 		})},
 		{"statements", NodeRule()},
@@ -246,7 +266,7 @@ namespace Grammar {
 		{"stringSegment", NodeRule()},
 		{"structureBody", NodeRule()},
 		{"structureDeclaration", NodeRule({
-			{nullopt, TokenRule(regex("keywordStruct"))},
+			{nullopt, TokenRule("keywordStruct")},
 			{"modifiers", "modifiers", true},
 			{"identifier", "identifier"},
 			{"genericParameters", "genericParametersClause", true},
@@ -254,7 +274,7 @@ namespace Grammar {
 			{"body", "structureBody"}
 		})},
 		{"structureExpression", NodeRule({
-			{nullopt, TokenRule(regex("keywordStruct"))},
+			{nullopt, TokenRule("keywordStruct")},
 			{"genericParameters", "genericParametersClause", true},
 			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody"}
@@ -263,7 +283,7 @@ namespace Grammar {
 		{"subscriptDeclaration", NodeRule()},
 		{"subscriptExpression", NodeRule()},
 		{"throwStatement", NodeRule({
-			{nullopt, TokenRule(regex("keywordThrow"))},
+			{nullopt, TokenRule("keywordThrow")},
 			{"value", "expressionsSequence", true}
 		})},
 		{"tryExpression", NodeRule()},

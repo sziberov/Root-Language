@@ -2,16 +2,20 @@
 
 #include "Parser.cpp"
 
+struct Interpreter;
+
+using InterpreterSP = sp<Interpreter>;
+
 struct Interpreter : enable_shared_from_this<Interpreter> {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
 
-	sp<Interpreter> parent;
-	struct InheritedContext {
-		bool composites = false,
-			 calls = false,
-			 scopes = false,
-			 controlTransfers = false;
+	InterpreterSP parent;
+	struct InheritedContext {  // 0 - no inheritance, 1 - inherit by copy, 2 inherit by reference
+		u8 composites = 0,
+		   calls = 0,
+		   scopes = 0,
+		   controlTransfers = 0;
 	} inheritedContext;
 	string_view code;
 	deque<Token> tokens;
@@ -19,8 +23,28 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	int position = 0;
 
 	Interpreter() {}
-	Interpreter(string_view code, deque<Token> tokens, NodeSP tree) : code(code), tokens(tokens), tree(tree) {}
-	Interpreter(sp<Interpreter> parent, InheritedContext IC, string_view code, deque<Token> tokens, NodeSP tree) : inheritedContext(IC), parent(parent), code(code), tokens(tokens), tree(tree) {}
+
+	Interpreter(string_view code,
+				deque<Token> tokens,
+				NodeSP tree) : code(code),
+							   tokens(tokens),
+							   tree(tree) {}
+
+	Interpreter(InterpreterSP parent,
+				InheritedContext IC,
+				string_view code,
+				deque<Token> tokens,
+				NodeSP tree) : inheritedContext(IC),
+							   parent(parent),
+							   code(code),
+							   tokens(tokens),
+							   tree(tree)
+	{
+		if(inheritedContext.composites == 1)		_composites = parent->_composites;
+	//	if(inheritedContext.calls == 1)				_calls = parent->_calls;
+		if(inheritedContext.scopes == 1)			_scopes = parent->_scopes;
+		if(inheritedContext.controlTransfers == 1)	_controlTransfers = parent->_controlTransfers;
+	}
 
 	// ----------------------------------------------------------------
 
@@ -134,7 +158,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	deque<CompositeTypeSP> _scopes;
 
 	deque<CompositeTypeSP>& composites() {
-		return inheritedContext.composites && parent
+		return inheritedContext.composites == 2 && parent
 			 ? parent->composites()
 			 : _composites;
 	}
@@ -153,7 +177,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	deque<ControlTransfer> _controlTransfers;
 
 	deque<ControlTransfer>& controlTransfers() {
-		return inheritedContext.controlTransfers && parent
+		return inheritedContext.controlTransfers == 2 && parent
 			 ? parent->controlTransfers()
 			 : _controlTransfers;
 	}
@@ -1009,7 +1033,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		using OverloadSP = sp<Overload>;
 		using Member = deque<OverloadSP>;
 
-		sp<Interpreter> interpreter;
+		InterpreterSP interpreter;
 		const CompositeTypeID subID;
 		string title;
 		const int ownID = interpreter->composites().size();  // Assume that we won't have ID collisions (any composite must be pushed into global array after creation)
@@ -1033,7 +1057,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 		Observers chainObservers;  // Internal access
 	//	unordered_map<FunctionTypeSP, Observers> subscriptObservers;  // External-internal access
 
-		CompositeType(sp<Interpreter> interpreter,
+		CompositeType(InterpreterSP interpreter,
 					  CompositeTypeID subID,
 					  const string& title,
 					  const std::set<TypeSP>& inheritedTypes = {},
@@ -2573,7 +2597,7 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	*/
 
 	deque<CompositeTypeSP>& scopes() {
-		return inheritedContext.scopes && parent
+		return inheritedContext.scopes == 2 && parent
 			 ? parent->scopes()
 			 : _scopes;
 	}
@@ -3386,4 +3410,4 @@ struct Interpreter : enable_shared_from_this<Interpreter> {
 	}
 };
 
-static sp<Interpreter> sharedInterpreter = SP(Interpreter());
+static InterpreterSP sharedInterpreter = SP(Interpreter());
