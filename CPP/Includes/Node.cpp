@@ -284,8 +284,16 @@ public:
 		return data.end();
 	}
 
+	usize size() const {
+		return data.size();
+	}
+
 	bool contains(const string& key) const {
 		return data.contains(key);
+	}
+
+	bool empty() const {
+		return data.empty();
 	}
 
 	bool empty(const string& key) const {

@@ -572,7 +572,7 @@ struct Lexer {
 			 : dummy = Token();
 	}
 
-	void addToken(const string& type, optional<string> value = nullopt) {
+	void addToken(const string& type, const optional<string>& value = nullopt) {
 		tokens.push_back(Token {
 			position,
 			location(),

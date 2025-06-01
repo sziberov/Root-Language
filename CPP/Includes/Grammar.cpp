@@ -7,15 +7,13 @@ namespace Grammar {
 	struct TokenRule;
 	struct VariantRule;
 	struct SequenceRule;
-	struct HierarchyRule;
 
 	using RuleRef = string;
 	using Rule = variant<RuleRef,
 						 NodeRule,
 						 TokenRule,
 						 VariantRule,
-						 SequenceRule,
-						 HierarchyRule>;
+						 SequenceRule>;
 
 	// ----------------------------------------------------------------
 
@@ -68,18 +66,6 @@ namespace Grammar {
 		bool operator==(const SequenceRule& r) const = default;
 	};
 
-	struct HierarchyRule {
-		string title;  // Of hierarchy field
-		Rule subrule;
-		VariantRule superrules;
-
-		bool operator==(const HierarchyRule& r) const {
-			return title == r.title &&
-				   subrule == r.subrule &&
-				   superrules == r.superrules;
-		}
-	};
-
 	// ----------------------------------------------------------------
 
 	unordered_map<RuleRef, Rule> rules = {
@@ -127,7 +113,12 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordBreak")},
 			{"label", "identifier", true}
 		})},
-		{"callExpression", NodeRule()},
+		{"callExpression", NodeRule({
+			{"callee", "postfixExpression"},
+		//	{"genericArguments", ...},
+		//	{"arguments", ...},
+			{"closure", "closureExpression", true}
+		})},
 		{"caseDeclaration", NodeRule()},
 		{"catchClause", NodeRule()},
 		{"chainDeclaration", NodeRule()},
@@ -230,20 +221,18 @@ namespace Grammar {
 		{"parameter", NodeRule()},
 		{"parenthesizedExpression", NodeRule()},
 		{"parenthesizedType", NodeRule()},
-		{"postfixExpression", NodeRule({
-			{"value", HierarchyRule({
-				.title = "",
-				.subrule = "primaryExpression",
-				.superrules = VariantRule({
-					"callExpression",
-					"chainExpression",
-					"defaultExpression",
-					"nillableExpression",
-					"subscriptExpression"
-				})
-			})},
-			{"operator", "postfixOperator", true}
-		}, true)},
+		{"postfixExpression", VariantRule({
+			"callExpression",
+			"chainExpression",
+			"defaultExpression",
+			"nillableExpression",
+			"subscriptExpression",
+			NodeRule({
+				{"value", "postfixExpression"},
+				{"operator", "postfixOperator"}
+			}),
+			"primaryExpression"
+		})},
 		{"postfixOperator", NodeRule()},
 		{"postfixType", NodeRule()},
 		{"predefinedType", NodeRule()},
