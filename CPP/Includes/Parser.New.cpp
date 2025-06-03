@@ -1,13 +1,9 @@
 #pragma once
 
-#include "Lexer.cpp";
-#include "Grammar.cpp";
+#include "Lexer.cpp"
+#include "Grammar.cpp"
 
-struct Parser;
-
-using ParserSP = sp<Parser>;
-
-struct Parser /*: enable_shared_from_this<Parser>*/ {
+struct Parser {
 	using Location = Lexer::Location;
 	using Token = Lexer::Token;
 
@@ -18,79 +14,56 @@ struct Parser /*: enable_shared_from_this<Parser>*/ {
 	using RuleRef = Grammar::RuleRef;
 	using Rule = Grammar::Rule;
 
-	using CacheKey = pair<Rule, usize>;  // Rule, Position
-	using CacheValue = pair<NodeValue, bool>;  // NodeValue, Finished?
+	struct CacheKey {
+		Rule rule;
+		usize start;
+
+		bool operator==(const CacheKey& k) const = default;
+	};
+
+	struct CacheValue {
+		NodeValue value;
+		usize end;
+	};
 
 	struct CacheHasher {
 		usize operator()(const CacheKey& k) const {
-			return hash<usize>()(k.first.index())^hash<usize>()(k.second);
+			return hash<usize>()(k.rule.index())^hash<usize>()(k.start);
 		}
 	};
 
 	using Cache = unordered_map<CacheKey, CacheValue, CacheHasher>;
 
-	ParserSP parent;
-	struct InheritedContext {  // 0 - no inheritance, 1 - inherit by copy, 2 inherit by reference
-		u8 tokens = 0,
-		   position = 0,
-		   cache = 0;
-	} inheritedContext;
-	deque<Token> _tokens;
-	usize _position = 0;
-	Cache _cache;  // Memoization support
+	deque<Token> tokens;
+	usize position = 0;
+	Cache cache;  // Memoization support
 
-	Parser(deque<Token> tokens) : _tokens(filter(tokens, [this](auto& t) { return !t.trivia; })) {}
-
-	/*
-	Parser(ParserSP parent,
-		   InheritedContext IC,
-		   deque<Token> tokens) : parent(parent),
-								  inheritedContext(IC),
-								  _tokens(filter(tokens, [this](auto& t) { return !t.trivia; }))
-	{
-		if(IC.tokens == 1)		_tokens = parent->_tokens;
-		if(IC.position == 1)	_position = parent->_position;
-		if(IC.cache == 1)		_cache = parent->_cache;
-	}
-	*/
-
-	deque<Token>& tokens() {
-		return inheritedContext.tokens == 2 && parent ? parent->tokens() : _tokens;
-	}
-
-	usize& position() {
-		return inheritedContext.position == 2 && parent ? parent->position() : _position;
-	}
-
-	Cache& cache() {
-		return inheritedContext.cache == 2 && parent ? parent->cache() : _cache;
-	}
+	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
 	Token& token() {
 		static Token dummy;
 
-		return tokens().size() > position()
-			 ? tokens().at(position())
+		return tokens.size() > position
+			 ? tokens[position]
 			 : dummy = Token();
 	}
 
-	NodeSP parse(const NodeRule& nodeRule, const optional<string>& type) {
+	NodeSP parse(const NodeRule& nodeRule) {
 		Node node;
+		usize start = position;
 
 		for(auto& field : nodeRule.fields) {
-			NodeValue value;
+			if(field.title && *field.title == "value") {
+				println("checking value");
+			}
 
-		//	if(field.rule.index() == 1) {
-		//		value = parse(get<1>(field.rule), field.title);
-		//	} else {
-				value = parse(field.rule);
-		//	}
+			NodeValue value = parse(field.rule);
 
-			if(!value && !field.optional) {
+			if(value.empty() && !field.optional) {
 				return nullptr;
 			}
 
-			if(field.title) {
+			if(field.title && (!value.empty() || !field.optional)) {
 				node[*field.title] = value;
 			}
 		}
@@ -104,8 +77,13 @@ struct Parser /*: enable_shared_from_this<Parser>*/ {
 			}
 		}
 
-		if(type) {
-			node["type"] = *type;
+		node["range"] = {
+			{"start", (int)start},
+			{"end", (int)(position > 0 ? position-1 : 0)}
+		};
+
+		if(nodeRule.post) {
+			nodeRule.post(node);
 		}
 
 		return SP(node);
@@ -114,17 +92,47 @@ struct Parser /*: enable_shared_from_this<Parser>*/ {
 	NodeValue parse(const TokenRule& tokenRule) {
 		Token& token = this->token();
 
-		if(tokenRule.type || tokenRule.value) {
-			return (!tokenRule.type || regex_match(token.type, regex(*tokenRule.type))) &&
-				   (!tokenRule.value || regex_match(token.value, regex(*tokenRule.value)));
-		} else {
-			return token.value;
+		if(tokenRule.type) {
+			try {
+				regex r(*tokenRule.type);
+
+				if(!regex_match(token.type, r)) {
+					println("[Parser] Token type (", token.type, ") is not matching \"", *tokenRule.type, "\"");
+
+					return nullptr;
+				}
+			} catch(const regex_error& e) {
+				println("[Parser] Error in token type validator: ", e.what());
+
+				return nullptr;
+			}
 		}
+		if(tokenRule.value) {
+			try {
+				regex r(*tokenRule.value);
+
+				if(!regex_match(token.value, r)) {
+					println("[Parser] Token value (", token.value, ") is not matching \"", *tokenRule.value, "\"");
+
+					return nullptr;
+				}
+			} catch(const regex_error& e) {
+				println("[Parser] Error in token value validator: ", e.what());
+
+				return nullptr;
+			}
+		}
+
+		position++;
+
+		return token.value;
 	}
 
-	NodeValue parse(const VariantRule& variantRule) {  // TODO: Child node rules should have type (should they?)
-		for(auto& rule : variantRule.rules) {
-			if(auto value = parseBranch(rule)) {
+	NodeValue parse(const VariantRule& variantRule) {
+		for(auto& rule : variantRule) {
+			NodeValue& value = parseBranch(rule);
+
+			if(!value.empty()) {
 				return value;
 			}
 		}
@@ -133,31 +141,37 @@ struct Parser /*: enable_shared_from_this<Parser>*/ {
 	}
 
 	NodeValue parse(const SequenceRule& sequenceRule) {
-		/* TODO */
+		return nullptr; /* TODO */
 	}
 
 	NodeValue parse(const RuleRef& ruleRef) {
-		if(Grammar::rules.contains(ruleRef)) {
-			Rule& rule = Grammar::rules[ruleRef];
-
-			if(rule.index() == 1) {
-				return parse(get<1>(rule), ruleRef);
-			} else {
-				return parse(rule);
-			}
+		println("ruleRef ", ruleRef);
+		if(!Grammar::rules.contains(ruleRef)) {
+			return nullptr;
 		}
 
-		return nullptr;
+		Rule& rule = Grammar::rules[ruleRef];
+		NodeValue value = parse(rule);
+		NodeSP nodeValue = value;
+
+		if(nodeValue && !nodeValue->contains("type")) {
+			(*nodeValue)["type"] = ruleRef;
+		}
+
+		return value;
 	}
 
 	NodeValue parse(const Rule& rule) {
+		if(position >= tokens.size()) {
+			println("Parsing past the end of stream...");
+		}
+
 		switch(rule.index()) {
 			case 0:  return parse(get<0>(rule));
-			case 1:  return parse(get<1>(rule));
-			case 2:  return parse(get<2>(rule));
-			case 3:  return parse(get<3>(rule));
-			case 4:  return parse(get<4>(rule));
-			case 5:  return parse(get<5>(rule));
+			case 1:  return parse(get<1>(rule).get());
+			case 2:  return parse(get<2>(rule).get());
+			case 3:  return parse(get<3>(rule).get());
+			case 4:  return parse(get<4>(rule).get());
 		}
 
 		return nullptr;
@@ -166,25 +180,54 @@ struct Parser /*: enable_shared_from_this<Parser>*/ {
 	/**
 	 * Important for alternatives parsing and left-recursion cycles avoidance.
 	 */
-	NodeValue parseBranch(const Rule& rule) {
-		CacheKey cacheKey(rule, position());
-		CacheValue& cacheValue = cache()[cacheKey];
+	NodeValue& parseBranch(const Rule& rule) {
+		CacheKey cacheKey(rule, position);
 
-		if(!cacheValue.second) {
-		//	auto parser = SP<Parser>(shared_from_this(), InheritedContext(2, 1, 2), deque<Token>());
+		if(cache.contains(cacheKey)) {
+			CacheValue& cacheValue = cache[cacheKey];
 
-		//	cacheValue = pair(parser->parse(rule), true);
+			if(!cacheValue.value.empty()) {
+				if(position > cacheValue.end) {
+					println("[Parser] Position was rollen back while should not");
+				}
 
-			int position = _position;
+				position = cacheValue.end;
+			}
 
-			cacheValue = pair(parse(rule), true);
-			_position = position;
+			return cacheValue.value;
 		}
 
-		return cacheValue.first;
+		CacheValue& cacheValue = cache[cacheKey];  // Register before parsing
+		usize start = position;
+
+		cacheValue.value = parse(rule);
+
+		if(cacheValue.value.empty()) {
+			position = start;
+		} else {
+			cacheValue.end = position;
+		}
+
+		return cacheValue.value;
 	}
 
 	NodeSP parse() {
-		return parse(RuleRef("module"));
+		Interface::sendToClients({
+			{"type", "notification"},
+			{"source", "parser"},
+			{"action", "removeAll"},
+			{"moduleID", -1}
+		});
+
+		NodeSP tree = parse(RuleRef("module"));
+
+		Interface::sendToClients({
+			{"type", "notification"},
+			{"source", "parser"},
+			{"action", "parsed"},
+			{"tree", tree}
+		});
+
+		return tree;
 	}
 };

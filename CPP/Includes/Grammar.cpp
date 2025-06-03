@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Node.cpp";
+#include "Node.cpp"
 
 namespace Grammar {
 	struct NodeRule;
@@ -10,20 +10,28 @@ namespace Grammar {
 
 	using RuleRef = string;
 	using Rule = variant<RuleRef,
-						 NodeRule,
-						 TokenRule,
-						 VariantRule,
-						 SequenceRule>;
+						 recursive_wrapper<NodeRule>,
+						 recursive_wrapper<TokenRule>,
+						 recursive_wrapper<VariantRule>,
+						 recursive_wrapper<SequenceRule>>;
 
 	// ----------------------------------------------------------------
 
 	struct NodeField {
-		optional<string> title;  // Nil for implicit
+		NodeField(const char* t, Rule r = RuleRef(), bool o = false) : title(string(t)), rule(r), optional(o) {}
+		NodeField(const string t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
+		NodeField(const nullopt_t t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
+
+		std::optional<string> title;  // Nil for implicit
 		Rule rule;
 		bool optional = false;
+
+		bool operator==(const NodeField& f) const = default;
 	};
 
 	struct NodeRule {
+		NodeRule(initializer_list<NodeField> f, bool n = false, function<void(Node&)> p = nullptr) : fields(f), normalize(n), post(p) {}
+
 		vector<NodeField> fields;
 		bool normalize = false;  // Unwrap single field
 		function<void(Node&)> post;
@@ -43,13 +51,7 @@ namespace Grammar {
 		bool operator==(const TokenRule& r) const = default;
 	};
 
-	struct VariantRule {  // ?: ?: ?: ...
-		vector<Rule> rules;
-
-		bool operator==(const VariantRule& r) const {
-			return rules == r.rules;
-		}
-	};
+	struct VariantRule : vector<Rule> {};  // ?: ?: ?: ...
 
 	struct SequenceRule {  // Skippable enclosed sequential node(s)
 		vector<RuleRef> rules,
@@ -72,21 +74,23 @@ namespace Grammar {
 		{"argument", VariantRule({
 			NodeRule({
 				{"label", "identifier"},
-				{nullopt, TokenRule("operator*", ":")},
+				{nullopt, TokenRule("operator.*", ":")},
 				{"value", "expressionsSequence", true},
 			}),
 			NodeRule({
 				{"value", "expressionsSequence"}
 			})
 		})},
+		/*
 		{"arrayLiteral", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"values", SequenceRule {
 				.rules = {"expressionsSequence"},
-				.separator = TokenRule("operator*", ",")
+				.separator = TokenRule("operator.*", ",")
 			}},
 			{nullopt, TokenRule("bracketClosed")}
 		})},
+		*/
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
@@ -104,10 +108,9 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordAwait")},
 			{"value", "expression"}
 		})},
-		{"body", NodeRule()},
+		{"body", RuleRef()},
 		{"booleanLiteral", NodeRule({
-			{nullopt, TokenRule("keywordFalse|keywordTrue")},
-			{"value", TokenRule()}
+			{"value", TokenRule("keywordFalse|keywordTrue")}
 		})},
 		{"breakStatement", NodeRule({
 			{nullopt, TokenRule("keywordBreak")},
@@ -119,27 +122,33 @@ namespace Grammar {
 		//	{"arguments", ...},
 			{"closure", "closureExpression", true}
 		})},
-		{"caseDeclaration", NodeRule()},
-		{"catchClause", NodeRule()},
-		{"chainDeclaration", NodeRule()},
+		{"caseDeclaration", RuleRef()},
+		{"catchClause", RuleRef()},
+		{"chainDeclaration", RuleRef()},
 		{"chainExpression", NodeRule({
-			{nullopt, TokenRule("operator|operatorInfix", ".")},
+			{"composite", "postfixExpression"},
+			{nullopt, TokenRule("operator|operatorInfix", "\\.")},
 			{"member", VariantRule({
 				"identifier",
 				"stringLiteral"
 			})}
 		})},
 		{"chainIdentifier", NodeRule({
-			{nullopt, TokenRule("operatorPrefix|operatorInfix", ".")},
+			{"supervalue", "postfixExpression"},
+			{nullopt, TokenRule("operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"chainStatements", NodeRule()},
-		{"classBody", NodeRule()},
-		{"classDeclaration", NodeRule()},
-		{"classExpression", NodeRule()},
-		{"classStatements", NodeRule()},
-		{"closureExpression", NodeRule()},
-		{"conditionalOperator", NodeRule()},
+		{"chainStatements", RuleRef()},
+		{"classBody", RuleRef()},
+		{"classDeclaration", RuleRef()},
+		{"classExpression", RuleRef()},
+		{"classStatements", RuleRef()},
+		{"closureExpression", RuleRef()},
+		{"conditionalOperator", NodeRule({
+			{nullopt, TokenRule("operator.*", "\\?")},
+			{"expression", "expressionsSequence"},
+			{nullopt, TokenRule("operator.*", ":")}
+		})},
 		{"continueStatement", NodeRule({
 			{nullopt, TokenRule("keywordContinue")},
 			{"label", "identifier", true}
@@ -151,109 +160,229 @@ namespace Grammar {
 			"returnStatement",
 			"throwStatement"
 		})},
-		{"declaration", NodeRule()},
-		{"declarator", NodeRule()},
-		{"defaultExpression", NodeRule()},
-		{"defaultType", NodeRule()},
-		{"deinitializerDeclaration", NodeRule()},
-		{"deleteExpression", NodeRule()},
-		{"dictionaryLiteral", NodeRule()},
-		{"dictionaryType", NodeRule()},
-		{"doStatement", NodeRule()},
-		{"elseClause", NodeRule()},
-		{"entry", NodeRule()},
-		{"enumerationBody", NodeRule()},
-		{"enumerationDeclaration", NodeRule()},
-		{"enumerationExpression", NodeRule()},
-		{"enumerationStatements", NodeRule()},
-		{"expression", NodeRule()},
-		{"expressionsSequence", NodeRule()},
+		{"declaration", VariantRule({
+			"chainDeclaration",
+			"classDeclaration",
+			"deinitializerDeclaration",
+			"enumerationDeclaration",
+			"functionDeclaration",
+			"importDeclaration",
+			"initializerDeclaration",
+			"namespaceDeclaration",
+			"operatorDeclaration",
+			"protocolDeclaration",
+			"structureDeclaration",
+			"subscriptDeclaration",
+			"variableDeclaration"
+		})},
+		{"declarator", RuleRef()},
+		{"defaultExpression", NodeRule({
+			{"value", "postfixExpression"},
+			{nullopt, TokenRule("operatorPostfix", "!")}
+		})},
+		{"defaultType", NodeRule({
+			{"value", "postfixType"},
+			{nullopt, TokenRule("operatorPostfix", "!")}
+		})},
+		{"deinitializerDeclaration", RuleRef()},
+		{"deleteExpression", NodeRule({
+			{nullopt, TokenRule("identifier", "delete")},
+			{"value", "expression"}
+		})},
+		{"dictionaryLiteral", RuleRef()},
+		{"dictionaryType", RuleRef()},
+		{"doStatement", RuleRef()},
+		{"elseClause", RuleRef()},
+		{"entry", NodeRule({
+			{"key", "expressionsSequence"},
+			{nullopt, TokenRule("operator.*", ":")},
+			{"value", "expressionsSequence"}
+		})},
+		{"enumerationBody", RuleRef()},
+		{"enumerationDeclaration", RuleRef()},
+		{"enumerationExpression", RuleRef()},
+		{"enumerationStatements", RuleRef()},
+		{"expression", VariantRule({
+			"asyncExpression",
+			"awaitExpression",
+			"deleteExpression",
+			"tryExpression",
+			"prefixExpression"
+		})},
+		{"expressionsSequence", RuleRef()},
 		{"fallthroughStatement", NodeRule({
 			{nullopt, TokenRule("keywordFallthrough")},
 			{"label", "identifier", true}
 		})},
-		{"floatLiteral", NodeRule()},
-		{"forStatement", NodeRule()},
-		{"functionBody", NodeRule()},
-		{"functionDeclaration", NodeRule()},
-		{"functionExpression", NodeRule()},
-		{"functionSignature", NodeRule()},
-		{"functionStatement", NodeRule()},
-		{"functionStatements", NodeRule()},
-		{"functionType", NodeRule()},
-		{"genericParameter", NodeRule()},
-		{"genericParametersClause", NodeRule()},
+		{"floatLiteral", NodeRule({
+			{"value", TokenRule("numberFloat")}
+		})},
+		{"forStatement", RuleRef()},
+		{"functionBody", RuleRef()},
+		{"functionDeclaration", RuleRef()},
+		{"functionExpression", RuleRef()},
+		{"functionSignature", RuleRef()},
+		{"functionStatement", RuleRef()},
+		{"functionStatements", RuleRef()},
+		{"functionType", RuleRef()},
+		{"genericParameter", NodeRule({
+			{"identifier", "identifier"},
+			{"type_", "typeClause"}
+		})},
+		{"genericParametersClause", RuleRef()},
 		{"identifier", NodeRule({
 			{"value", TokenRule("identifier")}
 		})},
-		{"ifStatement", NodeRule()},
-		{"implicitChainExpression", NodeRule()},
-		{"implicitChainIdentifier", NodeRule()},
-		{"importDeclaration", NodeRule()},
-		{"infixExpression", NodeRule()},
-		{"infixOperator", NodeRule()},
-		{"inheritedTypesClause", NodeRule()},
-		{"initializerClause", NodeRule()},
-		{"initializerDeclaration", NodeRule()},
-		{"inOperator", NodeRule()},
-		{"inoutExpression", NodeRule()},
-		{"inoutType", NodeRule()},
-		{"integerLiteral", NodeRule()},
-		{"intersectionType", NodeRule()},
-		{"isOperator", NodeRule()},
-		{"literalExpression", NodeRule()},
-		{"modifiers", NodeRule()},
-		{"module", NodeRule()},
-		{"namespaceBody", NodeRule()},
-		{"namespaceDeclaration", NodeRule()},
-		{"namespaceExpression", NodeRule()},
-		{"namespaceStatements", NodeRule()},
-		{"nillableExpression", NodeRule()},
-		{"nillableType", NodeRule()},
-		{"nilLiteral", NodeRule()},
-		{"observerDeclaration", NodeRule()},
-		{"observersBody", NodeRule()},
-		{"observersStatements", NodeRule()},
-		{"operator", NodeRule()},
-		{"operatorBody", NodeRule()},
-		{"operatorDeclaration", NodeRule()},
-		{"operatorStatements", NodeRule()},
-		{"parameter", NodeRule()},
-		{"parenthesizedExpression", NodeRule()},
-		{"parenthesizedType", NodeRule()},
+		{"ifStatement", RuleRef()},
+		{"implicitChainExpression", NodeRule({
+			{nullopt, TokenRule("operator.*$(?<!Postfix)", "\\.")},
+			{"member", VariantRule({
+				"identifier",
+				"stringLiteral"
+			})}
+		})},
+		{"implicitChainIdentifier", NodeRule({
+			{nullopt, TokenRule("operator.*$(?<!Postfix)", "\\.")},
+			{"value", "identifier"}
+		})},
+		{"importDeclaration", RuleRef()},
+		{"infixExpression", VariantRule({
+			"asOperator",
+			"conditionalOperator",
+			"inOperator",
+			"isOperator",
+			"infixOperator"
+		})},
+		{"infixOperator", NodeRule({
+			{"value", TokenRule("operator|operatorInfix", "[^,:]*")}  // Enclosing nodes can use operators from the exceptions list as delimiters
+		})},
+		{"inheritedTypesClause", RuleRef()},
+		{"initializerClause", RuleRef()},
+		{"initializerDeclaration", RuleRef()},
+		{"inOperator", NodeRule({
+			{"inverted", TokenRule("operatorPrefix", "!"), true},
+			{nullopt, TokenRule("keywordIn")},
+			{"composite", "expressionsSequence"},
+		})},
+		{"inoutExpression", NodeRule({
+			{nullopt, TokenRule("operatorPrefix", "&")},
+			{"value", "postfixExpression"},
+		})},
+		{"inoutType", NodeRule({
+			{nullopt, TokenRule("keywordInout")},
+			{"value", "unionType"},
+		})},
+		{"integerLiteral", NodeRule({
+			{"value", TokenRule("numberInteger")}
+		})},
+		{"intersectionType", RuleRef()},
+		{"isOperator", NodeRule({
+			{"inverted", TokenRule("operatorPrefix", "!"), true},
+			{nullopt, TokenRule("keywordIs")},
+			{"type_", "type"},
+		})},
+		{"literalExpression", VariantRule({
+			"arrayLiteral",
+			"booleanLiteral",
+			"dictionaryLiteral",
+			"floatLiteral",
+			"integerLiteral",
+			"nilLiteral",
+			"stringLiteral"
+		})},
+		{"modifiers", RuleRef()},
+		{"module", NodeRule({
+			{"statements", "expression"}  // functionStatements
+		})},
+		{"namespaceBody", RuleRef()},
+		{"namespaceDeclaration", RuleRef()},
+		{"namespaceExpression", RuleRef()},
+		{"namespaceStatements", RuleRef()},
+		{"nillableExpression", NodeRule({
+			{"value", "postfixExpression"},
+			{nullopt, TokenRule("operatorPostfix", "\\?")}
+		})},
+		{"nillableType", NodeRule({
+			{"value", "postfixType"},
+			{nullopt, TokenRule("operatorPostfix", "\\?")}
+		})},
+		{"nilLiteral", RuleRef()},
+		{"observerDeclaration", RuleRef()},
+		{"observersBody", RuleRef()},
+		{"observersStatements", RuleRef()},
+		{"operator", RuleRef()},
+		{"operatorBody", RuleRef()},
+		{"operatorDeclaration", RuleRef()},
+		{"operatorStatements", RuleRef()},
+		{"parameter", RuleRef()},
+		{"parenthesizedExpression", RuleRef()},
+		{"parenthesizedType", RuleRef()},
 		{"postfixExpression", VariantRule({
+			NodeRule({
+				{"value", "postfixExpression"},
+				{"operator", "postfixOperator"}
+			}),
 			"callExpression",
 			"chainExpression",
 			"defaultExpression",
 			"nillableExpression",
 			"subscriptExpression",
-			NodeRule({
-				{"value", "postfixExpression"},
-				{"operator", "postfixOperator"}
-			}),
 			"primaryExpression"
 		})},
-		{"postfixOperator", NodeRule()},
-		{"postfixType", NodeRule()},
-		{"predefinedType", NodeRule()},
-		{"prefixExpression", NodeRule()},
-		{"prefixOperator", NodeRule()},
-		{"primaryExpression", NodeRule()},
-		{"primaryType", NodeRule()},
-		{"protocolBody", NodeRule()},
-		{"protocolDeclaration", NodeRule()},
-		{"protocolExpression", NodeRule()},
-		{"protocolStatements", NodeRule()},
-		{"protocolType", NodeRule()},
+		{"postfixOperator", NodeRule({
+			{"value", TokenRule("operatorPostfix", "[^,:]*")}  // Enclosing nodes can use trailing operators from the exceptions list
+		})},
+		{"postfixType", VariantRule({
+			"defaultType",
+			"nillableType",
+			"primaryType"
+		})},
+		{"predefinedType", RuleRef()},
+		{"prefixExpression", NodeRule({
+			{"operator", "prefixOperator", true},
+			{"value", "postfixExpression"},
+		}, true)},
+		{"prefixOperator", NodeRule({
+			{"value", TokenRule("operatorPrefix", "[^&.]*")}  // primaryExpressions can start with operators from the exceptions list
+		})},
+		{"primaryExpression", VariantRule({
+			"classExpression",
+			"closureExpression",
+			"enumerationExpression",
+			"functionExpression",
+			"identifier",
+			"implicitChainExpression",
+			"inoutExpression",
+			"literalExpression",
+			"namespaceExpression",
+			"parenthesizedExpression",
+			"protocolExpression",
+			"structureExpression",
+			"typeExpression"
+		})},
+		{"primaryType", VariantRule({
+			"arrayType",
+			"dictionaryType",
+			"functionType",
+			"parenthesizedType",
+			"predefinedType",
+			"protocolType",
+			"typeIdentifier"
+		})},
+		{"protocolBody", RuleRef()},
+		{"protocolDeclaration", RuleRef()},
+		{"protocolExpression", RuleRef()},
+		{"protocolStatements", RuleRef()},
+		{"protocolType", RuleRef()},
 		{"returnStatement", NodeRule({
 			{nullopt, TokenRule("keywordReturn")},
 			{"value", "expressionsSequence", true}
 		})},
-		{"statements", NodeRule()},
-		{"stringExpression", NodeRule()},
-		{"stringLiteral", NodeRule()},
-		{"stringSegment", NodeRule()},
-		{"structureBody", NodeRule()},
+		{"statement", RuleRef()},
+		{"stringExpression", RuleRef()},
+		{"stringLiteral", RuleRef()},
+		{"stringSegment", RuleRef()},
+		{"structureBody", RuleRef()},
 		{"structureDeclaration", NodeRule({
 			{nullopt, TokenRule("keywordStruct")},
 			{"modifiers", "modifiers", true},
@@ -268,21 +397,45 @@ namespace Grammar {
 			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody"}
 		})},
-		{"structureStatements", NodeRule()},
-		{"subscriptDeclaration", NodeRule()},
-		{"subscriptExpression", NodeRule()},
+		{"structureStatements", RuleRef()},
+		{"subscriptDeclaration", RuleRef()},
+		{"subscriptExpression", NodeRule({
+			{"composite", "postfixExpression"},
+		//	{"genericArguments", ...},
+		//	{"arguments", ...},
+			{"closure", "closureExpression", true}
+		})},
 		{"throwStatement", NodeRule({
 			{nullopt, TokenRule("keywordThrow")},
 			{"value", "expressionsSequence", true}
 		})},
-		{"tryExpression", NodeRule()},
-		{"type", NodeRule()},
-		{"typeClause", NodeRule()},
-		{"typeExpression", NodeRule()},
-		{"typeIdentifier", NodeRule()},
-		{"unionType", NodeRule()},
-		{"variableDeclaration", NodeRule()},
-		{"variadicType", NodeRule()},
-		{"whileStatement", NodeRule()}
+		{"tryExpression", NodeRule({
+			{nullopt, TokenRule("keywordTry")},
+			{"nillable", TokenRule("operatorPostfix", "\\?"), true},
+			{"value", "expression"},
+		})},
+		{"type", VariantRule({
+			"variadicType",
+			"inoutType",
+			"unionType"
+		})},
+		{"typeClause", NodeRule({
+			{"value", TokenRule("operator.*", ":")}
+		}, true)},
+		{"typeExpression", NodeRule({
+			{nullopt, TokenRule("keywordType")},
+			{"type_", "type"},
+		})},
+		{"typeIdentifier", RuleRef()},
+		{"unionType", RuleRef()},
+		{"variableDeclaration", RuleRef()},
+		{"variadicType", NodeRule({
+			{"value", VariantRule({
+				"inoutType",
+				"unionType"
+			})},
+			{nullopt, TokenRule("operator.*", "\\.\\.\\.")}
+		})},
+		{"whileStatement", RuleRef()}
 	};
 };

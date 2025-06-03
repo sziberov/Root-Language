@@ -7,7 +7,8 @@ let auth = document.getElementById('auth'),
 	heartbeatInterval,
 	clientsListInterval,
 	client,
-	requestsHandlers = {}
+	requestsHandlers = {},
+	Buffer = require('buffer').Buffer;
 
 function connectToAddress(address, onConnect) {
 	const net = require('net');

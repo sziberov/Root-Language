@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Parser.cpp"
+#include "Parser.New.cpp"
 
 struct Interpreter;
 

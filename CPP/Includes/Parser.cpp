@@ -8,7 +8,7 @@ struct Parser {
 
 	deque<Token> tokens;
 
-	Parser(deque<Token> tokens) : tokens(filter(tokens, [this](auto& t) { return !t.trivia; })) {}
+	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
 	template<typename... Args>
 	NodeValue rules(const string& type, Args... args) {
@@ -2610,7 +2610,8 @@ struct Parser {
 					{"start", node_->get<Node&>("range").get("start")}
 				}},
 				{"composite", node_},
-				{"arguments", nullptr},
+				{"genericArguments", NodeArray {}},
+				{"arguments", NodeArray {}},
 				{"closure", nullptr}
 			};
 

@@ -63,6 +63,46 @@ using wp = weak_ptr<T>;
 
 // ----------------------------------------------------------------
 
+template <typename T>
+class recursive_wrapper {
+private:
+	up<T> pointer;
+
+public:
+	recursive_wrapper() : pointer(make_unique<T>()) {}
+	recursive_wrapper(const T& value) : pointer(make_unique<T>(value)) {}
+	recursive_wrapper(T&& value) : pointer(make_unique<T>(move(value))) {}
+	recursive_wrapper(const recursive_wrapper& other) : pointer(make_unique<T>(*other.pointer)) {}
+	recursive_wrapper(recursive_wrapper&& other) noexcept = default;
+
+	recursive_wrapper& operator=(const recursive_wrapper& other) {
+		if(this != &other) {
+			pointer = make_unique<T>(*other.pointer);
+		}
+
+		return *this;
+	}
+
+	recursive_wrapper& operator=(recursive_wrapper&& other) noexcept = default;
+
+	T& get() { return *pointer; }
+	T& operator*() { return *pointer; }
+	T* operator->() { return pointer.get(); }
+
+	const T& get() const { return *pointer; }
+	const T& operator*() const { return *pointer; }
+	const T* operator->() const { return pointer.get(); }
+
+	bool operator<(const recursive_wrapper& other) const { return *pointer < *other.pointer; }
+	bool operator>(const recursive_wrapper& other) const { return *pointer > *other.pointer; }
+	bool operator<=(const recursive_wrapper& other) const { return *pointer <= *other.pointer; }
+	bool operator>=(const recursive_wrapper& other) const { return *pointer >= *other.pointer; }
+	bool operator==(const recursive_wrapper& other) const { return *pointer == *other.pointer; }
+	bool operator!=(const recursive_wrapper& other) const { return *pointer != *other.pointer; }
+};
+
+// ----------------------------------------------------------------
+
 template <typename Container, typename Predicate>
 bool some(const Container& container, Predicate predicate) {
 	return any_of(container.begin(), container.end(), predicate);
@@ -108,16 +148,16 @@ int find_index(const Container& container, Predicate predicate) {
 
 template <typename Container>
 Container concat(const Container& LHS, const Container& RHS) {
-    Container result(LHS);
+	Container result(LHS);
 
-    result.insert(RHS.begin(), RHS.end());
+	result.insert(RHS.begin(), RHS.end());
 
-    return result;
+	return result;
 }
 
 template <typename Container>
 string join(const Container& container, const string& separator = ", ") {
-    string result;
+	string result;
 	auto it = container.begin();
 
 	while(it != container.end()) {
@@ -130,27 +170,27 @@ string join(const Container& container, const string& separator = ", ") {
 		it++;
 	}
 
-    return result;
+	return result;
 }
 
 template <typename Map>
 typename Map::mapped_type* find_ptr(Map& map, const typename Map::key_type& key) {
-    auto it = map.find(key);
+	auto it = map.find(key);
 
-    if(it != map.end()) {
-        return &it->second;
-    }
+	if(it != map.end()) {
+		return &it->second;
+	}
 
-    return nullptr;
+	return nullptr;
 }
 
 template <typename T>
-shared_ptr<decay_t<T>> SP(T&& value) {
+sp<decay_t<T>> SP(T&& value) {
 	return make_shared<decay_t<T>>(forward<T>(value));
 }
 
 template <typename T, typename... Args>
-shared_ptr<T> SP(Args&&... args) {
+sp<T> SP(Args&&... args) {
 	return make_shared<T>(forward<Args>(args)...);
 }
 
@@ -175,8 +215,8 @@ optional<T> any_optcast(const any& value) {
 }
 
 template <typename T>
-shared_ptr<T> any_spcast(const any& value) {
-	if(const shared_ptr<T>* v = any_cast<shared_ptr<T>>(&value)) {
+sp<T> any_spcast(const any& value) {
+	if(const sp<T>* v = any_cast<sp<T>>(&value)) {
 		return *v;
 	} else
 	if(const T* v = any_cast<T>(&value)) {
@@ -210,9 +250,9 @@ optional<string> read_file(const filesystem::path& path) {
 
 template<typename... Args>
 void println(Args&&... args) {
-    static mutex coutMutex;
-    ostringstream oss;
-    (oss << ... << args) << '\n';
+	static mutex coutMutex;
+	ostringstream oss;
+	(oss << ... << args) << '\n';
 	lock_guard<mutex> lock(coutMutex);
 
 	cout << oss.str();

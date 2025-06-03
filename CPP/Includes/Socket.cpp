@@ -27,11 +27,6 @@ public:
 		disconnectionHandler = move(onDisconnect);
 	}
 
-	// Позволяет запускать экземпляр класса как функцию (в std::thread)
-	void operator()() {
-		start();
-	}
-
 	void send(int clientFD, const string& message) {
 		if(!running) {
 			println(getLogPrefix(), "Can't send messages while is not running");
@@ -39,12 +34,12 @@ public:
 			return;
 		}
 
-		u32 size = htonl(static_cast<u32>(message.size()));  // Длина в сетевом порядке
+		u32 size = htonl(static_cast<u32>(message.size()));
 		string packet;
-		packet.resize(4+message.size());  // Выделяем место под длину и сообщение
-		memcpy(&packet[0], &size, 4);  // Копируем длину
-		memcpy(&packet[4], message.data(), message.size());  // Копируем сообщение
-		::send(clientFD, packet.data(), packet.size(), 0);  // Отправка полного пакета
+		packet.resize(4+message.size());
+		memcpy(&packet[0], &size, 4);
+		memcpy(&packet[4], message.data(), message.size());
+		::send(clientFD, packet.data(), packet.size(), 0);
 		println(getLogPrefix(), "Sent", (mode == Mode::Server ? " to "+to_string(clientFD) : ""), ": ", message);
 	}
 
@@ -121,11 +116,8 @@ private:
 	unordered_set<int> clientsFDs;
 	mutex clientsFDsMutex;
 
-	/**
-     * Запуск сервера: ожидание подключений и приём сообщений от клиентов
-     */
 	void startServer() {
-		socketFD = socket(AF_UNIX, SOCK_STREAM, 0);  // Создание UNIX-сокета
+		socketFD = socket(AF_UNIX, SOCK_STREAM, 0);
 		if(socketFD == -1) {
 			println(getLogPrefix(), "Failed to create socket");
 			running = false;
@@ -135,7 +127,7 @@ private:
 		sockaddr_un addr{};
 		addr.sun_family = AF_UNIX;
 		strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path)-1);
-		unlink(path.c_str());  // Удалить старый файл сокета, если существует
+		unlink(path.c_str());  // Remove previous if exists
 
 		if(bind(socketFD, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
 			println(getLogPrefix(), "Failed to bind socket");
@@ -154,9 +146,8 @@ private:
 		prctl(PR_SET_NAME, ("Server "+to_string(socketFD)).c_str(), 0, 0, 0);
 		println(getLogPrefix(), "Started at ", path);
 
-		// Цикл обработки новых подключений
 		while(running) {
-			int clientFD = accept(socketFD, nullptr, nullptr);  // Ожидание подключения
+			int clientFD = accept(socketFD, nullptr, nullptr);
 			if(clientFD < 0) {
 				println(getLogPrefix(), "Accept failed");
 				running = false;
@@ -174,13 +165,10 @@ private:
 				connectionHandler(clientFD);
 			}
 
-			thread(&Socket::handleMessages, this, clientFD).detach();  // Отдельный поток для клиента
+			thread(&Socket::handleMessages, this, clientFD).detach();
 		}
 	}
 
-	/**
-     * Запуск клиента: подключение к серверу и чтение сообщений
-     */
 	void startClient() {
 		socketFD = socket(AF_UNIX, SOCK_STREAM, 0);
 		if(socketFD < 0) {
@@ -210,19 +198,16 @@ private:
 		handleMessages(socketFD);
 	}
 
-	/**
-     * Обработка соединения: чтение, разбор и вызов обработчика
-     */
 	void handleMessages(int FD) {
 		if(mode == Mode::Server) {
 			prctl(PR_SET_NAME, ("SC "+to_string(FD)).c_str(), 0, 0, 0);  // Server Connection
 		}
 
 		string readBuffer;
-		constexpr usize maxSize = 10*1024*1024; // 10 MiB — максимум разумного сообщения
+		constexpr usize maxSize = 10*1024*1024; // 10 MiB
 
 		while(running) {
-			char tmp[4096];  // Временный буфер
+			char tmp[4096];
 			ssize_t bytes = read(FD, tmp, sizeof(tmp));
 
 			if(bytes <= 0) {
@@ -230,7 +215,7 @@ private:
 					println(getLogPrefix(), "Connection closed at ", FD);
 				} else
 				if(errno == EINTR || errno == EAGAIN) {
-					continue; // Временная ошибка, продолжаем чтение
+					continue;
 				} else {
 					println(getLogPrefix(), "Read error on FD ", FD, ": ", strerror(errno));
 				}
@@ -242,21 +227,23 @@ private:
 				break;
 			}
 
-			readBuffer.append(tmp, bytes);  // Добавляем прочитанные данные в буфер
+			readBuffer.append(tmp, bytes);
 
-			// Обрабатываем все доступные сообщения из буфера
 			while(readBuffer.size() >= 4) {
 				u32 size = 0;
-				memcpy(&size, readBuffer.data(), 4);  // Считываем длину сообщения (первые 4 байта)
-				size = ntohl(size);  // Преобразуем из сетевого порядка в хостовый
+				memcpy(&size, readBuffer.data(), 4);
+				size = ntohl(size);
 
 				if(size == 0 || size > maxSize) {
 					println(getLogPrefix(), "Invalid message length (", size, "), discarding 4 bytes and resynchronizing.");
-					readBuffer.erase(0, 4);  // Попытка восстановиться
+					readBuffer.erase(0, 4);
+
 					continue;
 				}
 
-				if(readBuffer.size() < 4+size) break;  // Проверка, достаточно ли данных для полного сообщения (ждём, пока всё сообщение не придёт)
+				if(readBuffer.size() < 4+size) {
+					break;  // Wait for a full message
+				}
 
 				string message = readBuffer.substr(4, size);
 
@@ -266,7 +253,7 @@ private:
 					messageHandler(FD, message);
 				}
 
-				readBuffer.erase(0, 4+size);  // Удаление обработанных данных
+				readBuffer.erase(0, 4+size);
 			}
 		}
 
