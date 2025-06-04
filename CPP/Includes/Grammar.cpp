@@ -43,7 +43,7 @@ namespace Grammar {
 		}
 	};
 
-	struct TokenRule {  // Returns token value if check is valid
+	struct TokenRule {
 		optional<string> type,
 						 value;
 
@@ -52,7 +52,7 @@ namespace Grammar {
 
 	struct VariantRule : vector<Rule> {};  // ?: ?: ?: ...
 
-	struct SequenceRule {  // Skippable enclosed sequential node(s)
+	struct SequenceRule {
 		Rule rule;
 		optional<Rule> opener,
 					   delimiter,
@@ -79,12 +79,14 @@ namespace Grammar {
 				{"value", "expressions"}
 			})
 		})},
+		/*
 		{"arrayLiteral", NodeRule({
 			{"values", SequenceRule {
 				.rule = "expressions",
 				.delimiter = TokenRule("operator.*", ",")
 			}}
 		})},
+		*/
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
@@ -206,9 +208,12 @@ namespace Grammar {
 			"prefixExpression"
 		})},
 		{"expressions", SequenceRule({
-			.rule = RuleRef("expression"),
+			.rule = "expression",
 			.delimiter = "infixExpression",
-			.orderedDelimit = true
+			.orderedDelimit = true,
+			.optionalDelimit = false,
+			.danglingDelimit = false,
+			.unsupported = false
 		})},
 		{"fallthroughStatement", NodeRule({
 			{nullopt, TokenRule("keywordFallthrough")},
@@ -293,7 +298,7 @@ namespace Grammar {
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
 			{"statements", SequenceRule({  // functionStatements
-				.rule = "expression",
+				.rule = "expressions",
 				.delimiter = TokenRule("delimiter")
 			})}
 		})},

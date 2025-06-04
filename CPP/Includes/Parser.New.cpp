@@ -49,7 +49,7 @@ struct Parser {
 	}
 
 	bool tokensEnd() {
-		return position == tokens.size();
+		return position >= tokens.size();
 	}
 
 	NodeSP parse(const NodeRule& nodeRule) {
@@ -134,7 +134,7 @@ struct Parser {
 
 	NodeValue parse(const VariantRule& variantRule) {
 		for(auto& rule : variantRule) {
-			NodeValue& value = parseBranch(rule);
+			NodeValue value = parse(rule);
 
 			if(!value.empty()) {
 				return value;
@@ -148,20 +148,22 @@ struct Parser {
 		NodeArray values;
 
 		while(!tokensEnd()) {
-			NodeValue value;
+			NodeValue value = parse(sequenceRule.rule);
 
-			for(const Rule& rule : sequenceRule.rule) {
-				value = parse(rule);
-
-				if(!value.empty()) {
-					values.push_back(value);
-
-					break;
-				}
+			if(!value.empty()) {
+				values.push_back(value);
 			}
 
-			if(sequenceRule.single) {
+			if(sequenceRule.single || tokensEnd()) {
 				break;
+			}
+
+			if(value.empty()) {
+				if(sequenceRule.unsupported) {
+					position++;
+				} else {
+					break;
+				}
 			}
 		}
 
@@ -185,35 +187,25 @@ struct Parser {
 
 		Rule& rule = Grammar::rules[ruleRef];
 		NodeValue value = parse(rule);
-		NodeSP nodeValue = value;
 
-		if(nodeValue && !nodeValue->contains("type")) {
-			(*nodeValue)["type"] = ruleRef;
+		if(value.type() == 5) {
+			Node& nodeValue = value;
+
+			if(!nodeValue.contains("type")) {
+				nodeValue["type"] = ruleRef;
+			}
 		}
 
 		return value;
 	}
 
 	NodeValue parse(const Rule& rule) {
-		if(position >= tokens.size()) {
-			println("Parsing past the end of stream...");
+		if(tokensEnd()) {
+			println("[Parser] Reached the end of stream");
+
+			return nullptr;
 		}
 
-		switch(rule.index()) {
-			case 0:  return parse(get<0>(rule));
-			case 1:  return parse(get<1>(rule).get());
-			case 2:  return parse(get<2>(rule).get());
-			case 3:  return parse(get<3>(rule).get());
-			case 4:  return parse(get<4>(rule).get());
-		}
-
-		return nullptr;
-	}
-
-	/**
-	 * Important for alternatives parsing and left-recursion cycles avoidance.
-	 */
-	NodeValue& parseBranch(const Rule& rule) {
 		CacheKey cacheKey(rule, position);
 
 		if(cache.contains(cacheKey)) {
@@ -230,10 +222,16 @@ struct Parser {
 			return cacheValue.value;
 		}
 
-		CacheValue& cacheValue = cache[cacheKey];  // Register before parsing
+		CacheValue& cacheValue = cache[cacheKey];  // Register before parsing to avoid left-recursion cycles
 		usize start = position;
 
-		cacheValue.value = parse(rule);
+		switch(rule.index()) {
+			case 0:  cacheValue.value = parse(get<0>(rule));		break;
+			case 1:  cacheValue.value = parse(get<1>(rule).get());	break;
+			case 2:  cacheValue.value = parse(get<2>(rule).get());	break;
+			case 3:  cacheValue.value = parse(get<3>(rule).get());	break;
+			case 4:  cacheValue.value = parse(get<4>(rule).get());	break;
+		}
 
 		if(cacheValue.value.empty()) {
 			position = start;
