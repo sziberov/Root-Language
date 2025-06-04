@@ -43,10 +43,9 @@ namespace Grammar {
 		}
 	};
 
-	struct TokenRule {  // Returns token value if nothing set, otherwise boolean
+	struct TokenRule {  // Returns token value if check is valid
 		optional<string> type,
 						 value;
-	//	bool optional = false;
 
 		bool operator==(const TokenRule& r) const = default;
 	};
@@ -54,16 +53,15 @@ namespace Grammar {
 	struct VariantRule : vector<Rule> {};  // ?: ?: ?: ...
 
 	struct SequenceRule {  // Skippable enclosed sequential node(s)
-		vector<RuleRef> rules,
-						subsequentRules;  // Disable strict order index impact (e.g. allow [1, 2, 2, 3] instead of [1, 2, 3, 1])
-						  				  // May be useful to handle some child rule types
-		optional<TokenRule> opener,
-							separator,
-							closer;
-		bool strict = false,  // Require defined order
-			 normalize = false;  // Unwrap single element
-		usize minCount = 0,  // 1+ for non-optional
-			  maxCount = 0;
+		Rule rule;
+		optional<Rule> opener,
+					   delimiter,
+					   closer;
+		bool orderedDelimit = false,  // Require 'a : b : c' instead of 'a b : : c'
+			 optionalDelimit = true,  // Allow 'a b' instead of 'a : b'
+			 danglingDelimit = true,  // Require/allow ': a : b :' instead of 'a : b'
+			 unsupported = true,  // Include unrecognized tokens if any
+			 single = false;  // Disable sequence mode
 
 		bool operator==(const SequenceRule& r) const = default;
 	};
@@ -75,22 +73,18 @@ namespace Grammar {
 			NodeRule({
 				{"label", "identifier"},
 				{nullopt, TokenRule("operator.*", ":")},
-				{"value", "expressionsSequence", true},
+				{"value", "expressions", true},
 			}),
 			NodeRule({
-				{"value", "expressionsSequence"}
+				{"value", "expressions"}
 			})
 		})},
-		/*
 		{"arrayLiteral", NodeRule({
-			{nullopt, TokenRule("bracketOpen")},
 			{"values", SequenceRule {
-				.rules = {"expressionsSequence"},
-				.separator = TokenRule("operator.*", ",")
-			}},
-			{nullopt, TokenRule("bracketClosed")}
+				.rule = "expressions",
+				.delimiter = TokenRule("operator.*", ",")
+			}}
 		})},
-		*/
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
@@ -116,12 +110,14 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordBreak")},
 			{"label", "identifier", true}
 		})},
+		/*
 		{"callExpression", NodeRule({
 			{"callee", "postfixExpression"},
 		//	{"genericArguments", ...},
 		//	{"arguments", ...},
 			{"closure", "closureExpression", true}
 		})},
+		*/
 		{"caseDeclaration", RuleRef()},
 		{"catchClause", RuleRef()},
 		{"chainDeclaration", RuleRef()},
@@ -146,7 +142,7 @@ namespace Grammar {
 		{"closureExpression", RuleRef()},
 		{"conditionalOperator", NodeRule({
 			{nullopt, TokenRule("operator.*", "\\?")},
-			{"expression", "expressionsSequence"},
+			{"expression", "expressions"},
 			{nullopt, TokenRule("operator.*", ":")}
 		})},
 		{"continueStatement", NodeRule({
@@ -194,9 +190,9 @@ namespace Grammar {
 		{"doStatement", RuleRef()},
 		{"elseClause", RuleRef()},
 		{"entry", NodeRule({
-			{"key", "expressionsSequence"},
+			{"key", "expressions"},
 			{nullopt, TokenRule("operator.*", ":")},
-			{"value", "expressionsSequence"}
+			{"value", "expressions"}
 		})},
 		{"enumerationBody", RuleRef()},
 		{"enumerationDeclaration", RuleRef()},
@@ -209,7 +205,11 @@ namespace Grammar {
 			"tryExpression",
 			"prefixExpression"
 		})},
-		{"expressionsSequence", RuleRef()},
+		{"expressions", SequenceRule({
+			.rule = RuleRef("expression"),
+			.delimiter = "infixExpression",
+			.orderedDelimit = true
+		})},
 		{"fallthroughStatement", NodeRule({
 			{nullopt, TokenRule("keywordFallthrough")},
 			{"label", "identifier", true}
@@ -262,7 +262,7 @@ namespace Grammar {
 		{"inOperator", NodeRule({
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
 			{nullopt, TokenRule("keywordIn")},
-			{"composite", "expressionsSequence"},
+			{"composite", "expressions"},
 		})},
 		{"inoutExpression", NodeRule({
 			{nullopt, TokenRule("operatorPrefix", "&")},
@@ -292,7 +292,10 @@ namespace Grammar {
 		})},
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
-			{"statements", "expression"}  // functionStatements
+			{"statements", SequenceRule({  // functionStatements
+				.rule = "expression",
+				.delimiter = TokenRule("delimiter")
+			})}
 		})},
 		{"namespaceBody", RuleRef()},
 		{"namespaceDeclaration", RuleRef()},
@@ -317,18 +320,17 @@ namespace Grammar {
 		{"parameter", RuleRef()},
 		{"parenthesizedExpression", RuleRef()},
 		{"parenthesizedType", RuleRef()},
-		{"postfixExpression", VariantRule({
-			NodeRule({
-				{"value", "postfixExpression"},
-				{"operator", "postfixOperator"}
-			}),
-			"callExpression",
-			"chainExpression",
-			"defaultExpression",
-			"nillableExpression",
-			"subscriptExpression",
-			"primaryExpression"
-		})},
+		{"postfixExpression", NodeRule({
+			{"value", VariantRule({
+				"callExpression",
+				"chainExpression",
+				"defaultExpression",
+				"nillableExpression",
+				"subscriptExpression",
+				"primaryExpression"
+			})},
+			{"operator", "postfixOperator", true}
+		}, true)},
 		{"postfixOperator", NodeRule({
 			{"value", TokenRule("operatorPostfix", "[^,:]*")}  // Enclosing nodes can use trailing operators from the exceptions list
 		})},
@@ -376,12 +378,14 @@ namespace Grammar {
 		{"protocolType", RuleRef()},
 		{"returnStatement", NodeRule({
 			{nullopt, TokenRule("keywordReturn")},
-			{"value", "expressionsSequence", true}
+			{"value", "expressions", true}
 		})},
 		{"statement", RuleRef()},
 		{"stringExpression", RuleRef()},
 		{"stringLiteral", RuleRef()},
-		{"stringSegment", RuleRef()},
+		{"stringSegment", NodeRule({
+			{"value", TokenRule("stringSegment")}
+		})},
 		{"structureBody", RuleRef()},
 		{"structureDeclaration", NodeRule({
 			{nullopt, TokenRule("keywordStruct")},
@@ -399,15 +403,17 @@ namespace Grammar {
 		})},
 		{"structureStatements", RuleRef()},
 		{"subscriptDeclaration", RuleRef()},
+		/*
 		{"subscriptExpression", NodeRule({
 			{"composite", "postfixExpression"},
 		//	{"genericArguments", ...},
 		//	{"arguments", ...},
 			{"closure", "closureExpression", true}
 		})},
+		*/
 		{"throwStatement", NodeRule({
 			{nullopt, TokenRule("keywordThrow")},
-			{"value", "expressionsSequence", true}
+			{"value", "expressions", true}
 		})},
 		{"tryExpression", NodeRule({
 			{nullopt, TokenRule("keywordTry")},
@@ -420,11 +426,12 @@ namespace Grammar {
 			"unionType"
 		})},
 		{"typeClause", NodeRule({
-			{"value", TokenRule("operator.*", ":")}
+			{nullopt, TokenRule("operator.*", ":")},
+			{"type_", "type"}
 		}, true)},
 		{"typeExpression", NodeRule({
 			{nullopt, TokenRule("keywordType")},
-			{"type_", "type"},
+			{"type_", "type"}
 		})},
 		{"typeIdentifier", RuleRef()},
 		{"unionType", RuleRef()},

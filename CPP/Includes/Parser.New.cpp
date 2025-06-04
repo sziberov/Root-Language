@@ -48,6 +48,10 @@ struct Parser {
 			 : dummy = Token();
 	}
 
+	bool tokensEnd() {
+		return position == tokens.size();
+	}
+
 	NodeSP parse(const NodeRule& nodeRule) {
 		Node node;
 		usize start = position;
@@ -141,7 +145,36 @@ struct Parser {
 	}
 
 	NodeValue parse(const SequenceRule& sequenceRule) {
-		return nullptr; /* TODO */
+		NodeArray values;
+
+		while(!tokensEnd()) {
+			NodeValue value;
+
+			for(const Rule& rule : sequenceRule.rule) {
+				value = parse(rule);
+
+				if(!value.empty()) {
+					values.push_back(value);
+
+					break;
+				}
+			}
+
+			if(sequenceRule.single) {
+				break;
+			}
+		}
+
+		if(sequenceRule.single) {
+			if(values.empty()) {
+				return nullptr;
+			}
+			if(values.size() == 1) {
+				return values.front();
+			}
+		}
+
+		return values;
 	}
 
 	NodeValue parse(const RuleRef& ruleRef) {
