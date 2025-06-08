@@ -4,7 +4,7 @@
         {
             "label": "Build",
             "type": "shell",
-            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -g -o RootServer -Wno-error=maybe-uninitialized",
+            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -g -o RootServer",
             "options": {
                 "cwd": "${workspaceFolder}/CPP/"
             },

@@ -25,11 +25,10 @@ struct Parser {
 		NodeValue value;
 		usize length,
 			  unsupported;  // Failed tokens count
-		u8 state = 0;  // 0 - Raw, 1 - In progress, 2 - Finished
-		bool recursive = false;
+		u8 state = 0;  // 0 - Raw, 1 - Seeding, 2 - Growing, 3 - Finished
 		string title;
-		usize limit;
-		bool seeded = false;
+		usize limit,
+			  deferred;
 	};
 
 	struct CacheHasher {
@@ -72,10 +71,6 @@ struct Parser {
 		usize start = position;
 
 		for(auto& field : nodeRule.fields) {
-			if(field.title && *field.title == "value") {
-				println("checking value");
-			}
-
 			NodeValue value = parse(field.rule);
 
 			if(value.empty() && !field.optional) {
@@ -144,71 +139,21 @@ struct Parser {
 			}
 		}
 
-		println("Position was: ", position, ", set: ", ++position);
+		println("Position was: ", (int)position, ", set: ", ++position);
 
 		return token.value;
 	}
 
 	NodeValue parse(const VariantRule& variantRule) {
-		usize start = position;
-		CacheValue& cacheValue = this->cacheValue();
-		vector<CacheKey> defferedCacheKeys;
-
 		for(auto& rule : variantRule) {
-			cacheValue.value = parse(rule);
-
-			if(!cacheValue.value.empty()) {
-				break;
-			}
-
-			CacheKey cacheKey(rule, start);
-
-			if(cache[cacheKey].recursive) {
-				defferedCacheKeys.push_back(cacheKey);
-			}
-		}
-
-		if(cacheValue.value.empty()) {
-			return nullptr;
-		}
-
-		cacheValue.seeded = true;
-
-		for(auto& defferedCacheKey : defferedCacheKeys) {
-			CacheValue& defferedCacheValue = cache[defferedCacheKey];
-			NodeValue value;
-			usize end = position;
-
-			while(true) {
-				println("Parsing deffered left recursion: ");
-				position = start;
-				println("Position set 3: ", position);
-				parse(defferedCacheKey.rule);
-				println("Parsed value from deferred alt: len=", cache[defferedCacheKey].length, ", pos=", position);
-
-				usize previousLength = cacheValue.length-cacheValue.unsupported,
-					  currentLength = defferedCacheValue.length-defferedCacheValue.unsupported;
-
-				if(currentLength <= previousLength) {
-					println("not improved");
-					break;
-				}
-
-				println("improved");
-				value =
-				cacheValue.value = defferedCacheValue.value;
-				cacheValue.length = defferedCacheValue.length;
-				cacheValue.unsupported = defferedCacheValue.unsupported;
-			}
+			NodeValue value = parse(rule);
 
 			if(!value.empty()) {
-				break;
+				return value;
 			}
-
-			position = end;
 		}
 
-		return cacheValue.value;
+		return nullptr;
 	}
 
 	bool parseDelimiters(const optional<Rule>& delimiterRule, char policy) {
@@ -397,65 +342,9 @@ struct Parser {
 		return value;
 	}
 
-	NodeValue parse(const Rule& rule) {
-		if(tokensEnd()) {
-			println("[Parser] Reached the end of stream");
-
-			return nullptr;
-		}
-
+	void parseDispatch(const Rule& rule) {
 		CacheKey cacheKey(rule, position);
 		CacheValue& cacheValue = cache[cacheKey];
-
-		bool inGrowPass = false;
-
-		for(auto it = path.rbegin(); it != path.rend(); it++) {
-			if(cache[*it].seeded) {
-				inGrowPass = true;
-
-				break;
-			}
-		}
-
-		cacheValue.limit++;
-
-		println("In grow pass (", cacheValue.title, "): ", inGrowPass ? "true" : "false");
-
-		if(cacheValue.state >= 1 && !inGrowPass || cacheValue.limit >= 50) {
-			if(cacheValue.limit >= 50) {
-				println("Limit exceeded");
-			}
-			if(cacheValue.state == 2) {
-				if(position > cacheValue.length) {
-					println("[Parser] Position was rollen back while should not");
-				}
-
-				position = cacheKey.start+cacheValue.length;
-				println("Position set 0: ", position);
-			}
-
-			if(!cacheValue.recursive) {
-				println("Marking as recursive");
-				for(auto it = path.rbegin(); it != path.rend(); it++) {
-					cache[*it].recursive = true;
-
-					if(*it == cacheKey) {
-						break;
-					}
-				}
-			} else {
-				println("Re:Marking as recursive");
-			}
-
-			return cacheValue.value;
-		}
-
-		cacheValue.state = 1;  // Register before parsing to avoid left-recursion cycles
-
-		path.push_back(cacheKey);
-
-		println("Path size: ", path.size(), ", position: ", position);
-
 		usize start = position;
 
 		switch(rule.index()) {
@@ -468,17 +357,112 @@ struct Parser {
 
 		if(cacheValue.value.empty()) {
 			position = start;
-			println("Position set 1: ", position);
+			println("Position set 1 (", cacheValue.title, "): ", position);
 			cacheValue.length = 0;
 		} else {
 			cacheValue.length = position-start;
 		}
+	}
 
-		cacheValue.state = 2;
+	NodeValue parse(const Rule& rule) {
+		if(tokensEnd()) {
+			println("[Parser] Reached the end of stream");
+
+			return nullptr;
+		}
+
+		CacheKey cacheKey(rule, position);
+		CacheValue& cacheValue = cache[cacheKey];
+		usize start = position;
+
+		cacheValue.limit++;
+		if(cacheValue.limit >= 50) {
+			println("Limit exceeded (", cacheValue.title, ")");
+			return cacheValue.value;
+		} else {
+		//	println("Limit: ", cacheValue.limit);
+		}
+
+		switch(cacheValue.state) {
+			case 1:  // Seeding
+				cacheValue.deferred++;
+				println("Marked as deffered (", cacheValue.title, "): ", cacheValue.deferred);
+
+				return cacheValue.value;
+			break;
+			case 2:  // Growing
+				println("Tried to grow (", cacheValue.title, ")");
+				if(cacheValue.deferred > 0) {
+					println("Parsing deferred left recursion (", cacheValue.title, "): ");
+				}
+				for(int i = 0; i < cacheValue.deferred; i++) {
+					NodeValue value;
+					usize end = position;
+
+					while(true) {
+						position = start;
+
+						usize previousLength = cacheValue.length-cacheValue.unsupported;
+
+						println("Position set 3: ", position);
+						parseDispatch(rule);
+						println("Parsed value from deferred alt (", cacheValue.title, "): len=", cacheValue.length, ", pos=", position);
+
+						usize currentLength = cacheValue.length-cacheValue.unsupported;
+
+						if(currentLength <= previousLength) {
+							println(cacheValue.title, " not improved");
+							break;
+						}
+
+						println(cacheValue.title, " improved");
+						value = cacheValue.value;
+					}
+
+					if(!value.empty()) {
+						cacheValue.state = 3;
+
+						break;
+					}
+
+					position = end;
+				}
+
+				return cacheValue.value;
+			case 3:  // Finished
+				if(position > cacheKey.start+cacheValue.length) {
+					println("[Parser] Position was rollen back while should not");
+				}
+
+				position = cacheKey.start+cacheValue.length;
+				println("Position set 0 (", cacheValue.title, "): ", position);
+
+				return cacheValue.value;
+			break;
+		}
+
+		cacheValue.state = 1;
+
+		path.push_back(cacheKey);
+
+		string r;
+		for(auto& p : path) {
+			r += cache[p].title+", ";
+		}
+
+		println("Path (", cacheValue.title, "): [", r, "], size: ", path.size(), ", position: ", position);
+
+		parseDispatch(rule);
+
+		if(!cacheValue.value.empty()) {
+			cacheValue.state = 3;
+		} else {
+			cacheValue.state = 2;
+		}
 
 		path.pop_back();
 
-		println("Parsed rule at pos ", cacheKey.start, " => length: ", cacheValue.length, ", recursive: ", cacheValue.recursive ? "true" : "false", ", value.empty: ", cacheValue.value.empty() ? "true" : "false");
+		println("Parsed rule (", cacheValue.title, ") at pos ", cacheKey.start, " => length: ", cacheValue.length, ", recursive: ", cacheValue.deferred > 0 ? "true" : "false", ", value.empty: ", cacheValue.value.empty() ? "true" : "false");
 
 		return cacheValue.value;
 	}
