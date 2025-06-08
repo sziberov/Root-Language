@@ -57,9 +57,9 @@ namespace Grammar {
 		optional<Rule> opener,
 					   delimiter,
 					   closer;
-		bool orderedDelimit = false,  // Require 'a : b : c' instead of 'a b : : c'
-			 optionalDelimit = true,  // Allow 'a b' instead of 'a : b'
-			 danglingDelimit = true,  // Require/allow ': a : b :' instead of 'a : b'
+		char innerDelimit = '*',  // Expected count: ' ' - zero, '.' - one, '?', - zero to one, '+' - one to infinity, '*' - zero to infinity
+			 outerDelimit = '*';
+		bool delimited = false,  // Include delimiters if any
 			 unsupported = true,  // Include unrecognized tokens if any
 			 single = false;  // Disable sequence mode
 
@@ -79,20 +79,23 @@ namespace Grammar {
 				{"value", "expressions"}
 			})
 		})},
-		/*
 		{"arrayLiteral", NodeRule({
 			{"values", SequenceRule {
 				.rule = "expressions",
-				.delimiter = TokenRule("operator.*", ",")
+				.opener = TokenRule("bracketOpen"),
+				.delimiter = TokenRule("operator.*", ","),
+				.closer = TokenRule("bracketClosed"),
+				.innerDelimit = '+',
+				.unsupported = false
 			}}
 		})},
-		*/
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
 			{nullopt, TokenRule("bracketClosed")}
 		})},
-		{"asOperator", NodeRule({
+		{"asExpression", NodeRule({
+			{"value", "expression"},
 			{nullopt, TokenRule("keywordAs")},
 			{"type_", "type"}
 		})},
@@ -201,6 +204,8 @@ namespace Grammar {
 		{"enumerationExpression", RuleRef()},
 		{"enumerationStatements", RuleRef()},
 		{"expression", VariantRule({
+			"asExpression",
+			"isExpression",
 			"asyncExpression",
 			"awaitExpression",
 			"deleteExpression",
@@ -210,9 +215,8 @@ namespace Grammar {
 		{"expressions", SequenceRule({
 			.rule = "expression",
 			.delimiter = "infixExpression",
-			.orderedDelimit = true,
-			.optionalDelimit = false,
-			.danglingDelimit = false,
+			.innerDelimit = '.',
+			.outerDelimit = ' ',
 			.unsupported = false
 		})},
 		{"fallthroughStatement", NodeRule({
@@ -252,10 +256,8 @@ namespace Grammar {
 		})},
 		{"importDeclaration", RuleRef()},
 		{"infixExpression", VariantRule({
-			"asOperator",
 			"conditionalOperator",
 			"inOperator",
-			"isOperator",
 			"infixOperator"
 		})},
 		{"infixOperator", NodeRule({
@@ -266,8 +268,7 @@ namespace Grammar {
 		{"initializerDeclaration", RuleRef()},
 		{"inOperator", NodeRule({
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
-			{nullopt, TokenRule("keywordIn")},
-			{"composite", "expressions"},
+			{nullopt, TokenRule("keywordIn")}
 		})},
 		{"inoutExpression", NodeRule({
 			{nullopt, TokenRule("operatorPrefix", "&")},
@@ -281,7 +282,8 @@ namespace Grammar {
 			{"value", TokenRule("numberInteger")}
 		})},
 		{"intersectionType", RuleRef()},
-		{"isOperator", NodeRule({
+		{"isExpression", NodeRule({
+			{"value", "expression"},
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
 			{nullopt, TokenRule("keywordIs")},
 			{"type_", "type"},
@@ -297,10 +299,10 @@ namespace Grammar {
 		})},
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
-			{"statements", SequenceRule({  // functionStatements
+			{"statements", "expression"/*, SequenceRule({  // functionStatements
 				.rule = "expressions",
 				.delimiter = TokenRule("delimiter")
-			})}
+			})*/}
 		})},
 		{"namespaceBody", RuleRef()},
 		{"namespaceDeclaration", RuleRef()},
@@ -428,7 +430,8 @@ namespace Grammar {
 		{"type", VariantRule({
 			"variadicType",
 			"inoutType",
-			"unionType"
+			"unionType",
+			"typeIdentifier"
 		})},
 		{"typeClause", NodeRule({
 			{nullopt, TokenRule("operator.*", ":")},
@@ -438,7 +441,7 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordType")},
 			{"type_", "type"}
 		})},
-		{"typeIdentifier", RuleRef()},
+		{"typeIdentifier", RuleRef("identifier")},
 		{"unionType", RuleRef()},
 		{"variableDeclaration", RuleRef()},
 		{"variadicType", NodeRule({
