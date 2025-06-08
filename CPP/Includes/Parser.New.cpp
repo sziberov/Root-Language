@@ -14,35 +14,48 @@ struct Parser {
 	using RuleRef = Grammar::RuleRef;
 	using Rule = Grammar::Rule;
 
-	struct CacheKey {
+	struct Key {
 		Rule rule;
 		usize start;
 
-		bool operator==(const CacheKey& k) const = default;
+		bool operator==(const Key& k) const = default;
 	};
 
-	struct CacheValue {
-		NodeValue value;
-		usize length,
-			  unsupported;  // Failed tokens count
-		u8 state = 0;  // 0 - Raw, 1 - Seeding, 2 - Growing, 3 - Finished
-		string title;
-		usize limit,
-			  deferred;
-	};
-
-	struct CacheHasher {
-		usize operator()(const CacheKey& k) const {
+	struct Hasher {
+		usize operator()(const Key& k) const {
 			return hash<usize>()(k.rule.index())^hash<usize>()(k.start);
 		}
 	};
 
-	using Cache = unordered_map<CacheKey, CacheValue, CacheHasher>;
+	enum class State {
+		Raw,
+		Working,
+		Done
+	};
+
+	struct SignedValue {
+		NodeValue value;
+		usize order,
+			  cleanTokens,
+			  dirtyTokens;
+	};
+
+	struct Value {
+		unordered_set<Key, Hasher> callers;
+		State state = State::Raw;
+
+		NodeValue value;
+		usize length,
+			  unsupported;  // Failed tokens count
+	};
+
+	using Cache = unordered_map<Key, Value, Hasher>;
 
 	deque<Token> tokens;
 	usize position = 0;
-	Cache cache;  // Memoization support
-	vector<CacheKey> path;
+	Cache cache;
+	deque<Key> calls,
+			   queue;
 
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
@@ -56,14 +69,6 @@ struct Parser {
 
 	bool tokensEnd() {
 		return position >= tokens.size();
-	}
-
-	CacheValue& cacheValue() {
-		static CacheValue dummy;
-
-		return !path.empty()
-			 ? cache[path.back()]
-			 : dummy = CacheValue();
 	}
 
 	NodeSP parse(const NodeRule& nodeRule) {
@@ -325,7 +330,6 @@ struct Parser {
 			return nullptr;
 		}
 
-		cacheValue().title = ruleRef;
 		Rule& rule = Grammar::rules[ruleRef];
 		NodeValue value = parse(rule);
 
@@ -342,127 +346,78 @@ struct Parser {
 		return value;
 	}
 
-	void parseDispatch(const Rule& rule) {
-		CacheKey cacheKey(rule, position);
-		CacheValue& cacheValue = cache[cacheKey];
-		usize start = position;
-
+	NodeValue parseDispatch(const Rule& rule) {
 		switch(rule.index()) {
-			case 0: cacheValue.value = parse(get<0>(rule));       break;
-			case 1: cacheValue.value = parse(get<1>(rule).get()); break;
-			case 2: cacheValue.value = parse(get<2>(rule).get()); break;
-			case 3: cacheValue.value = parse(get<3>(rule).get()); break;
-			case 4: cacheValue.value = parse(get<4>(rule).get()); break;
-		}
-
-		if(cacheValue.value.empty()) {
-			position = start;
-			println("Position set 1 (", cacheValue.title, "): ", position);
-			cacheValue.length = 0;
-		} else {
-			cacheValue.length = position-start;
+			case 0:  return parse(get<0>(rule));
+			case 1:  return parse(get<1>(rule).get());
+			case 2:  return parse(get<2>(rule).get());
+			case 3:  return parse(get<3>(rule).get());
+			case 4:  return parse(get<4>(rule).get());
+			default: return nullptr;
 		}
 	}
 
 	NodeValue parse(const Rule& rule) {
-		if(tokensEnd()) {
-			println("[Parser] Reached the end of stream");
+		Key key(rule, position);
+		Value& cacheValue = cache[key];
 
-			return nullptr;
+		if(!calls.empty()) {
+			cacheValue.callers.insert(calls.back());
 		}
 
-		CacheKey cacheKey(rule, position);
-		CacheValue& cacheValue = cache[cacheKey];
-		usize start = position;
-
-		cacheValue.limit++;
-		if(cacheValue.limit >= 50) {
-			println("Limit exceeded (", cacheValue.title, ")");
-			return cacheValue.value;
-		} else {
-		//	println("Limit: ", cacheValue.limit);
-		}
+		calls.push_back(key);
 
 		switch(cacheValue.state) {
-			case 1:  // Seeding
-				cacheValue.deferred++;
-				println("Marked as deffered (", cacheValue.title, "): ", cacheValue.deferred);
+			case State::Raw:
+				if(tokensEnd()) {
+					println("[Parser] Reached the end of stream");
 
-				return cacheValue.value;
-			break;
-			case 2:  // Growing
-				println("Tried to grow (", cacheValue.title, ")");
-				if(cacheValue.deferred > 0) {
-					println("Parsing deferred left recursion (", cacheValue.title, "): ");
+					return nullptr;
 				}
-				for(int i = 0; i < cacheValue.deferred; i++) {
-					NodeValue value;
-					usize end = position;
 
-					while(true) {
-						position = start;
+				cacheValue.state = State::Working;
 
-						usize previousLength = cacheValue.length-cacheValue.unsupported;
+				if(!contains(queue, key)) {
+					queue.push_back(key);
+				}
 
-						println("Position set 3: ", position);
-						parseDispatch(rule);
-						println("Parsed value from deferred alt (", cacheValue.title, "): len=", cacheValue.length, ", pos=", position);
+				while(!queue.empty()) {
+					Key queueKey = queue.front();
+					Value& queueValue = cache[queueKey];
 
-						usize currentLength = cacheValue.length-cacheValue.unsupported;
+					queue.pop_front();
+					position = queueKey.start;
 
-						if(currentLength <= previousLength) {
-							println(cacheValue.title, " not improved");
-							break;
+					NodeValue queueValueValue = parseDispatch(queueKey.rule);
+					usize queueValueLength = position-queueKey.start;
+
+					if(queueValueLength > queueValue.length) {
+						queueValue.value = queueValueValue;
+						queueValue.length = queueValueLength;
+
+						for(const Key& callerKey : queueValue.callers) {
+							if(!contains(queue, callerKey)) {
+								queue.push_back(callerKey);
+							}
 						}
-
-						println(cacheValue.title, " improved");
-						value = cacheValue.value;
 					}
 
-					if(!value.empty()) {
-						cacheValue.state = 3;
-
-						break;
-					}
-
-					position = end;
+					queueValue.state = State::Done;
 				}
 
-				return cacheValue.value;
-			case 3:  // Finished
-				if(position > cacheKey.start+cacheValue.length) {
-					println("[Parser] Position was rollen back while should not");
-				}
-
-				position = cacheKey.start+cacheValue.length;
-				println("Position set 0 (", cacheValue.title, "): ", position);
-
-				return cacheValue.value;
+				position = key.start+cacheValue.length;
+			break;
+			case State::Working:
+				println("working");
+			break;
+			case State::Done:
+				position = key.start+cacheValue.length;
 			break;
 		}
 
-		cacheValue.state = 1;
+		calls.pop_back();
 
-		path.push_back(cacheKey);
-
-		string r;
-		for(auto& p : path) {
-			r += cache[p].title+", ";
-		}
-
-		println("Path (", cacheValue.title, "): [", r, "], size: ", path.size(), ", position: ", position);
-
-		parseDispatch(rule);
-
-		if(!cacheValue.value.empty()) {
-			cacheValue.state = 3;
-		} else {
-			cacheValue.state = 2;
-		}
-
-		path.pop_back();
-
-		println("Parsed rule (", cacheValue.title, ") at pos ", cacheKey.start, " => length: ", cacheValue.length, ", recursive: ", cacheValue.deferred > 0 ? "true" : "false", ", value.empty: ", cacheValue.value.empty() ? "true" : "false");
+		println("Parsed rule at pos ", key.start, " => length: ", cacheValue.length, ", callers: ", cacheValue.callers.size(), ", value: ", to_string(cacheValue.value));
 
 		return cacheValue.value;
 	}
