@@ -27,8 +27,6 @@ struct Parser {
 		}
 	};
 
-	enum class State { Raw, Working, Done };
-
 	struct Payload {
 		NodeValue value;
 		isize triviality,
@@ -39,9 +37,11 @@ struct Parser {
 			return cleanTokens+dirtyTokens;
 		}
 
-		void addSize(const Payload& other) {
+		bool addSize(const Payload& other) {
 			cleanTokens += other.cleanTokens;
 			dirtyTokens += other.dirtyTokens;
+
+			return other.cleanTokens+other.dirtyTokens > 0;
 		}
 
 		bool empty() const {
@@ -60,7 +60,7 @@ struct Parser {
 
 	struct Value {
 		unordered_set<Key, Hasher> callers;
-		State state = State::Raw;
+		bool initialized = false;
 		Payload payload;
 	};
 
@@ -118,8 +118,8 @@ struct Parser {
 		}
 
 		node["range"] = {
-			{"start", (int)start},
-			{"end", (int)(start+payload.size())}
+			{"start", int(start)},
+			{"end", int(start+(max(isize(), payload.size()-1)))}
 		};
 
 		if(nodeRule.post) {
@@ -201,18 +201,17 @@ struct Parser {
 		}
 
 		bool found = false;
+		usize start = position;
 
 		while(!tokensEnd()) {
-			Payload delimiterPayload = parse(*delimiterRule);
+			Payload& delimiterPayload = parse(*delimiterRule);
 
 			if(delimiterPayload.empty()) {
-				position -= delimiterPayload.size();
-
 				break;
-			} else {
-				payload.addSize(delimiterPayload);
-				values.push_back(delimiterPayload.value);
 			}
+
+			payload.addSize(delimiterPayload);
+			values.push_back(delimiterPayload.value);
 
 			found = true;
 
@@ -222,6 +221,8 @@ struct Parser {
 		}
 
 		if(!found && minOnePolicy.contains(policy)) {
+			position = start;
+
 			return Payload();
 		}
 
@@ -232,13 +233,18 @@ struct Parser {
 		Payload payload = { NodeArray() };
 		NodeArray& values = payload.value;
 
-		/*
-		if(sequenceRule.opener && parse(*sequenceRule.opener).empty()) {
-			return nullptr;
+		if(sequenceRule.opener) {
+			Payload& openerPayload = parse(*sequenceRule.opener);
+
+			if(openerPayload.empty()) {
+				return Payload();
+			}
+
+			payload.addSize(openerPayload);
 		}
 
-		if(!parseDelimiters(sequenceRule.delimiter, sequenceRule.outerDelimit)) {
-			return nullptr;
+		if(!payload.addSize(parseDelimiters(sequenceRule.delimiter, sequenceRule.outerDelimit))) {
+			return Payload();
 		}
 
 		usize end = position;
@@ -265,25 +271,30 @@ struct Parser {
 		}
 
 		if(!found || !parseDelimiters(sequenceRule.delimiter, sequenceRule.outerDelimit)) {
-			return nullptr;
+			return Payload();
 		}
 
-		if(sequenceRule.closer && parse(*sequenceRule.closer).empty()) {
-			if(!tokensEnd()) {
-				println("[Parser] Sequence doesn't have the closing token and was decided to be autoclosed at the end of stream");
-			} else {
-				return nullptr;
+		if(sequenceRule.closer) {
+			Payload& closerPayload = parse(*sequenceRule.closer);
+
+			if(closerPayload.empty()) {
+				if(tokensEnd()) {
+					println("[Parser] Sequence doesn't have the closing token and was decided to be autoclosed at the end of stream");
+				} else {
+					return Payload();
+				}
 			}
+
+			payload.addSize(closerPayload);
 		}
 
 		if(sequenceRule.single) {
 			if(values.size() == 1) {
 				return values.front();
 			} else {
-				return nullptr;
+				return Payload();
 			}
 		}
-		*/
 
 		return payload;
 	}
@@ -295,7 +306,7 @@ struct Parser {
 		}
 
 		Rule& rule = Grammar::rules[ruleRef];
-		Payload payload = parse(rule);
+		Payload& payload = parse(rule);
 
 		if(payload.value.type() == 5) {
 			Node& node = payload.value;
@@ -310,7 +321,7 @@ struct Parser {
 		return payload;
 	}
 
-	Payload parseDispatch(const Rule& rule) {
+	Payload dispatch(const Rule& rule) {
 		switch(rule.index()) {
 			case 0:  return parse(get<0>(rule));
 			case 1:  return parse(get<1>(rule).get());
@@ -321,69 +332,55 @@ struct Parser {
 		}
 	}
 
-	Payload parse(const Rule& rule) {
+	void flush() {
+		while(!queue.empty()) {
+			Key key = queue.front();
+			Value& value = cache[key];
+
+			queue.pop_front();
+			position = key.start;
+
+			Payload payload = dispatch(key.rule);
+
+			if(payload > value.payload) {
+				value.payload = payload;
+
+				for(const Key& callerKey : value.callers) {
+					queue.push_back(callerKey);
+				}
+			}
+		}
+	}
+
+	Payload& parse(const Rule& rule) {
 		Key key(rule, position);
-		Value& cacheValue = cache[key];
+		Value& value = cache[key];
+		Payload& payload = value.payload;
 
 		if(!calls.empty()) {
-			cacheValue.callers.insert(calls.back());
+			value.callers.insert(calls.back());
 		}
 
-		calls.push_back(key);
+		if(!value.initialized) {
+			value.initialized = true;
 
-		switch(cacheValue.state) {
-			case State::Raw:
-				if(tokensEnd()) {
-					println("[Parser] Reached the end of stream");
+			if(tokensEnd()) {
+				println("[Parser] Reached the end of stream");
 
-					return Payload();
-				}
+				return payload;
+			}
 
-				cacheValue.state = State::Working;
+			calls.push_back(key);
+			queue.push_back(key);
+			flush();
+			calls.pop_back();
 
-				if(!contains(queue, key)) {
-					queue.push_back(key);
-				}
-
-				while(!queue.empty()) {
-					Key queueKey = queue.front();
-					Value& queueValue = cache[queueKey];
-
-					queue.pop_front();
-					position = queueKey.start;
-
-					Payload payload = parseDispatch(queueKey.rule);
-
-					if(payload > queueValue.payload) {
-						queueValue.payload = payload;
-
-						for(const Key& callerKey : queueValue.callers) {
-							if(!contains(queue, callerKey)) {
-								queue.push_back(callerKey);
-							}
-						}
-					}
-
-					queueValue.state = State::Done;
-				}
-
-				position = key.start+cacheValue.payload.size();
-			break;
-			case State::Working:
-				if(!cacheValue.payload.empty()) {
-					position = key.start+cacheValue.payload.size();
-				}
-			break;
-			case State::Done:
-				position = key.start+cacheValue.payload.size();
-			break;
+			println("[Parser] Result at pos ", key.start, " => clean: ", payload.cleanTokens, ", dirty: ", payload.dirtyTokens, ", callers: ", value.callers.size(), ", value: ", to_string(payload.value));
 		}
 
-		calls.pop_back();
+		position = key.start+payload.size();
 
-		println("Parsed rule at pos ", key.start, " => clean: ", cacheValue.payload.cleanTokens, ", dirty: ", cacheValue.payload.dirtyTokens, ", callers: ", cacheValue.callers.size(), ", value: ", to_string(cacheValue.payload.value));
-
-		return cacheValue.payload;
+		return payload;
 	}
 
 	NodeSP parse() {

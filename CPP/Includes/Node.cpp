@@ -233,7 +233,7 @@ public:
 		return holds_alternative<nullptr_t>(value);
 	}
 
-	int type() const {
+	usize type() const {
 		return value.index();
 	}
 };
