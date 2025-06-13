@@ -41,9 +41,17 @@ struct Parser {
 			return cleanTokens+dirtyTokens;
 		}
 
-		void appendSize(const Frame& other) {
+		void addSize(const Frame& other) {
 			cleanTokens += other.cleanTokens;
 			dirtyTokens += other.dirtyTokens;
+		}
+
+		// Should be used for non-proxy rules with own values and accumulative sizes before parsing.
+		// Rules that do just _set_ their value/size behave fine without that, but other can unintentionally mislead the "greater" check.
+		void clearResult() {
+			value = nullptr;
+			cleanTokens =
+			dirtyTokens = 0;
 		}
 
 		void apply(const Frame& other) {
@@ -78,14 +86,6 @@ struct Parser {
 
 	// ----------------------------------------------------------------
 
-	Token& token() {
-		static Token dummy;
-
-		return tokens.size() > position
-			 ? tokens[position]
-			 : dummy = Token();
-	}
-
 	bool tokensEnd() {
 		return position >= tokens.size();
 	}
@@ -114,10 +114,9 @@ struct Parser {
 		return ruleFrame;
 	}
 
-	optional<Frame> parseNode(const NodeRule& nodeRule) {
-		Frame nodeFrame = { .value = Node() };
-		Node& node = nodeFrame.value;
-		usize start = position;
+	optional<Frame> parseNode(Frame& nodeFrame) {
+		NodeRule& nodeRule = get<1>(nodeFrame.key.rule).get();
+		Node& node = nodeFrame.value = Node();
 
 		for(auto& field : nodeRule.fields) {
 			Frame& fieldFrame = parse(field.rule);
@@ -126,7 +125,7 @@ struct Parser {
 				return nullopt;
 			}
 
-			nodeFrame.appendSize(fieldFrame);
+			nodeFrame.addSize(fieldFrame);
 
 			if(field.title && (!fieldFrame.empty() || !field.optional)) {
 				node[*field.title] = fieldFrame.value;
@@ -144,8 +143,8 @@ struct Parser {
 		}
 
 		node["range"] = {
-			{"start", int(start)},
-			{"end", int(start+(max(isize(), nodeFrame.size()-1)))}
+			{"start", int(nodeFrame.key.start)},
+			{"end", int(nodeFrame.key.start+(max(isize(), nodeFrame.size()-1)))}
 		};
 
 		if(nodeRule.post) {
@@ -155,9 +154,15 @@ struct Parser {
 		return nodeFrame;
 	}
 
-	optional<Frame> parseToken(const TokenRule& tokenRule) {
-		Token& token = this->token();
-		Frame tokenFrame = { .value = token.value };
+	optional<Frame> parseToken(Frame& tokenFrame) {
+		if(tokenFrame.key.start >= tokens.size()) {
+			return nullopt;
+		}
+
+		TokenRule& tokenRule = get<2>(tokenFrame.key.rule).get();
+		Token& token = tokens[tokenFrame.key.start];
+
+		tokenFrame.value = token.value;
 
 		println("Token at position ", position, ": ", token.type, ", value: ", token.value);
 
@@ -205,11 +210,12 @@ struct Parser {
 		VariantRule& variantRule = get<3>(variantFrame.key.rule).get();
 
 		for(int i = 0; i < variantRule.size(); i++) {
-			Frame ruleFrame = parse(variantRule[i]);
+			Frame& ruleFrame = parse({
+				.key = Key(variantRule[i], position),
+				.triviality = i
+			});
 
 			if(!ruleFrame.empty()) {
-				ruleFrame.triviality = i;
-
 				return ruleFrame;
 			}
 		}
@@ -240,7 +246,7 @@ struct Parser {
 				break;
 			}
 
-			sequenceFrame.appendSize(delimiterFrame);
+			sequenceFrame.addSize(delimiterFrame);
 
 			if(sequenceRule.delimited) {
 				values.push_back(delimiterFrame.value);
@@ -260,9 +266,9 @@ struct Parser {
 		return true;
 	}
 
-	optional<Frame> parseSequence(const SequenceRule& sequenceRule) {
-		Frame sequenceFrame = { .key = Key(sequenceRule, position), .value = NodeArray() };
-		NodeArray& values = sequenceFrame.value;
+	optional<Frame> parseSequence(Frame& sequenceFrame) {
+		SequenceRule& sequenceRule = get<4>(sequenceFrame.key.rule).get();
+		NodeArray& values = sequenceFrame.value = NodeArray();
 
 		sequenceFrame.permitsDirty = sequenceRule.dirty;
 
@@ -273,7 +279,7 @@ struct Parser {
 				return nullopt;
 			}
 
-			sequenceFrame.appendSize(openerFrame);
+			sequenceFrame.addSize(openerFrame);
 		}
 
 		if(!parseDelimiters(sequenceFrame, sequenceRule.outerDelimit)) {
@@ -295,7 +301,7 @@ struct Parser {
 				break;
 			}
 
-			sequenceFrame.appendSize(ruleFrame);
+			sequenceFrame.addSize(ruleFrame);
 			values.push_back(ruleFrame.value);
 
 			found = true;
@@ -321,7 +327,7 @@ struct Parser {
 				}
 			}
 
-			sequenceFrame.appendSize(closerFrame);
+			sequenceFrame.addSize(closerFrame);
 		}
 
 		if(sequenceRule.single) {
@@ -338,12 +344,14 @@ struct Parser {
 	}
 
 	optional<Frame> dispatch(Frame frame) {
+		frame.clearResult();
+
 		switch(frame.key.rule.index()) {
 			case 0:  return parseReference(frame);
-			case 1:  return parseNode(get<1>(frame.key.rule).get());
-			case 2:  return parseToken(get<2>(frame.key.rule).get());
+			case 1:  return parseNode(frame);
+			case 2:  return parseToken(frame);
 			case 3:  return parseVariant(frame);
-			case 4:  return parseSequence(get<4>(frame.key.rule).get());
+			case 4:  return parseSequence(frame);
 			default: return nullopt;
 		}
 	}
