@@ -300,7 +300,7 @@ namespace Grammar {
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
 			{"statements", SequenceRule({  // functionStatements
-				.rule = "expressions",
+				.rule = "expression",
 				.delimiter = TokenRule("delimiter")
 			})}
 		})},
