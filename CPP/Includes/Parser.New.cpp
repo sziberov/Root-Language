@@ -27,26 +27,38 @@ struct Parser {
 		}
 	};
 
-	struct Payload {
+	struct Frame {
+		Key key;
+		unordered_set<Key, Hasher> callers;
 		NodeValue value;
-		isize triviality,
-			  cleanTokens,
-			  dirtyTokens;
+		isize triviality = 0,
+			  cleanTokens = 0,
+			  dirtyTokens = 0;
+		bool permitsDirty = false,  // Is not same as "contains" (dirtyTokens > 0)
+			 isInitialized = false;
 
 		isize size() const {
 			return cleanTokens+dirtyTokens;
 		}
 
-		void addSize(const Payload& other) {
+		void appendSize(const Frame& other) {
 			cleanTokens += other.cleanTokens;
 			dirtyTokens += other.dirtyTokens;
 		}
 
-		bool empty() const {
-			return cleanTokens == 0 && (dirtyTokens > 0 || value.empty());
+		void apply(const Frame& other) {
+			value = other.value;
+			triviality = other.triviality;
+			cleanTokens = other.cleanTokens;
+			dirtyTokens = other.dirtyTokens;
+			permitsDirty = other.permitsDirty;
 		}
 
-		bool operator>(const Payload& other) const {
+		bool empty() const {
+			return value.empty() || cleanTokens == 0 && (!permitsDirty || dirtyTokens == 0);
+		}
+
+		bool greater(const Frame& other) const {
 			if(empty() != other.empty())			return !empty();
 			if(triviality != other.triviality)		return triviality < other.triviality;
 			if(cleanTokens != other.cleanTokens)	return cleanTokens > other.cleanTokens;
@@ -56,17 +68,13 @@ struct Parser {
 		}
 	};
 
-	struct Value {
-		unordered_set<Key, Hasher> callers;
-		bool initialized = false;
-		Payload payload;
+	struct OutFrame {
+		Frame frame;
 	};
-
-	using Cache = unordered_map<Key, Value, Hasher>;
 
 	deque<Token> tokens;
 	usize position = 0;
-	Cache cache;
+	unordered_map<Key, OutFrame, Hasher> cache;
 	deque<Key> calls,
 			   queue;
 
@@ -86,50 +94,72 @@ struct Parser {
 		return position >= tokens.size();
 	}
 
-	Payload parse(const NodeRule& nodeRule) {
-		Payload payload = { Node() };
-		Node& node = payload.value;
+	optional<Frame> parseReference(const RuleRef& ruleRef) {
+		println("[Parser] Rule \"", ruleRef, "\"");
+		if(!Grammar::rules.contains(ruleRef)) {
+			return nullopt;
+		}
+
+		Rule& rule = Grammar::rules[ruleRef];
+		Frame& ruleFrame = parse(rule);
+
+		if(ruleFrame.value.type() == 5) {
+			Node& node = ruleFrame.value;
+
+			if(!node.contains("type")) {
+				node["type"] = ruleRef;
+			}
+		}
+
+		println("[Parser] Rule \"", ruleRef, "\": ", to_string(ruleFrame.value));
+
+		return ruleFrame;
+	}
+
+	optional<Frame> parseNode(const NodeRule& nodeRule) {
+		Frame nodeFrame = { .value = Node() };
+		Node& node = nodeFrame.value;
 		usize start = position;
 
 		for(auto& field : nodeRule.fields) {
-			Payload fieldPayload = parse(field.rule);
+			Frame& fieldFrame = parse(field.rule);
 
-			if(fieldPayload.empty() && !field.optional) {
-				return Payload();
+			if(fieldFrame.empty() && !field.optional) {
+				return nullopt;
 			}
 
-			payload.addSize(fieldPayload);
+			nodeFrame.appendSize(fieldFrame);
 
-			if(field.title && (!fieldPayload.empty() || !field.optional)) {
-				node[*field.title] = fieldPayload.value;
+			if(field.title && (!fieldFrame.empty() || !field.optional)) {
+				node[*field.title] = fieldFrame.value;
 			}
 		}
 
 		if(nodeRule.normalize && node.size() <= 1) {
 			if(node.empty()) {
-				return Payload();
+				return nullopt;
 			}
 
-			payload.value = node.begin()->second;
+			nodeFrame.value = node.begin()->second;
 
-			return payload;
+			return nodeFrame;
 		}
 
 		node["range"] = {
 			{"start", int(start)},
-			{"end", int(start+(max(isize(), payload.size()-1)))}
+			{"end", int(start+(max(isize(), nodeFrame.size()-1)))}
 		};
 
 		if(nodeRule.post) {
 			nodeRule.post(node);
 		}
 
-		return payload;
+		return nodeFrame;
 	}
 
-	Payload parse(const TokenRule& tokenRule) {
+	optional<Frame> parseToken(const TokenRule& tokenRule) {
 		Token& token = this->token();
-		Payload payload = { token.value };
+		Frame tokenFrame = { .value = token.value };
 
 		println("Token at position ", position, ": ", token.type, ", value: ", token.value);
 
@@ -139,15 +169,15 @@ struct Parser {
 
 				if(!regex_match(token.type, r)) {
 					println("[Parser] Token type (", token.type, ") is not matching \"", *tokenRule.type, "\"");
-					payload.dirtyTokens++;
+					tokenFrame.dirtyTokens++;
 
-					return payload;
+					return tokenFrame;
 				}
 			} catch(const regex_error& e) {
 				println("[Parser] Error in token type validator: ", e.what());
-				payload.dirtyTokens++;
+				tokenFrame.dirtyTokens++;
 
-				return payload;
+				return tokenFrame;
 			}
 		}
 		if(tokenRule.value) {
@@ -156,38 +186,40 @@ struct Parser {
 
 				if(!regex_match(token.value, r)) {
 					println("[Parser] Token value (", token.value, ") is not matching \"", *tokenRule.value, "\"");
-					payload.dirtyTokens++;
+					tokenFrame.dirtyTokens++;
 
-					return payload;
+					return tokenFrame;
 				}
 			} catch(const regex_error& e) {
 				println("[Parser] Error in token value validator: ", e.what());
-				payload.dirtyTokens++;
+				tokenFrame.dirtyTokens++;
 
-				return payload;
+				return tokenFrame;
 			}
 		}
 
-		payload.cleanTokens++;
+		tokenFrame.cleanTokens++;
 
-		return payload;
+		return tokenFrame;
 	}
 
-	Payload parse(const VariantRule& variantRule) {
+	optional<Frame> parseVariant(const VariantRule& variantRule) {
 		for(int i = 0; i < variantRule.size(); i++) {
-			Payload payload = parse(variantRule[i]);
+			Frame ruleFrame = parse(variantRule[i]);
 
-			if(!payload.value.empty()) {
-				payload.triviality = i;
+			if(!ruleFrame.empty()) {
+				ruleFrame.triviality = i;
 
-				return payload;
+				return ruleFrame;
 			}
 		}
 
-		return Payload();
+		return nullopt;
 	}
 
-	bool parseDelimiters(Payload& payload, const optional<Rule>& delimiterRule, char policy, bool delimited) {
+	bool parseDelimiters(Frame& sequenceFrame, char policy) {
+		SequenceRule& sequenceRule = get<4>(sequenceFrame.key.rule).get();
+		optional<Rule>& delimiterRule = sequenceRule.delimiter;
 		const string activePolicy = ".?+*",
 					 maxOnePolicy = ".?",
 					 minOnePolicy = ".+";
@@ -196,22 +228,22 @@ struct Parser {
 			return true;
 		}
 
-		NodeArray& values = payload.value;
+		NodeArray& values = sequenceFrame.value;
 		bool found = false;
 		int i = 0;
 
 		while(!tokensEnd()) {
 			println("cycle 0: ", i++);
-			Payload& delimiterPayload = parse(*delimiterRule);
+			Frame& delimiterFrame = parse(*delimiterRule);
 
-			if(delimiterPayload.empty()) {
+			if(delimiterFrame.empty()) {
 				break;
 			}
 
-			payload.addSize(delimiterPayload);
+			sequenceFrame.appendSize(delimiterFrame);
 
-			if(delimited) {
-				values.push_back(delimiterPayload.value);
+			if(sequenceRule.delimited) {
+				values.push_back(delimiterFrame.value);
 			}
 
 			found = true;
@@ -228,22 +260,24 @@ struct Parser {
 		return true;
 	}
 
-	Payload parse(const SequenceRule& sequenceRule) {
-		Payload payload = { NodeArray() };
-		NodeArray& values = payload.value;
+	optional<Frame> parseSequence(const SequenceRule& sequenceRule) {
+		Frame sequenceFrame = { .key = Key(sequenceRule, position), .value = NodeArray() };
+		NodeArray& values = sequenceFrame.value;
+
+		sequenceFrame.permitsDirty = sequenceRule.dirty;
 
 		if(sequenceRule.opener) {
-			Payload& openerPayload = parse(*sequenceRule.opener);
+			Frame& openerFrame = parse(*sequenceRule.opener);
 
-			if(openerPayload.empty()) {
-				return Payload();
+			if(openerFrame.empty()) {
+				return nullopt;
 			}
 
-			payload.addSize(openerPayload);
+			sequenceFrame.appendSize(openerFrame);
 		}
 
-		if(!parseDelimiters(payload, sequenceRule.delimiter, sequenceRule.outerDelimit, sequenceRule.delimited)) {
-			return Payload();
+		if(!parseDelimiters(sequenceFrame, sequenceRule.outerDelimit)) {
+			return nullopt;
 		}
 
 		usize end = position;
@@ -252,126 +286,105 @@ struct Parser {
 
 		while(!tokensEnd()) {
 			println("cycle 1: ", i++);
-			Payload& rulePayload = parse(sequenceRule.rule);
+			Frame& ruleFrame = parse(sequenceRule.rule);
 
-			if(rulePayload.empty()) {
+			if(ruleFrame.empty()) {
 				position = end;
 				println("Position set 2: ", position);
 
 				break;
 			}
 
-			payload.addSize(rulePayload);
-			values.push_back(rulePayload.value);
+			sequenceFrame.appendSize(ruleFrame);
+			values.push_back(ruleFrame.value);
 
 			found = true;
 			end = position;
 
-			if(!parseDelimiters(payload, sequenceRule.delimiter, sequenceRule.innerDelimit, sequenceRule.delimited)) {
+			if(!parseDelimiters(sequenceFrame, sequenceRule.innerDelimit)) {
 				break;
 			}
 		}
 
-		if(!found || !parseDelimiters(payload, sequenceRule.delimiter, sequenceRule.outerDelimit, sequenceRule.delimited)) {
-			return Payload();
+		if(!found || !parseDelimiters(sequenceFrame, sequenceRule.outerDelimit)) {
+			return nullopt;
 		}
 
 		if(sequenceRule.closer) {
-			Payload& closerPayload = parse(*sequenceRule.closer);
+			Frame& closerFrame = parse(*sequenceRule.closer);
 
-			if(closerPayload.empty()) {
+			if(closerFrame.empty()) {
 				if(tokensEnd()) {
 					println("[Parser] Sequence doesn't have the closing token and was decided to be autoclosed at the end of stream");
 				} else {
-					return Payload();
+					return nullopt;
 				}
 			}
 
-			payload.addSize(closerPayload);
+			sequenceFrame.appendSize(closerFrame);
 		}
 
 		if(sequenceRule.single) {
 			if(values.size() == 1) {
-				payload.value = values.front();
+				sequenceFrame.value = values.front();
 
-				return payload;
+				return sequenceFrame;
 			} else {
-				return Payload();
+				return nullopt;
 			}
 		}
 
-		return payload;
+		return sequenceFrame;
 	}
 
-	Payload parse(const RuleRef& ruleRef) {
-		println("[Parser] Rule \"", ruleRef, "\"");
-		if(!Grammar::rules.contains(ruleRef)) {
-			return Payload();
-		}
-
-		Rule& rule = Grammar::rules[ruleRef];
-		Payload& payload = parse(rule);
-
-		if(payload.value.type() == 5) {
-			Node& node = payload.value;
-
-			if(!node.contains("type")) {
-				node["type"] = ruleRef;
-			}
-		}
-
-		println("[Parser] Rule \"", ruleRef, "\": ", to_string(payload.value));
-
-		return payload;
-	}
-
-	Payload dispatch(const Rule& rule) {
+	optional<Frame> dispatch(const Rule& rule) {
 		switch(rule.index()) {
-			case 0:  return parse(get<0>(rule));
-			case 1:  return parse(get<1>(rule).get());
-			case 2:  return parse(get<2>(rule).get());
-			case 3:  return parse(get<3>(rule).get());
-			case 4:  return parse(get<4>(rule).get());
-			default: return Payload();
+			case 0:  return parseReference(get<0>(rule));
+			case 1:  return parseNode(get<1>(rule).get());
+			case 2:  return parseToken(get<2>(rule).get());
+			case 3:  return parseVariant(get<3>(rule).get());
+			case 4:  return parseSequence(get<4>(rule).get());
+			default: return nullopt;
 		}
 	}
 
 	void flush() {
 		while(!queue.empty()) {
 			Key key = queue.front();
-			Value& value = cache[key];
+			OutFrame& outFrame = cache[key];
 
 			queue.pop_front();
 			position = key.start;
 
-			Payload payload = dispatch(key.rule);
+			optional<Frame> newFrame = dispatch(key.rule);
 
-			if(payload > value.payload) {
-				value.payload = payload;
+			if(newFrame && newFrame->greater(outFrame.frame)) {
+				outFrame.frame.apply(*newFrame);
 
-				for(const Key& callerKey : value.callers) {
+				for(const Key& callerKey : outFrame.frame.callers) {
 					queue.push_back(callerKey);
 				}
 			}
 		}
 	}
 
-	Payload& parse(const Rule& rule) {
+	Frame& parse(const Rule& rule) {
 		Key key(rule, position);
-		Value& value = cache[key];
-		Payload& payload = value.payload;
+		OutFrame& outFrame = cache[key];
+		Frame& frame = outFrame.frame;
 
 		if(!calls.empty()) {
-			value.callers.insert(calls.back());
+			frame.callers.insert(calls.back());
 		}
 
-		if(!value.initialized) {
-			value.initialized = true;
+		if(!frame.isInitialized) {
+			frame.key = key;
+			frame.isInitialized = true;
 
 			if(tokensEnd()) {
 				println("[Parser] Reached the end of stream");
 
-				return payload;
+				return frame;
 			}
 
 			calls.push_back(key);
@@ -379,12 +392,12 @@ struct Parser {
 			flush();
 			calls.pop_back();
 
-			println("[Parser] Result at pos ", key.start, " => clean: ", payload.cleanTokens, ", dirty: ", payload.dirtyTokens, ", callers: ", value.callers.size(), ", value: ", to_string(payload.value));
+			println("[Parser] Result at pos ", key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
 		}
 
-		position = key.start+payload.size();
+		position = key.start+frame.size();
 
-		return payload;
+		return frame;
 	}
 
 	NodeSP parse() {

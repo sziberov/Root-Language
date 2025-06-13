@@ -205,11 +205,11 @@ namespace Grammar {
 		{"enumerationStatements", RuleRef()},
 		{"expression", VariantRule({
 			"asExpression",
-		//	"isExpression",
-		//	"asyncExpression",
-		//	"awaitExpression",
-		//	"deleteExpression",
-		//	"tryExpression",
+			"isExpression",
+			"asyncExpression",
+			"awaitExpression",
+			"deleteExpression",
+			"tryExpression",
 			"prefixExpression"
 		})},
 		{"expressions", SequenceRule({
@@ -300,7 +300,7 @@ namespace Grammar {
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
 			{"statements", SequenceRule({  // functionStatements
-				.rule = "expression",
+				.rule = "expressions",
 				.delimiter = TokenRule("delimiter")
 			})}
 		})},
@@ -329,16 +329,14 @@ namespace Grammar {
 		{"parenthesizedType", RuleRef()},
 		{"postfixExpression", NodeRule({
 			{"value", VariantRule({
-				/*
 				"callExpression",
 				"chainExpression",
 				"defaultExpression",
 				"nillableExpression",
 				"subscriptExpression",
-				*/
 				"primaryExpression"
 			})},
-		//	{"operator", "postfixOperator", true}
+			{"operator", "postfixOperator", true}
 		}, true)},
 		{"postfixOperator", NodeRule({
 			{"value", TokenRule("operatorPostfix", "[^,:]*")}  // Enclosing nodes can use trailing operators from the exceptions list
@@ -350,21 +348,18 @@ namespace Grammar {
 		})},
 		{"predefinedType", RuleRef()},
 		{"prefixExpression", NodeRule({
-		//	{"operator", "prefixOperator", true},
+			{"operator", "prefixOperator", true},
 			{"value", "postfixExpression"},
 		}, true)},
 		{"prefixOperator", NodeRule({
 			{"value", TokenRule("operatorPrefix", "[^&.]*")}  // primaryExpressions can start with operators from the exceptions list
 		})},
 		{"primaryExpression", VariantRule({
-			/*
 			"classExpression",
 			"closureExpression",
 			"enumerationExpression",
 			"functionExpression",
-			*/
 			"identifier",
-			/*
 			"implicitChainExpression",
 			"inoutExpression",
 			"literalExpression",
@@ -373,17 +368,14 @@ namespace Grammar {
 			"protocolExpression",
 			"structureExpression",
 			"typeExpression"
-			*/
 		})},
 		{"primaryType", VariantRule({
-			/*
 			"arrayType",
 			"dictionaryType",
 			"functionType",
 			"parenthesizedType",
 			"predefinedType",
 			"protocolType",
-			*/
 			"typeIdentifier"
 		})},
 		{"protocolBody", RuleRef()},
