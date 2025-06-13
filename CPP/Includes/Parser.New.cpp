@@ -68,13 +68,9 @@ struct Parser {
 		}
 	};
 
-	struct OutFrame {
-		Frame frame;
-	};
-
 	deque<Token> tokens;
 	usize position = 0;
-	unordered_map<Key, OutFrame, Hasher> cache;
+	unordered_map<Key, Frame, Hasher> cache;
 	deque<Key> calls,
 			   queue;
 
@@ -94,7 +90,9 @@ struct Parser {
 		return position >= tokens.size();
 	}
 
-	optional<Frame> parseReference(const RuleRef& ruleRef) {
+	optional<Frame> parseReference(Frame& refFrame) {
+		RuleRef& ruleRef = get<0>(refFrame.key.rule);
+
 		println("[Parser] Rule \"", ruleRef, "\"");
 		if(!Grammar::rules.contains(ruleRef)) {
 			return nullopt;
@@ -203,7 +201,9 @@ struct Parser {
 		return tokenFrame;
 	}
 
-	optional<Frame> parseVariant(const VariantRule& variantRule) {
+	optional<Frame> parseVariant(Frame& variantFrame) {
+		VariantRule& variantRule = get<3>(variantFrame.key.rule).get();
+
 		for(int i = 0; i < variantRule.size(); i++) {
 			Frame ruleFrame = parse(variantRule[i]);
 
@@ -337,13 +337,13 @@ struct Parser {
 		return sequenceFrame;
 	}
 
-	optional<Frame> dispatch(const Rule& rule) {
-		switch(rule.index()) {
-			case 0:  return parseReference(get<0>(rule));
-			case 1:  return parseNode(get<1>(rule).get());
-			case 2:  return parseToken(get<2>(rule).get());
-			case 3:  return parseVariant(get<3>(rule).get());
-			case 4:  return parseSequence(get<4>(rule).get());
+	optional<Frame> dispatch(Frame frame) {
+		switch(frame.key.rule.index()) {
+			case 0:  return parseReference(frame);
+			case 1:  return parseNode(get<1>(frame.key.rule).get());
+			case 2:  return parseToken(get<2>(frame.key.rule).get());
+			case 3:  return parseVariant(frame);
+			case 4:  return parseSequence(get<4>(frame.key.rule).get());
 			default: return nullopt;
 		}
 	}
@@ -351,35 +351,34 @@ struct Parser {
 	void flush() {
 		while(!queue.empty()) {
 			Key key = queue.front();
-			OutFrame& outFrame = cache[key];
+			Frame& frame = cache[key];
 
 			queue.pop_front();
 			position = key.start;
 
-			optional<Frame> newFrame = dispatch(key.rule);
+			optional<Frame> newFrame = dispatch(frame);
 
-			if(newFrame && newFrame->greater(outFrame.frame)) {
-				outFrame.frame.apply(*newFrame);
+			if(newFrame && newFrame->greater(frame)) {
+				frame.apply(*newFrame);
 
-				for(const Key& callerKey : outFrame.frame.callers) {
+				for(const Key& callerKey : frame.callers) {
 					queue.push_back(callerKey);
 				}
 			}
 		}
 	}
 
-	Frame& parse(const Rule& rule) {
-		Key key(rule, position);
-		OutFrame& outFrame = cache[key];
-		Frame& frame = outFrame.frame;
+	Frame& parse(const Frame& templateFrame) {
+		Frame& frame = cache[templateFrame.key];
 
 		if(!calls.empty()) {
 			frame.callers.insert(calls.back());
 		}
 
 		if(!frame.isInitialized) {
-			frame.key = key;
+			frame.key = templateFrame.key;
 			frame.isInitialized = true;
+			frame.apply(templateFrame);
 
 			if(tokensEnd()) {
 				println("[Parser] Reached the end of stream");
@@ -387,17 +386,23 @@ struct Parser {
 				return frame;
 			}
 
-			calls.push_back(key);
-			queue.push_back(key);
+			calls.push_back(frame.key);
+			queue.push_back(frame.key);
 			flush();
 			calls.pop_back();
 
-			println("[Parser] Result at pos ", key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
+			println("[Parser] Result at pos ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
 		}
 
-		position = key.start+frame.size();
+		position = frame.key.start+frame.size();
 
 		return frame;
+	}
+
+	Frame& parse(const Rule& rule) {
+		return parse({
+			.key = Key(rule, position)
+		});
 	}
 
 	NodeSP parse() {
