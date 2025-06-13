@@ -60,7 +60,7 @@ namespace Grammar {
 		char innerDelimit = '*',  // Expected count: ' ' - zero, '.' - one, '?', - zero to one, '+' - one to infinity, '*' - zero to infinity
 			 outerDelimit = '*';
 		bool delimited = false,  // Include delimiters if any
-			 unsupported = true,  // Include unrecognized tokens if any
+			 dirty = true,  // Include unrecognized tokens if any
 			 single = false;  // Disable sequence mode
 
 		bool operator==(const SequenceRule& r) const = default;
@@ -86,7 +86,7 @@ namespace Grammar {
 				.delimiter = TokenRule("operator.*", ","),
 				.closer = TokenRule("bracketClosed"),
 				.innerDelimit = '+',
-				.unsupported = false
+				.dirty = false
 			}}
 		})},
 		{"arrayType", NodeRule({
@@ -205,11 +205,11 @@ namespace Grammar {
 		{"enumerationStatements", RuleRef()},
 		{"expression", VariantRule({
 			"asExpression",
-			"isExpression",
-			"asyncExpression",
-			"awaitExpression",
-			"deleteExpression",
-			"tryExpression",
+		//	"isExpression",
+		//	"asyncExpression",
+		//	"awaitExpression",
+		//	"deleteExpression",
+		//	"tryExpression",
 			"prefixExpression"
 		})},
 		{"expressions", SequenceRule({
@@ -217,7 +217,7 @@ namespace Grammar {
 			.delimiter = "infixExpression",
 			.innerDelimit = '.',
 			.outerDelimit = ' ',
-			.unsupported = false
+			.dirty = false
 		})},
 		{"fallthroughStatement", NodeRule({
 			{nullopt, TokenRule("keywordFallthrough")},
@@ -299,10 +299,10 @@ namespace Grammar {
 		})},
 		{"modifiers", RuleRef()},
 		{"module", NodeRule({
-			{"statements", "expression"/*, SequenceRule({  // functionStatements
+			{"statements", SequenceRule({  // functionStatements
 				.rule = "expressions",
 				.delimiter = TokenRule("delimiter")
-			})*/}
+			})}
 		})},
 		{"namespaceBody", RuleRef()},
 		{"namespaceDeclaration", RuleRef()},
@@ -329,14 +329,16 @@ namespace Grammar {
 		{"parenthesizedType", RuleRef()},
 		{"postfixExpression", NodeRule({
 			{"value", VariantRule({
+				/*
 				"callExpression",
 				"chainExpression",
 				"defaultExpression",
 				"nillableExpression",
 				"subscriptExpression",
+				*/
 				"primaryExpression"
 			})},
-			{"operator", "postfixOperator", true}
+		//	{"operator", "postfixOperator", true}
 		}, true)},
 		{"postfixOperator", NodeRule({
 			{"value", TokenRule("operatorPostfix", "[^,:]*")}  // Enclosing nodes can use trailing operators from the exceptions list
@@ -348,18 +350,21 @@ namespace Grammar {
 		})},
 		{"predefinedType", RuleRef()},
 		{"prefixExpression", NodeRule({
-			{"operator", "prefixOperator", true},
+		//	{"operator", "prefixOperator", true},
 			{"value", "postfixExpression"},
 		}, true)},
 		{"prefixOperator", NodeRule({
 			{"value", TokenRule("operatorPrefix", "[^&.]*")}  // primaryExpressions can start with operators from the exceptions list
 		})},
 		{"primaryExpression", VariantRule({
+			/*
 			"classExpression",
 			"closureExpression",
 			"enumerationExpression",
 			"functionExpression",
+			*/
 			"identifier",
+			/*
 			"implicitChainExpression",
 			"inoutExpression",
 			"literalExpression",
@@ -368,14 +373,17 @@ namespace Grammar {
 			"protocolExpression",
 			"structureExpression",
 			"typeExpression"
+			*/
 		})},
 		{"primaryType", VariantRule({
+			/*
 			"arrayType",
 			"dictionaryType",
 			"functionType",
 			"parenthesizedType",
 			"predefinedType",
 			"protocolType",
+			*/
 			"typeIdentifier"
 		})},
 		{"protocolBody", RuleRef()},
