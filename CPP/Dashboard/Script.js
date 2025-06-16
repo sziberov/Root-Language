@@ -367,7 +367,9 @@ function initializeClientInterface(container, receiverFD) {
 	const tokensOutput = container.querySelector('.tokensOutput');
 	const ASTOutput = container.querySelector('.ASTOutput');
 	const compositesOutput = container.querySelector('.compositesOutput');
-	const changeTree = container.querySelector('.changeTree');
+	const tokensTree = container.querySelector('.tokensTree');
+	const ASTTree = container.querySelector('.ASTTree');
+	const compositesTree = container.querySelector('.compositesTree');
 	const interpret = container.querySelector('.interpret');
 	const consoleInput = container.querySelector('.consoleInput');
 
@@ -382,19 +384,20 @@ function initializeClientInterface(container, receiverFD) {
 		inputLint.scrollLeft = inputText.scrollLeft;
 	};
 
-	changeTree.onclick = () => {
-		if(tokensOutput.style.display !== 'none') {
-			ASTOutput.style.display = '';
-			tokensOutput.style.display = compositesOutput.style.display = 'none';
-		} else
-		if(ASTOutput.style.display !== 'none') {
-			compositesOutput.style.display = '';
-			tokensOutput.style.display = ASTOutput.style.display = 'none';
-		} else {
-			tokensOutput.style.display = '';
-			ASTOutput.style.display = compositesOutput.style.display = 'none';
-		}
-	};
+	tokensTree.onclick = () => {
+		tokensOutput.style.display = '';
+		ASTOutput.style.display = compositesOutput.style.display = 'none';
+	}
+
+	ASTTree.onclick = () => {
+		tokensOutput.style.display = compositesOutput.style.display = 'none';
+		ASTOutput.style.display = '';
+	}
+
+	compositesTree.onclick = () => {
+		tokensOutput.style.display = ASTOutput.style.display = 'none';
+		compositesOutput.style.display = '';
+	}
 
 	interpret.onclick = () => {
 		send({ receiver: 'client', /*receiverTokens: [socketToken.value],*/ type: 'notification', action: 'interpret', receiverFDs: [receiverFD] });

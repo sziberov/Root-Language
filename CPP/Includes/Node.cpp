@@ -233,6 +233,15 @@ public:
 		return holds_alternative<nullptr_t>(value);
 	}
 
+	/**
+	 * 0 - nullptr_t
+	 * 1 - bool
+	 * 2 - int
+	 * 3 - double
+	 * 4 - string
+	 * 5 - NodeSP
+	 * 6 - NodeArraySP
+	 */
 	usize type() const {
 		return value.index();
 	}

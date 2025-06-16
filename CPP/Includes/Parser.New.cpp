@@ -46,6 +46,11 @@ struct Parser {
 			dirtyTokens += other.dirtyTokens;
 		}
 
+		void removeSize(const Frame& other) {
+			cleanTokens -= other.cleanTokens;
+			dirtyTokens -= other.dirtyTokens;
+		}
+
 		// Should be used for non-proxy rules with own values and accumulative sizes before parsing.
 		// Rules that do just _set_ their value/size behave fine without that, but other can unintentionally mislead the "greater" check.
 		void clearResult() {
@@ -223,44 +228,79 @@ struct Parser {
 		return nullopt;
 	}
 
-	bool parseDelimiters(Frame& sequenceFrame, char policy) {
+	void rollbackSequenceFrames(Frame& sequenceFrame, vector<Frame>& frames, usize fromIndex) {
+		for(usize i = frames.size(); i > fromIndex; i--) {
+			Frame& frame = frames.back();
+
+			sequenceFrame.removeSize(frame);
+			frames.pop_back();
+		}
+
+		position = sequenceFrame.key.start+sequenceFrame.size();
+	}
+
+	bool parseSubsequence(Frame& sequenceFrame, vector<Frame>& frames, usize range[2], u8 mode) {
 		SequenceRule& sequenceRule = get<4>(sequenceFrame.key.rule).get();
-		optional<Rule>& delimiterRule = sequenceRule.delimiter;
-		const string activePolicy = ".?+*",
-					 maxOnePolicy = ".?",
-					 minOnePolicy = ".+";
+		optional<Rule> rule;
 
-		if(!delimiterRule || !activePolicy.contains(policy)) {
-			return true;
+		if(mode == 0) {
+			rule = sequenceRule.rule;
+
+			if(!parseSubsequence(sequenceFrame, frames, sequenceRule.outerDelimitRange, 1)) {
+				return false;
+			}
+		} else
+		if(mode == 1) {
+			if(!sequenceRule.delimiter) {
+				return true;
+			}
+
+			rule = *sequenceRule.delimiter;
 		}
 
-		NodeArray& values = sequenceFrame.value;
-		bool found = false;
-		int i = 0;
+		usize count = 0,
+			  minCount = range[0],
+			  maxCount = range[1],
+			  size = frames.size();  // After last successful rule / before last delimiter(s)
 
-		while(!tokensEnd()) {
-			println("cycle 0: ", i++);
-			Frame& delimiterFrame = parse(*delimiterRule);
+		while(!tokensEnd() && count < maxCount) {
+			Frame& frame = parse(*rule);
 
-			if(delimiterFrame.empty()) {
+			if(frame.empty()) {
+				if(mode == 0) {
+					rollbackSequenceFrames(sequenceFrame, frames, size);
+				}
+
 				break;
 			}
 
-			sequenceFrame.addSize(delimiterFrame);
+			sequenceFrame.addSize(frame);
+			count++;
 
-			if(sequenceRule.delimited) {
-				values.push_back(delimiterFrame.value);
+			if(mode == 0 || sequenceRule.delimited) {
+				frames.push_back(frame);
 			}
+			if(mode == 0) {
+				size = frames.size();
 
-			found = true;
-
-			if(maxOnePolicy.contains(policy)) {
-				break;
+				if(!parseSubsequence(sequenceFrame, frames, sequenceRule.innerDelimitRange, 1)) {
+					break;
+				}
 			}
 		}
 
-		if(!found && minOnePolicy.contains(policy)) {
+		if(count < minCount) {
+			if(mode == 1) {
+				rollbackSequenceFrames(sequenceFrame, frames, size);
+			}
+
 			return false;
+		}
+
+		if(mode == 0) {
+			if(!parseSubsequence(sequenceFrame, frames, sequenceRule.outerDelimitRange, 1)) {
+				return false;
+			}
 		}
 
 		return true;
@@ -268,9 +308,6 @@ struct Parser {
 
 	optional<Frame> parseSequence(Frame& sequenceFrame) {
 		SequenceRule& sequenceRule = get<4>(sequenceFrame.key.rule).get();
-		NodeArray& values = sequenceFrame.value = NodeArray();
-
-		sequenceFrame.permitsDirty = sequenceRule.dirty;
 
 		if(sequenceRule.opener) {
 			Frame& openerFrame = parse(*sequenceRule.opener);
@@ -282,37 +319,9 @@ struct Parser {
 			sequenceFrame.addSize(openerFrame);
 		}
 
-		if(!parseDelimiters(sequenceFrame, sequenceRule.outerDelimit)) {
-			return nullopt;
-		}
+		vector<Frame> frames;
 
-		usize end = position;
-		bool found = false;
-		int i = 0;
-
-		while(!tokensEnd()) {
-			println("cycle 1: ", i++);
-			Frame& ruleFrame = parse(sequenceRule.rule);
-
-			if(ruleFrame.empty()) {
-				position = end;
-				println("Position set 2: ", position);
-
-				break;
-			}
-
-			sequenceFrame.addSize(ruleFrame);
-			values.push_back(ruleFrame.value);
-
-			found = true;
-			end = position;
-
-			if(!parseDelimiters(sequenceFrame, sequenceRule.innerDelimit)) {
-				break;
-			}
-		}
-
-		if(!found || !parseDelimiters(sequenceFrame, sequenceRule.outerDelimit)) {
+		if(!parseSubsequence(sequenceFrame, frames, sequenceRule.range, 0)) {
 			return nullopt;
 		}
 
@@ -330,14 +339,22 @@ struct Parser {
 			sequenceFrame.addSize(closerFrame);
 		}
 
-		if(sequenceRule.single) {
-			if(values.size() == 1) {
-				sequenceFrame.value = values.front();
+		sequenceFrame.permitsDirty = sequenceRule.dirty;
 
-				return sequenceFrame;
-			} else {
+		if(sequenceRule.normalize && frames.size() <= 1) {
+			if(frames.empty()) {
 				return nullopt;
 			}
+
+			sequenceFrame.value = frames.front().value;
+
+			return sequenceFrame;
+		}
+
+		NodeArray& values = sequenceFrame.value = NodeArray();
+
+		for(Frame& f : frames) {
+			values.push_back(f.value);
 		}
 
 		return sequenceFrame;
