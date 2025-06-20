@@ -16,7 +16,7 @@ struct Parser {
 
 	struct Key {
 		Rule rule;
-		usize start;
+		usize start = 0;
 
 		bool operator==(const Key& k) const = default;
 	};
@@ -28,16 +28,24 @@ struct Parser {
 	};
 
 	struct Frame {
+		Frame() {}
+		Frame(const Rule& rule,
+			  usize start = 0,
+			  usize triviality = 0,
+			  bool permitsDirty = false) : key(Key(rule, start)),
+			  							   triviality(triviality),
+			  							   permitsDirty(permitsDirty) {}
+
 		Key key;
 		unordered_set<Key, Hasher> callers;
 		NodeValue value;
-		isize triviality = 0,
+		usize triviality = 0,
 			  cleanTokens = 0,
 			  dirtyTokens = 0;
 		bool permitsDirty = false,  // Is not same as "contains" (dirtyTokens > 0)
 			 isInitialized = false;
 
-		isize size() const {
+		usize size() const {
 			return cleanTokens+dirtyTokens;
 		}
 
@@ -47,8 +55,25 @@ struct Parser {
 		}
 
 		void removeSize(const Frame& other) {
-			cleanTokens -= other.cleanTokens;
-			dirtyTokens -= other.dirtyTokens;
+			if(other.cleanTokens > cleanTokens) {
+				cleanTokens = 0;
+			} else {
+				cleanTokens -= other.cleanTokens;
+			}
+
+			if(other.dirtyTokens > dirtyTokens) {
+				dirtyTokens = 0;
+			} else {
+				dirtyTokens -= other.dirtyTokens;
+			}
+		}
+
+		usize start() const {
+			return key.start;
+		}
+
+		usize end() const {
+			return start()+size();
 		}
 
 		// Should be used for non-proxy rules with own values and accumulative sizes before parsing.
@@ -82,7 +107,6 @@ struct Parser {
 	};
 
 	deque<Token> tokens;
-	usize position = 0;
 	unordered_map<Key, Frame, Hasher> cache;
 	deque<Key> calls,
 			   queue;
@@ -90,10 +114,6 @@ struct Parser {
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
 	// ----------------------------------------------------------------
-
-	bool tokensEnd() {
-		return position >= tokens.size();
-	}
 
 	optional<Frame> parseReference(Frame& refFrame) {
 		RuleRef& ruleRef = get<0>(refFrame.key.rule);
@@ -104,7 +124,7 @@ struct Parser {
 		}
 
 		Rule& rule = Grammar::rules[ruleRef];
-		Frame& ruleFrame = parse(rule);
+		Frame& ruleFrame = parse({rule, refFrame.start()});
 
 		if(ruleFrame.value.type() == 5) {
 			Node& node = ruleFrame.value;
@@ -124,7 +144,7 @@ struct Parser {
 		Node& node = nodeFrame.value = Node();
 
 		for(auto& field : nodeRule.fields) {
-			Frame& fieldFrame = parse(field.rule);
+			Frame& fieldFrame = parse({field.rule, nodeFrame.end()});
 
 			if(fieldFrame.empty() && !field.optional) {
 				return nullopt;
@@ -147,9 +167,12 @@ struct Parser {
 			return nodeFrame;
 		}
 
+		int start = nodeFrame.start(),
+			end = start+max(usize(), nodeFrame.size() ? nodeFrame.size()-1 : 0);  // TODO: Check if max is needed
+
 		node["range"] = {
-			{"start", int(nodeFrame.key.start)},
-			{"end", int(nodeFrame.key.start+(max(isize(), nodeFrame.size()-1)))}
+			{"start", start},
+			{"end", end}
 		};
 
 		if(nodeRule.post) {
@@ -160,12 +183,10 @@ struct Parser {
 	}
 
 	optional<Frame> parseToken(Frame& tokenFrame) {
-		if(tokenFrame.key.start >= tokens.size()) {
-			return nullopt;
-		}
-
 		TokenRule& tokenRule = get<2>(tokenFrame.key.rule).get();
-		Token& token = tokens[tokenFrame.key.start];
+		static Token endOfFileToken = { .type = "endOfFile" };
+		usize position = tokenFrame.start();
+		Token& token = position < tokens.size() ? tokens[position] : endOfFileToken;
 
 		tokenFrame.value = token.value;
 
@@ -207,18 +228,17 @@ struct Parser {
 		}
 
 		tokenFrame.cleanTokens++;
+	//	tokenFrame.cleanTokens += position < tokens.size();  // EOF token is virtual and therefore implicit
 
 		return tokenFrame;
 	}
 
 	optional<Frame> parseVariant(Frame& variantFrame) {
 		VariantRule& variantRule = get<3>(variantFrame.key.rule).get();
+		usize position = variantFrame.start();
 
-		for(int i = 0; i < variantRule.size(); i++) {
-			Frame& ruleFrame = parse({
-				.key = Key(variantRule[i], position),
-				.triviality = i
-			});
+		for(usize i = 0; i < variantRule.size(); i++) {
+			Frame& ruleFrame = parse({variantRule[i], position, i});
 
 			if(!ruleFrame.empty()) {
 				return ruleFrame;
@@ -235,8 +255,6 @@ struct Parser {
 			sequenceFrame.removeSize(frame);
 			frames.pop_back();
 		}
-
-		position = sequenceFrame.key.start+sequenceFrame.size();
 	}
 
 	bool parseSubsequence(Frame& sequenceFrame, vector<Frame>& frames, usize range[2], u8 mode) {
@@ -261,14 +279,45 @@ struct Parser {
 		usize count = 0,
 			  minCount = range[0],
 			  maxCount = range[1],
-			  size = frames.size();  // After last successful rule / before last delimiter(s)
+			  framesSize = frames.size(),  // After last successful rule / before last delimiter(s)
+			  scopeLevel = 1;
 
-		while(!tokensEnd() && count < maxCount) {
-			Frame& frame = parse(*rule);
+		while(sequenceFrame.end() < tokens.size() && count < maxCount) {
+			Frame& frame = parse({*rule, sequenceFrame.end()});
 
 			if(frame.empty()) {
 				if(mode == 0) {
-					rollbackSequenceFrames(sequenceFrame, frames, size);
+					rollbackSequenceFrames(sequenceFrame, frames, framesSize);
+
+					/*
+					if(sequenceRule.ascender) {
+						Frame& openerFrame = parse({*sequenceRule.ascender, sequenceFrame.end()});
+
+						if(!openerFrame.empty()) {
+							sequenceFrame.addSize(openerFrame);
+							scopeLevel++;
+
+							continue;
+						}
+					}
+					if(sequenceRule.descender) {
+						Frame& closerFrame = parse({*sequenceRule.descender, sequenceFrame.end()});
+
+						if(!closerFrame.empty()) {
+							sequenceFrame.addSize(closerFrame);
+							scopeLevel--;
+						} else
+						if(sequenceFrame.end() < tokens.size()) {
+							sequenceFrame.dirtyTokens++;
+						}
+
+						if(scopeLevel > 0) {
+							continue;
+						} else {
+							break;
+						}
+					}
+					*/
 				}
 
 				break;
@@ -281,7 +330,7 @@ struct Parser {
 				frames.push_back(frame);
 			}
 			if(mode == 0) {
-				size = frames.size();
+				framesSize = frames.size();
 
 				if(!parseSubsequence(sequenceFrame, frames, sequenceRule.innerDelimitRange, 1)) {
 					break;
@@ -291,7 +340,7 @@ struct Parser {
 
 		if(count < minCount) {
 			if(mode == 1) {
-				rollbackSequenceFrames(sequenceFrame, frames, size);
+				rollbackSequenceFrames(sequenceFrame, frames, framesSize);
 			}
 
 			return false;
@@ -308,38 +357,13 @@ struct Parser {
 
 	optional<Frame> parseSequence(Frame& sequenceFrame) {
 		SequenceRule& sequenceRule = get<4>(sequenceFrame.key.rule).get();
-
-		if(sequenceRule.opener) {
-			Frame& openerFrame = parse(*sequenceRule.opener);
-
-			if(openerFrame.empty()) {
-				return nullopt;
-			}
-
-			sequenceFrame.addSize(openerFrame);
-		}
-
 		vector<Frame> frames;
+
+		sequenceFrame.permitsDirty = sequenceRule.descender.has_value();
 
 		if(!parseSubsequence(sequenceFrame, frames, sequenceRule.range, 0)) {
 			return nullopt;
 		}
-
-		if(sequenceRule.closer) {
-			Frame& closerFrame = parse(*sequenceRule.closer);
-
-			if(closerFrame.empty()) {
-				if(tokensEnd()) {
-					println("[Parser] Sequence doesn't have the closing token and was decided to be autoclosed at the end of stream");
-				} else {
-					return nullopt;
-				}
-			}
-
-			sequenceFrame.addSize(closerFrame);
-		}
-
-		sequenceFrame.permitsDirty = sequenceRule.dirty;
 
 		if(sequenceRule.normalize && frames.size() <= 1) {
 			if(frames.empty()) {
@@ -379,7 +403,6 @@ struct Parser {
 			Frame& frame = cache[key];
 
 			queue.pop_front();
-			position = key.start;
 
 			optional<Frame> newFrame = dispatch(frame);
 
@@ -405,8 +428,8 @@ struct Parser {
 			frame.isInitialized = true;
 			frame.apply(templateFrame);
 
-			if(tokensEnd()) {
-				println("[Parser] Reached the end of stream");
+			if(frame.start() >= tokens.size()) {
+				println("[Parser] Reached the end of file");
 
 				return frame;
 			}
@@ -419,15 +442,7 @@ struct Parser {
 			println("[Parser] Result at pos ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
 		}
 
-		position = frame.key.start+frame.size();
-
 		return frame;
-	}
-
-	Frame& parse(const Rule& rule) {
-		return parse({
-			.key = Key(rule, position)
-		});
 	}
 
 	NodeSP parse() {
@@ -438,7 +453,7 @@ struct Parser {
 			{"moduleID", -1}
 		});
 
-		NodeSP tree = parse(RuleRef("module")).value;
+		NodeSP tree = parse({"module"}).value;
 
 		Interface::sendToClients({
 			{"type", "notification"},

@@ -17,22 +17,22 @@ namespace Grammar {
 
 	// ----------------------------------------------------------------
 
-	struct NodeField {
-		NodeField(const char* t, Rule r = RuleRef(), bool o = false) : title(string(t)), rule(r), optional(o) {}
-		NodeField(const string t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
-		NodeField(const nullopt_t t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
+	struct Field {
+		Field(const char* t, Rule r = RuleRef(), bool o = false) : title(string(t)), rule(r), optional(o) {}
+		Field(const string t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
+		Field(const nullopt_t t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
 
 		std::optional<string> title;  // Nil for implicit
 		Rule rule;
 		bool optional = false;
 
-		bool operator==(const NodeField& f) const = default;
+		bool operator==(const Field& f) const = default;
 	};
 
 	struct NodeRule {
-		NodeRule(initializer_list<NodeField> f, bool n = false, function<void(Node&)> p = nullptr) : fields(f), normalize(n), post(p) {}
+		NodeRule(initializer_list<Field> f, bool n = false, function<void(Node&)> p = nullptr) : fields(f), normalize(n), post(p) {}
 
-		vector<NodeField> fields;
+		vector<Field> fields;
 		bool normalize = false;  // Unwrap single field
 		function<void(Node&)> post;
 
@@ -53,7 +53,13 @@ namespace Grammar {
 
 	struct SequenceRule {
 		Rule rule;
-		optional<Rule> opener, delimiter, closer;
+
+		// Ascender and descender can be used to enable the dirt-tolerance:
+		// Parser will be aware of the nesting level and have a chance to close the rule before EOF.
+		// Unrecognized tokens will be included into the result.
+		optional<Rule> ascender,
+					   delimiter,
+					   descender;
 
 		// Examples: 0/0, 1/1, 0/1, 1/max, 0/max.
 		usize range[2] = {0, usize(-1)},
@@ -61,13 +67,20 @@ namespace Grammar {
 			  outerDelimitRange[2] = {0, usize(-1)};
 
 		bool delimited = false,  // Include delimiters if any
-			 dirty = true,  // Include unrecognized tokens if any
 			 normalize = false;  // Unwrap single value (or nil)
 
 		bool operator==(const SequenceRule& r) const = default;
 	};
 
 	// ----------------------------------------------------------------
+
+	// FIXME:
+	// - No parsing messages and their rollback mechanism
+	// - No dirty tokens support in sequence rule parser
+	// - No ternary logic of modifiers in function signatures
+	// - Function parameters can't be stated without label (node rule parser does not support optional fields branching)
+	// - Expressions in statements like "if a {}" can be parsed like "if (call a with closure) then do nothing" instead of "if a then do block"
+	// - Closure expression does not include ascender and descender range
 
 	unordered_map<RuleRef, Rule> rules = {
 		{"argument", VariantRule({
@@ -80,14 +93,13 @@ namespace Grammar {
 			})
 		})},
 		{"arrayLiteral", NodeRule({
+			{nullopt, TokenRule("bracketOpen")},
 			{"values", SequenceRule {
 				.rule = "expressionsSequence",
-				.opener = TokenRule("bracketOpen"),
 				.delimiter = TokenRule("operator.*", ","),
-				.closer = TokenRule("bracketClosed"),
-				.innerDelimitRange = {1, usize(-1)},
-				.dirty = false
-			}}
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, TokenRule("bracketClosed|endOfFile")}
 		})},
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
@@ -115,13 +127,17 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordBreak")},
 			{"label", "identifier", true}
 		})},
-		{"callArgumentsClause", SequenceRule {
-			.rule = "argument",
-			.opener = TokenRule("parenthesisOpen"),
-			.delimiter = TokenRule("operator.*", ","),
-			.closer = TokenRule("parenthesisClosed"),
-			.innerDelimitRange = {1, usize(-1)}
-		}},
+		{"callArgumentsClause", NodeRule({
+			{nullopt, TokenRule("parenthesisOpen")},
+			{"arguments", SequenceRule {
+				.rule = "argument",
+				.ascender = TokenRule("parenthesisOpen"),
+				.delimiter = TokenRule("operator.*", ","),
+				.descender = TokenRule("parenthesisClosed"),
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
+		}, true)},
 		{"callExpression", VariantRule({
 			NodeRule({
 				{"callee", "postfixExpression"},
@@ -156,7 +172,16 @@ namespace Grammar {
 		{"classDeclaration", RuleRef()},
 		{"classExpression", RuleRef()},
 		{"classStatements", RuleRef()},
-		{"closureExpression", RuleRef()},
+		{"closureExpression", NodeRule({
+			{nullopt, TokenRule("braceOpen")},
+			{"signature", "closureSignature", true},
+			{"statements", "functionStatements"},
+			{nullopt, TokenRule("braceClosed|endOfFile")}
+		})},
+		{"closureSignature", NodeRule({
+			{"signature", "functionSignature"},
+			{nullopt, TokenRule("keywordIn")}
+		}, true)},
 		{"conditionalOperator", NodeRule({
 			{nullopt, TokenRule("operator.*", "\\?")},
 			{"expression", "expressionsSequence"},
@@ -240,8 +265,7 @@ namespace Grammar {
 					.range = {2, usize(-1)},
 					.innerDelimitRange = {1, 1},
 					.outerDelimitRange = {0, 0},
-					.delimited = true,
-					.dirty = false
+					.delimited = true
 				}}
 			}),
 			"expression"
@@ -255,12 +279,9 @@ namespace Grammar {
 		})},
 		{"forStatement", RuleRef()},
 		{"functionBody", NodeRule({
-			{"statements", SequenceRule {
-				.rule = "functionStatement",
-				.opener = TokenRule("braceOpen"),
-				.delimiter = TokenRule("delimiter"),
-				.closer = TokenRule("braceClosed")
-			}}
+			{nullopt, TokenRule("braceOpen")},
+			{"statements", "functionStatements"},
+			{nullopt, TokenRule("braceClosed|endOfFile")}
 		})},
 		{"functionDeclaration", NodeRule({
 			{"modifiers", "modifiers", true},
@@ -280,6 +301,7 @@ namespace Grammar {
 		{"functionSignature", NodeRule({
 			{"genericParameters", "genericParametersClause", true},
 			{"parameters", "parametersClause", true},
+			// TODO: Modifiers (awaits, async)
 			{"returnType", "returnClause", true}
 		})},
 		{"functionStatement", VariantRule({
@@ -293,42 +315,55 @@ namespace Grammar {
 		})},
 		{"functionStatements", SequenceRule {
 			.rule = "functionStatement",
-			.delimiter = TokenRule("delimiter")
+			.ascender = TokenRule("braceOpen"),
+			.delimiter = TokenRule("delimiter"),
+			.descender = TokenRule("braceClosed")
 		}},
 		{"functionType", RuleRef()},
 		{"genericArgument", "type"},
-		{"genericArgumentsClause", SequenceRule {
-			.rule = "genericArgument",
-			.opener = TokenRule("operator.*", "<"),
-			.delimiter = TokenRule("operator.*", ","),
-			.closer = TokenRule("operator.*", ">"),
-			.innerDelimitRange = {1, usize(-1)},
-			.dirty = false
-		}},
+		{"genericArgumentsClause", NodeRule({
+			{nullopt, TokenRule("operator.*", "<")},
+			{"genericArguments", SequenceRule {
+				.rule = "genericArgument",
+				.delimiter = TokenRule("operator.*", ","),
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, VariantRule({
+				TokenRule("operator.*", ">"),
+				TokenRule("endOfFile")
+			})}
+		}, true)},
 		{"genericParameter", NodeRule({
 			{"identifier", "identifier"},
 			{"type_", "typeClause", true}
 		})},
-		{"genericParametersClause", SequenceRule {
-			.rule = "genericParameter",
-			.opener = TokenRule("operator.*", "<"),
-			.delimiter = TokenRule("operator.*", ","),
-			.closer = TokenRule("operator.*", ">"),
-			.innerDelimitRange = {1, usize(-1)}
-		}},
+		{"genericParametersClause", NodeRule({
+			{nullopt, TokenRule("operator.*", "<")},
+			{"genericParameters", SequenceRule {
+				.rule = "genericParameter",
+				.ascender = TokenRule("operator.*", "<"),
+				.delimiter = TokenRule("operator.*", ","),
+				.descender = TokenRule("operator.*", ">"),
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, VariantRule({
+				TokenRule("operator.*", ">"),
+				TokenRule("endOfFile")
+			})}
+		}, true)},
 		{"identifier", NodeRule({
 			{"value", TokenRule("identifier")}
 		})},
 		{"ifStatement", RuleRef()},
 		{"implicitChainExpression", NodeRule({
-			{nullopt, TokenRule("operator|operatorPrefix|opratorInfix", "\\.")},
+			{nullopt, TokenRule("operator|operatorPrefix|operatorInfix", "\\.")},
 			{"member", VariantRule({
 				"identifier",
 				"stringLiteral"
 			})}
 		})},
 		{"implicitChainIdentifier", NodeRule({
-			{nullopt, TokenRule("operator|operatorPrefix|opratorInfix", "\\.")},
+			{nullopt, TokenRule("operator|operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
 		{"importDeclaration", RuleRef()},
@@ -345,8 +380,7 @@ namespace Grammar {
 			{"types", SequenceRule {
 				.rule = "typeIdentifier",
 				.delimiter = TokenRule("operator.*", ","),
-				.innerDelimitRange = {1, usize(-1)},
-				.dirty = false
+				.innerDelimitRange = {1, usize(-1)}
 			}}
 		}, true)},
 		{"initializerClause", NodeRule({
@@ -403,11 +437,14 @@ namespace Grammar {
 				TokenRule("keywordLazy"),
 				TokenRule("keywordStatic"),
 				TokenRule("keywordVirtual")
-			}),
-			.dirty = false
+			})
 		}},
 		{"module", NodeRule({
-			{"statements", "functionStatements"}
+			{"statements", SequenceRule {
+				.rule = "functionStatement",
+				.delimiter = TokenRule("delimiter"),
+				.descender = TokenRule("endOfFile")
+			}}
 		})},
 		{"namespaceBody", RuleRef()},
 		{"namespaceDeclaration", RuleRef()},
@@ -429,28 +466,49 @@ namespace Grammar {
 		{"operatorBody", RuleRef()},
 		{"operatorDeclaration", RuleRef()},
 		{"operatorStatements", RuleRef()},
+		/* TODO: Optionals branching
 		{"parameter", NodeRule({
 			{"label", "identifier", true},
 			{"identifier", "identifier"},
 			{"type_", "typeClause", true},
 			{"value", "initializerClause", true}
 		})},
-		{"parametersClause", SequenceRule {
-			.rule = "parameter",
-			.opener = TokenRule("parenthesisOpen"),
-			.delimiter = TokenRule("operator.*", ","),
-			.closer = TokenRule("parenthesisClosed"),
-			.innerDelimitRange = {1, usize(-1)}
-		}},
+		*/
+		{"parameter", VariantRule({
+			NodeRule({
+				{"label", "identifier"},
+				{"identifier", "identifier"},
+				{"type_", "typeClause", true},
+				{"value", "initializerClause", true}
+			}),
+			NodeRule({
+				{"identifier", "identifier"},
+				{"type_", "typeClause", true},
+				{"value", "initializerClause", true}
+			})
+		})},
+		{"parametersClause", NodeRule({
+			{nullopt, TokenRule("parenthesisOpen")},
+			{"parameters", SequenceRule {
+				.rule = "parameter",
+				.ascender = TokenRule("parenthesisOpen"),
+				.delimiter = TokenRule("operator.*", ","),
+				.descender = TokenRule("parenthesisClosed"),
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
+		}, true)},
 		{"parenthesizedExpression", NodeRule({
+			{nullopt, TokenRule("parenthesisOpen")},
 			{"value", SequenceRule {
 				.rule = "expressionsSequence",
-				.opener = TokenRule("parenthesisOpen"),
-				.closer = TokenRule("parenthesisClosed"),
+				.ascender = TokenRule("parenthesisOpen"),
+				.descender = TokenRule("parenthesisClosed"),
 				.range = {1, 1},
 				.normalize = true
-			}}
-		})},
+			}},
+			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
+		}, true)},
 		{"parenthesizedType", RuleRef()},
 		{"postfixExpression", NodeRule({
 			{"value", VariantRule({
@@ -518,23 +576,27 @@ namespace Grammar {
 		})},
 		{"statement", RuleRef()},
 		{"stringExpression", NodeRule({
+			{nullopt, TokenRule("stringExpressionOpen")},
 			{"value", SequenceRule {
 				.rule = "expressionsSequence",
-				.opener = TokenRule("stringExpressionOpen"),
-				.closer = TokenRule("stringExpressionClosed"),
+				.ascender = TokenRule("stringExpressionOpen"),
+				.descender = TokenRule("stringExpressionClosed"),
 				.range = {1, 1},
 				.normalize = true
-			}}
+			}},
+			{nullopt, TokenRule("stringExpressionClosed|endOfFile")}
 		})},
 		{"stringLiteral", NodeRule({
+			{nullopt, TokenRule("stringOpen")},
 			{"segments", SequenceRule {
 				.rule = VariantRule({
 					"stringSegment",
 					"stringExpression"
 				}),
-				.opener = TokenRule("stringOpen"),
-				.closer = TokenRule("stringClosed")
-			}}
+				.ascender = TokenRule("stringOpen"),
+				.descender = TokenRule("stringClosed")
+			}},
+			{nullopt, TokenRule("stringClosed|endOfFile")}
 		})},
 		{"stringSegment", NodeRule({
 			{"value", TokenRule("stringSegment")}
@@ -555,13 +617,17 @@ namespace Grammar {
 			{"body", "structureBody", true}
 		})},
 		{"structureStatements", RuleRef()},
-		{"subscriptArgumentsClause", SequenceRule {
-			.rule = "argument",
-			.opener = TokenRule("bracketOpen"),
-			.delimiter = TokenRule("operator.*", ","),
-			.closer = TokenRule("bracketClosed"),
-			.innerDelimitRange = {1, usize(-1)}
-		}},
+		{"subscriptArgumentsClause", NodeRule({
+			{nullopt, TokenRule("bracketOpen")},
+			{"arguments", SequenceRule {
+				.rule = "argument",
+				.ascender = TokenRule("bracketOpen"),
+				.delimiter = TokenRule("operator.*", ","),
+				.descender = TokenRule("bracketClosed"),
+				.innerDelimitRange = {1, usize(-1)}
+			}},
+			{nullopt, TokenRule("bracketClosed|endOfFile")}
+		}, true)},
 		{"subscriptDeclaration", RuleRef()},
 		{"subscriptExpression", NodeRule({
 			{"composite", "postfixExpression"},
@@ -600,8 +666,7 @@ namespace Grammar {
 			{"declarators", SequenceRule {
 				.rule = "declarator",
 				.delimiter = TokenRule("operator.*", ","),
-				.innerDelimitRange = {1, usize(-1)},
-				.dirty = false
+				.innerDelimitRange = {1, usize(-1)}
 			}}
 		})},
 		{"variadicType", NodeRule({
