@@ -77,6 +77,12 @@ function openSocket(path, token) {
 
 	client.on('error', (err) => {
 		console.error('❌ Error:', err.message);
+
+		clearInterval(heartbeatInterval);
+		clearInterval(clientsListInterval);
+
+		client = undefined;
+		auth.style.display = '';
 	});
 
 	client.on('end', () => {
@@ -198,7 +204,7 @@ function handleMessage(message) {
 			inputLint.innerHTML = lintHTML;
 			inputLint.scrollTop = inputText.scrollTop;
 			inputLint.scrollLeft = inputText.scrollLeft;
-			tokensOutput.innerText = JSON.stringify(tokens.filter(v => !v.trivia), null, 4);
+			tokensOutput.value = JSON.stringify(tokens.filter(v => !v.trivia), null, 4);
 		} else
 		if(report.action === 'parsed') {
 			let view = document.getElementById('client-'+report.senderFD);
@@ -206,7 +212,7 @@ function handleMessage(message) {
 
 			let ASTOutput = view.querySelector('.ASTOutput');
 
-			ASTOutput.innerText = JSON.stringify(report.tree, null, 4);
+			ASTOutput.value = JSON.stringify(report.tree, null, 4);
 		} else
 		if(report.action === 'interpreted') {}
 

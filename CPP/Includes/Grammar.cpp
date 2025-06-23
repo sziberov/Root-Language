@@ -76,11 +76,12 @@ namespace Grammar {
 
 	// FIXME:
 	// - No parsing messages and their rollback mechanism
-	// - No dirty tokens support in sequence rule parser
+	// - No "dirty tokens" node support in sequence rule parser
 	// - No ternary logic of modifiers in function signatures
-	// - Function parameters can't be stated without label (node rule parser does not support optional fields branching)
+	// - Function parameters can't be stated without label using optionals only (node rule parser does not support optional fields branching)
 	// - Expressions in statements like "if a {}" can be parsed like "if (call a with closure) then do nothing" instead of "if a then do block"
-	// - Closure expression does not include ascender and descender range
+	// - nillableExpressions works only with even counts but gives result of odd (or something like that).
+	// - In sequences, chainExpression does not consume first member, and it is possible for "a.b" to be parsed like ["a", ".", "b"] instead of chainExpression.
 
 	unordered_map<RuleRef, Rule> rules = {
 		{"argument", VariantRule({
@@ -175,7 +176,7 @@ namespace Grammar {
 		{"closureExpression", NodeRule({
 			{nullopt, TokenRule("braceOpen")},
 			{"signature", "closureSignature", true},
-			{"statements", "functionStatements"},
+			{"statements", "functionStatements", true},
 			{nullopt, TokenRule("braceClosed|endOfFile")}
 		})},
 		{"closureSignature", NodeRule({
@@ -289,7 +290,7 @@ namespace Grammar {
 			{"identifier", VariantRule({
 				"identifier",
 				"operator"
-			}), true},
+			})},
 			{"signature", "functionSignature", true},
 			{"body", "functionBody", true}
 		})},
@@ -508,7 +509,7 @@ namespace Grammar {
 				.normalize = true
 			}},
 			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
-		}, true)},
+		})},
 		{"parenthesizedType", RuleRef()},
 		{"postfixExpression", NodeRule({
 			{"value", VariantRule({

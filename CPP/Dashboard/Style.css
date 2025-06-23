@@ -176,14 +176,17 @@ body {
 	.treesOutput {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
 		flex: 1;
 	}
 
-	.treesOutput > * {
-		white-space: pre-wrap;
+	.treesoutput textarea {
 		font-family: monospace;
 		min-width: 256px;
+	    flex: 1;
+	    border: none;
+	    padding: 4px;
+	    background: none;
+	    font-size: inherit;
 	}
 
 	.console {
