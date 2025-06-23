@@ -74,7 +74,7 @@ struct Parser {
 		// Rules that do just _set_ their value/size behave fine without that, but other can unintentionally mislead the "greater" check.
 		void clearResult() {
 			value = nullptr;
-			cleanTokens =
+			cleanTokens = 0;
 			dirtyTokens = 0;
 		}
 
@@ -90,7 +90,6 @@ struct Parser {
 		}
 
 		bool greater(const Frame& other) const {
-		//	if(end() <= other.end())				return false;
 			if(empty() != other.empty())			return !empty();
 			if(cleanTokens != other.cleanTokens)	return cleanTokens > other.cleanTokens;
 			if(dirtyTokens != other.dirtyTokens)	return dirtyTokens < other.dirtyTokens;
@@ -122,11 +121,11 @@ struct Parser {
 		if(ruleFrame.value.type() == 5) {
 			Node& node = ruleFrame.value;
 
-			if(!node.contains("callers")) {
-				node["callers"] = NodeArray();
-			}
+		//	if(!node.contains("callers")) {
+			//	node["callers"] = NodeArray();
+		//	}
 
-			node.get<NodeArray&>("callers").push_back(ruleRef);
+		//	node.get<NodeArray&>("callers").push_back(ruleRef);
 
 			if(!node.contains("type")) {
 				node["type"] = ruleRef;
@@ -260,13 +259,11 @@ struct Parser {
 		if(bestFrame && bestFrame->greater(variantFrame)) {
 			variantFrame.apply(*bestFrame);
 
-			/*
 			for(const Key& callerKey : variantFrame.callers) {
 				if(!contains(queue, callerKey)) {
 					queue.push_back(callerKey);
 				}
 			}
-			*/
 		}
 
 		return variantFrame;
@@ -306,7 +303,7 @@ struct Parser {
 			  framesSize = frames.size(),  // After last successful rule / before last delimiter(s)
 			  scopeLevel = 1;
 
-		while(count < maxCount) {
+		while(sequenceFrame.end() < tokens.size() && count < maxCount) {
 			Frame& frame = parse({*rule, sequenceFrame.end()});
 
 			if(frame.empty()) {

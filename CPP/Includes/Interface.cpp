@@ -111,7 +111,7 @@ namespace Interface {
 	}
 
 	bool tokensMatch(const unordered_set<string>& receiverTokens, const unordered_set<string>& senderTokens) {
-		println("Matching: ", join(receiverTokens, ","), " and: ", join(senderTokens, ","));
+	//	println("Matching: ", join(receiverTokens, ","), " and: ", join(senderTokens, ","));
 
 		unordered_set<string> undirectedOutputSenderTokens;
 

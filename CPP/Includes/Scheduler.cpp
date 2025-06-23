@@ -1,3 +1,5 @@
+#pragma once
+
 #include "Std.cpp"
 
 class Scheduler {

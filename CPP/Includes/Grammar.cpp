@@ -80,7 +80,6 @@ namespace Grammar {
 	// - No ternary logic of modifiers in function signatures
 	// - Function parameters can't be stated without label using optionals only (node rule parser does not support optional fields branching)
 	// - Expressions in statements like "if a {}" can be parsed like "if (call a with closure) then do nothing" instead of "if a then do block"
-	// - nillableExpressions works only with even counts but gives result of odd (or something like that).
 	// - In sequences, chainExpression does not consume first member, and it is possible for "a.b" to be parsed like ["a", ".", "b"] instead of chainExpression.
 
 	unordered_map<RuleRef, Rule> rules = {
@@ -511,17 +510,18 @@ namespace Grammar {
 			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
 		})},
 		{"parenthesizedType", RuleRef()},
-		{"postfixExpression", NodeRule({
-			{"value", VariantRule({
-				"callExpression",
-				"chainExpression",
-				"defaultExpression",
-				"nillableExpression",
-				"subscriptExpression",
-				"primaryExpression"
-			})},
-			{"operator", "postfixOperator", true}
-		}, true)},
+		{"postfixExpression", VariantRule({
+			"callExpression",
+			"chainExpression",
+			"defaultExpression",
+			"nillableExpression",
+			"subscriptExpression",
+			"primaryExpression",
+			NodeRule({
+				{"value", "postfixExpression"},
+				{"operator", "postfixOperator"}
+			})
+		})},
 		{"postfixOperator", NodeRule({
 			{"value", TokenRule("operatorPostfix", "[^,:]*")}  // Enclosing nodes can use trailing operators from the exceptions list
 		})},
