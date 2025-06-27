@@ -257,3 +257,15 @@ void println(Args&&... args) {
 
 	cout << oss.str();
 }
+
+string repeat(const string& s, usize times) {
+    string result;
+
+	result.reserve(s.size()*times);
+
+	for(usize i = 0; i < times; ++i) {
+        result += s;
+    }
+
+	return result;
+}

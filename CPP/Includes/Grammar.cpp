@@ -184,7 +184,7 @@ namespace Grammar {
 		}, true)},
 		{"conditionalOperator", NodeRule({
 			{nullopt, TokenRule("operator.*", "\\?")},
-			{"expression", "expressionsSequence"},
+			{"value", "expressionsSequence"},
 			{nullopt, TokenRule("operator.*", ":")}
 		})},
 		{"continueStatement", NodeRule({

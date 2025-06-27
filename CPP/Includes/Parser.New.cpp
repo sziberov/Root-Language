@@ -37,7 +37,8 @@ struct Parser {
 		usize cleanTokens = 0,
 			  dirtyTokens = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
-			 isInitialized = false;
+			 isInitialized = false,
+			 isResolved = false;
 
 		usize size() const {
 			return cleanTokens+dirtyTokens;
@@ -100,8 +101,8 @@ struct Parser {
 
 	deque<Token> tokens;
 	unordered_map<Key, Frame, Hasher> cache;
-	deque<Key> calls,
-			   queue;
+	deque<Key> calls;
+	usize titledCalls = 0;
 
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
@@ -110,7 +111,6 @@ struct Parser {
 	optional<Frame> parseReference(Frame& refFrame) {
 		RuleRef& ruleRef = get<0>(refFrame.key.rule);
 
-		println("[Parser] Rule \"", ruleRef, "\"");
 		if(!Grammar::rules.contains(ruleRef)) {
 			return nullopt;
 		}
@@ -121,18 +121,10 @@ struct Parser {
 		if(ruleFrame.value.type() == 5) {
 			Node& node = ruleFrame.value;
 
-		//	if(!node.contains("callers")) {
-			//	node["callers"] = NodeArray();
-		//	}
-
-		//	node.get<NodeArray&>("callers").push_back(ruleRef);
-
 			if(!node.contains("type")) {
 				node["type"] = ruleRef;
 			}
 		}
-
-		println("[Parser] Rule \"", ruleRef, "\": ", to_string(ruleFrame.value));
 
 		return ruleFrame;
 	}
@@ -244,29 +236,17 @@ struct Parser {
 	optional<Frame> parseVariant(Frame& variantFrame) {
 		VariantRule& variantRule = get<3>(variantFrame.key.rule).get();
 		usize position = variantFrame.start();
-		optional<Frame> bestFrame;
+		optional<Frame> greatestFrame;
 
 		for(Rule& rule : variantRule) {
 			Frame& ruleFrame = parse({rule, position});
 
-			if(!ruleFrame.empty()) {
-				if(!bestFrame || ruleFrame.greater(*bestFrame)) {
-					bestFrame = ruleFrame;
-				}
+			if(!greatestFrame || ruleFrame.greater(*greatestFrame)) {
+				greatestFrame = ruleFrame;
 			}
 		}
 
-		if(bestFrame && bestFrame->greater(variantFrame)) {
-			variantFrame.apply(*bestFrame);
-
-			for(const Key& callerKey : variantFrame.callers) {
-				if(!contains(queue, callerKey)) {
-					queue.push_back(callerKey);
-				}
-			}
-		}
-
-		return variantFrame;
+		return greatestFrame;
 	}
 
 	void rollbackSequenceFrames(Frame& sequenceFrame, vector<Frame>& frames, usize fromIndex) {
@@ -424,7 +404,7 @@ struct Parser {
 		}
 	}
 
-	void flush() {
+	void flush(deque<Key> queue) {
 		while(!queue.empty()) {
 			Key key = queue.front();
 			Frame& frame = cache[key];
@@ -442,22 +422,12 @@ struct Parser {
 					{"action", "parsed"},
 					{"tree", frame.value}
 				});
-				println("");
 
 				for(const Key& callerKey : frame.callers) {
 					if(!contains(queue, callerKey)) {
 						queue.push_back(callerKey);
 					}
 				}
-			} else
-			if(newFrame && !newFrame->empty()) {
-				Interface::sendToClients({
-					{"type", "notification"},
-					{"source", "parser"},
-					{"action", "parsed"},
-					{"tree", frame.value}
-				});
-				println("");
 			}
 		}
 	}
@@ -474,12 +444,21 @@ struct Parser {
 			frame.isInitialized = true;
 			frame.apply(templateFrame);
 
+			string title = frame.key.rule.index() == 0 ? get<0>(frame.key.rule) : "";
+
+			if(!title.empty()) {
+				println("[Parser] # Start ", repeat("| ", titledCalls++), title, " at ", frame.key.start);
+			}
+
 			calls.push_back(frame.key);
-			queue.push_back(frame.key);
-			flush();
+			flush({frame.key});
 			calls.pop_back();
 
-			println("[Parser] Result at pos ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
+			frame.isResolved = true;
+
+			if(!title.empty()) {
+				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
+			}
 		}
 
 		return frame;
