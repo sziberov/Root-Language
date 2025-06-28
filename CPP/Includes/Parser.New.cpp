@@ -38,8 +38,8 @@ struct Parser {
 			  dirtyTokens = 0,
 			  parses = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
-			 isInitialized = false,
-			 canReparse = true;
+			 isParsable = true,
+			 isInitialized = false;
 
 		usize size() const {
 			return cleanTokens+dirtyTokens;
@@ -405,17 +405,15 @@ struct Parser {
 		}
 	}
 
-	void markCanReparse(Frame& frame) {
-		if(frame.canReparse) {
-			return;
-		}
+	void allowReparse(Frame& frame) {
+		if(!frame.isParsable) {
+			frame.isParsable = true;
 
-		frame.canReparse = true;
+			for(const Key& childKey : frame.children) {
+				Frame& childFrame = cache[childKey];
 
-		for(const Key& childKey : frame.children) {
-			Frame& childFrame = cache[childKey];
-
-			markCanReparse(childFrame);
+				allowReparse(childFrame);
+			}
 		}
 	}
 
@@ -429,7 +427,7 @@ struct Parser {
 			parentFrame.children.insert(templateFrame.key);
 		}
 
-		if(frame.canReparse) {
+		if(frame.isParsable) {
 			if(!frame.isInitialized) {
 				frame.key = templateFrame.key;
 				frame.isInitialized = true;
@@ -437,21 +435,22 @@ struct Parser {
 			}
 
 			string title = frame.key.rule.index() == 0 ? get<0>(frame.key.rule) : "";
+			usize pass = frame.parses;
 
 			if(!title.empty()) {
-				println("[Parser] # Start ", repeat("| ", titledCalls++), title, " at ", frame.key.start);
+				println("[Parser] # Start ", repeat("| ", titledCalls++), title, " at ", frame.key.start, ", pass ", pass);
 			}
 
 			calls.push_back(frame.key);
 
-			while(frame.canReparse) {
-				frame.canReparse = false;
+			while(frame.isParsable) {
+				frame.isParsable = false;
 				frame.parses++;
 				optional<Frame> newFrame = dispatch(frame);
 
 				if(newFrame && newFrame->greater(frame)) {
 					frame.apply(*newFrame);
-					markCanReparse(frame);
+					allowReparse(frame);
 
 					Interface::sendToClients({
 						{"type", "notification"},
@@ -465,7 +464,7 @@ struct Parser {
 			calls.pop_back();
 
 			if(!title.empty()) {
-				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", parses: ", frame.parses, ", value: ", to_string(frame.value));
+				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, ", pass ", pass, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", parses: ", frame.parses, ", value: ", to_string(frame.value));
 			}
 		}
 
