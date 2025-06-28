@@ -32,13 +32,14 @@ struct Parser {
 		Frame(const Rule& rule, usize start = 0, bool permitsDirt = false) : key(Key(rule, start)), permitsDirt(permitsDirt) {}
 
 		Key key;
-		unordered_set<Key, Hasher> callers;
+		unordered_set<Key, Hasher> children;
 		NodeValue value;
 		usize cleanTokens = 0,
-			  dirtyTokens = 0;
+			  dirtyTokens = 0,
+			  parses = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
 			 isInitialized = false,
-			 isResolved = false;
+			 canReparse = true;
 
 		usize size() const {
 			return cleanTokens+dirtyTokens;
@@ -404,31 +405,17 @@ struct Parser {
 		}
 	}
 
-	void flush(deque<Key> queue) {
-		while(!queue.empty()) {
-			Key key = queue.front();
-			Frame& frame = cache[key];
+	void markCanReparse(Frame& frame) {
+		if(frame.canReparse) {
+			return;
+		}
 
-			queue.pop_front();
+		frame.canReparse = true;
 
-			optional<Frame> newFrame = dispatch(frame);
+		for(const Key& childKey : frame.children) {
+			Frame& childFrame = cache[childKey];
 
-			if(newFrame && newFrame->greater(frame)) {
-				frame.apply(*newFrame);
-
-				Interface::sendToClients({
-					{"type", "notification"},
-					{"source", "parser"},
-					{"action", "parsed"},
-					{"tree", frame.value}
-				});
-
-				for(const Key& callerKey : frame.callers) {
-					if(!contains(queue, callerKey)) {
-						queue.push_back(callerKey);
-					}
-				}
-			}
+			markCanReparse(childFrame);
 		}
 	}
 
@@ -436,13 +423,18 @@ struct Parser {
 		Frame& frame = cache[templateFrame.key];
 
 		if(!calls.empty()) {
-			frame.callers.insert(calls.back());
+			Key& parentKey = calls.back();
+			Frame& parentFrame = cache[parentKey];
+
+			parentFrame.children.insert(templateFrame.key);
 		}
 
-		if(!frame.isInitialized) {
-			frame.key = templateFrame.key;
-			frame.isInitialized = true;
-			frame.apply(templateFrame);
+		if(frame.canReparse) {
+			if(!frame.isInitialized) {
+				frame.key = templateFrame.key;
+				frame.isInitialized = true;
+				frame.apply(templateFrame);
+			}
 
 			string title = frame.key.rule.index() == 0 ? get<0>(frame.key.rule) : "";
 
@@ -451,13 +443,29 @@ struct Parser {
 			}
 
 			calls.push_back(frame.key);
-			flush({frame.key});
+
+			while(frame.canReparse) {
+				frame.canReparse = false;
+				frame.parses++;
+				optional<Frame> newFrame = dispatch(frame);
+
+				if(newFrame && newFrame->greater(frame)) {
+					frame.apply(*newFrame);
+					markCanReparse(frame);
+
+					Interface::sendToClients({
+						{"type", "notification"},
+						{"source", "parser"},
+						{"action", "parsed"},
+						{"tree", frame.value}
+					});
+				}
+			}
+
 			calls.pop_back();
 
-			frame.isResolved = true;
-
 			if(!title.empty()) {
-				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", callers: ", frame.callers.size(), ", value: ", to_string(frame.value));
+				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", parses: ", frame.parses, ", value: ", to_string(frame.value));
 			}
 		}
 
