@@ -18,9 +18,9 @@ namespace Grammar {
 	// ----------------------------------------------------------------
 
 	struct Field {
-		Field(const char* t, Rule r = RuleRef(), bool o = false) : title(string(t)), rule(r), optional(o) {}
-		Field(const string t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
-		Field(const nullopt_t t, Rule r = RuleRef(), bool o = false) : title(t), rule(r), optional(o) {}
+		Field(const char* t, Rule r = "[placeholder]", bool o = false) : title(string(t)), rule(r), optional(o) {}
+		Field(const string t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
+		Field(const nullopt_t t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
 
 		std::optional<string> title;  // Nil for implicit
 		Rule rule;
@@ -80,7 +80,6 @@ namespace Grammar {
 	// - No ternary logic of modifiers in function signatures
 	// - Function parameters can't be stated without label using optionals only (node rule parser does not support optional fields branching)
 	// - Expressions in statements like "if a {}" can be parsed like "if (call a with closure) then do nothing" instead of "if a then do block"
-	// - In sequences, chainExpression does not consume first member, and it is possible for "a.b" to be parsed like ["a", ".", "b"] instead of chainExpression.
 
 	unordered_map<RuleRef, Rule> rules = {
 		{"argument", VariantRule({
@@ -119,7 +118,7 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordAwait")},
 			{"value", "expression"}
 		})},
-		{"body", RuleRef()},
+		{"body", "[placeholder]"},
 		{"booleanLiteral", NodeRule({
 			{"value", TokenRule("keywordFalse|keywordTrue")}
 		})},
@@ -151,9 +150,9 @@ namespace Grammar {
 				{"closure", "closureExpression"}
 			})
 		})},
-		{"caseDeclaration", RuleRef()},
-		{"catchClause", RuleRef()},
-		{"chainDeclaration", RuleRef()},
+		{"caseDeclaration", "[placeholder]"},
+		{"catchClause", "[placeholder]"},
+		{"chainDeclaration", "[placeholder]"},
 		{"chainExpression", NodeRule({
 			{"composite", "postfixExpression"},
 			{nullopt, TokenRule("operator|operatorInfix", "\\.")},
@@ -167,11 +166,11 @@ namespace Grammar {
 			{nullopt, TokenRule("operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"chainStatements", RuleRef()},
-		{"classBody", RuleRef()},
-		{"classDeclaration", RuleRef()},
-		{"classExpression", RuleRef()},
-		{"classStatements", RuleRef()},
+		{"chainStatements", "[placeholder]"},
+		{"classBody", "[placeholder]"},
+		{"classDeclaration", "[placeholder]"},
+		{"classExpression", "[placeholder]"},
+		{"classStatements", "[placeholder]"},
 		{"closureExpression", NodeRule({
 			{nullopt, TokenRule("braceOpen")},
 			{"signature", "closureSignature", true},
@@ -230,24 +229,24 @@ namespace Grammar {
 			{"value", "postfixType"},
 			{nullopt, TokenRule("operatorPostfix", "!")}
 		})},
-		{"deinitializerDeclaration", RuleRef()},
+		{"deinitializerDeclaration", "[placeholder]"},
 		{"deleteExpression", NodeRule({
 			{nullopt, TokenRule("identifier", "delete")},
 			{"value", "expression"}
 		})},
-		{"dictionaryLiteral", RuleRef()},
-		{"dictionaryType", RuleRef()},
-		{"doStatement", RuleRef()},
-		{"elseClause", RuleRef()},
+		{"dictionaryLiteral", "[placeholder]"},
+		{"dictionaryType", "[placeholder]"},
+		{"doStatement", "[placeholder]"},
+		{"elseClause", "[placeholder]"},
 		{"entry", NodeRule({
 			{"key", "expressionsSequence"},
 			{nullopt, TokenRule("operator.*", ":")},
 			{"value", "expressionsSequence"}
 		})},
-		{"enumerationBody", RuleRef()},
-		{"enumerationDeclaration", RuleRef()},
-		{"enumerationExpression", RuleRef()},
-		{"enumerationStatements", RuleRef()},
+		{"enumerationBody", "[placeholder]"},
+		{"enumerationDeclaration", "[placeholder]"},
+		{"enumerationExpression", "[placeholder]"},
+		{"enumerationStatements", "[placeholder]"},
 		{"expression", VariantRule({
 			"asExpression",
 			"isExpression",
@@ -277,7 +276,7 @@ namespace Grammar {
 		{"floatLiteral", NodeRule({
 			{"value", TokenRule("numberFloat")}
 		})},
-		{"forStatement", RuleRef()},
+		{"forStatement", "[placeholder]"},
 		{"functionBody", NodeRule({
 			{nullopt, TokenRule("braceOpen")},
 			{"statements", "functionStatements"},
@@ -319,7 +318,7 @@ namespace Grammar {
 			.delimiter = TokenRule("delimiter"),
 			.descender = TokenRule("braceClosed")
 		}},
-		{"functionType", RuleRef()},
+		{"functionType", "[placeholder]"},
 		{"genericArgument", "type"},
 		{"genericArgumentsClause", NodeRule({
 			{nullopt, TokenRule("operator.*", "<")},
@@ -354,7 +353,7 @@ namespace Grammar {
 		{"identifier", NodeRule({
 			{"value", TokenRule("identifier")}
 		})},
-		{"ifStatement", RuleRef()},
+		{"ifStatement", "[placeholder]"},
 		{"implicitChainExpression", NodeRule({
 			{nullopt, TokenRule("operator|operatorPrefix|operatorInfix", "\\.")},
 			{"member", VariantRule({
@@ -366,7 +365,7 @@ namespace Grammar {
 			{nullopt, TokenRule("operator|operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"importDeclaration", RuleRef()},
+		{"importDeclaration", "[placeholder]"},
 		{"infixExpression", VariantRule({
 			"conditionalOperator",
 			"inOperator",
@@ -387,7 +386,7 @@ namespace Grammar {
 			{nullopt, TokenRule("operator.*", "=")},
 			{"value", "expressionsSequence", true}
 		}, true)},
-		{"initializerDeclaration", RuleRef()},
+		{"initializerDeclaration", "[placeholder]"},
 		{"inOperator", NodeRule({
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
 			{nullopt, TokenRule("keywordIn")}
@@ -403,7 +402,7 @@ namespace Grammar {
 		{"integerLiteral", NodeRule({
 			{"value", TokenRule("numberInteger")}
 		})},
-		{"intersectionType", RuleRef()},
+		{"intersectionType", "[placeholder]"},
 		{"isExpression", NodeRule({
 			{"value", "expression"},
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
@@ -446,10 +445,10 @@ namespace Grammar {
 				.descender = TokenRule("endOfFile")
 			}}
 		})},
-		{"namespaceBody", RuleRef()},
-		{"namespaceDeclaration", RuleRef()},
-		{"namespaceExpression", RuleRef()},
-		{"namespaceStatements", RuleRef()},
+		{"namespaceBody", "[placeholder]"},
+		{"namespaceDeclaration", "[placeholder]"},
+		{"namespaceExpression", "[placeholder]"},
+		{"namespaceStatements", "[placeholder]"},
 		{"nillableExpression", NodeRule({
 			{"value", "postfixExpression"},
 			{nullopt, TokenRule("operatorPostfix", "\\?")}
@@ -458,14 +457,14 @@ namespace Grammar {
 			{"value", "postfixType"},
 			{nullopt, TokenRule("operatorPostfix", "\\?")}
 		})},
-		{"nilLiteral", RuleRef()},
-		{"observerDeclaration", RuleRef()},
-		{"observersBody", RuleRef()},
-		{"observersStatements", RuleRef()},
-		{"operator", RuleRef()},
-		{"operatorBody", RuleRef()},
-		{"operatorDeclaration", RuleRef()},
-		{"operatorStatements", RuleRef()},
+		{"nilLiteral", "[placeholder]"},
+		{"observerDeclaration", "[placeholder]"},
+		{"observersBody", "[placeholder]"},
+		{"observersStatements", "[placeholder]"},
+		{"operator", "[placeholder]"},
+		{"operatorBody", "[placeholder]"},
+		{"operatorDeclaration", "[placeholder]"},
+		{"operatorStatements", "[placeholder]"},
 		/* TODO: Optionals branching
 		{"parameter", NodeRule({
 			{"label", "identifier", true},
@@ -509,7 +508,7 @@ namespace Grammar {
 			}},
 			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
 		})},
-		{"parenthesizedType", RuleRef()},
+		{"parenthesizedType", "[placeholder]"},
 		{"postfixExpression", VariantRule({
 			"callExpression",
 			"chainExpression",
@@ -530,7 +529,7 @@ namespace Grammar {
 			"nillableType",
 			"primaryType"
 		})},
-		{"predefinedType", RuleRef()},
+		{"predefinedType", "[placeholder]"},
 		{"prefixExpression", NodeRule({
 			{"operator", "prefixOperator", true},
 			{"value", "postfixExpression"},
@@ -562,11 +561,11 @@ namespace Grammar {
 			"protocolType",
 			"typeIdentifier"
 		})},
-		{"protocolBody", RuleRef()},
-		{"protocolDeclaration", RuleRef()},
-		{"protocolExpression", RuleRef()},
-		{"protocolStatements", RuleRef()},
-		{"protocolType", RuleRef()},
+		{"protocolBody", "[placeholder]"},
+		{"protocolDeclaration", "[placeholder]"},
+		{"protocolExpression", "[placeholder]"},
+		{"protocolStatements", "[placeholder]"},
+		{"protocolType", "[placeholder]"},
 		{"returnClause", NodeRule({
 			{nullopt, TokenRule("operator.*", "->")},
 			{"type_", "type"}
@@ -575,7 +574,7 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordReturn")},
 			{"value", "expressionsSequence", true}
 		})},
-		{"statement", RuleRef()},
+		{"statement", "[placeholder]"},
 		{"stringExpression", NodeRule({
 			{nullopt, TokenRule("stringExpressionOpen")},
 			{"value", SequenceRule {
@@ -602,7 +601,7 @@ namespace Grammar {
 		{"stringSegment", NodeRule({
 			{"value", TokenRule("stringSegment")}
 		})},
-		{"structureBody", RuleRef()},
+		{"structureBody", "[placeholder]"},
 		{"structureDeclaration", NodeRule({
 			{"modifiers", "modifiers", true},
 			{nullopt, TokenRule("keywordStruct")},
@@ -617,7 +616,7 @@ namespace Grammar {
 			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody", true}
 		})},
-		{"structureStatements", RuleRef()},
+		{"structureStatements", "[placeholder]"},
 		{"subscriptArgumentsClause", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"arguments", SequenceRule {
@@ -629,7 +628,7 @@ namespace Grammar {
 			}},
 			{nullopt, TokenRule("bracketClosed|endOfFile")}
 		}, true)},
-		{"subscriptDeclaration", RuleRef()},
+		{"subscriptDeclaration", "[placeholder]"},
 		{"subscriptExpression", NodeRule({
 			{"composite", "postfixExpression"},
 			{"genericArguments", "genericArgumentsClause", true},
@@ -660,7 +659,7 @@ namespace Grammar {
 			{"type_", "type"}
 		})},
 		{"typeIdentifier", RuleRef("identifier")},
-		{"unionType", RuleRef()},
+		{"unionType", "[placeholder]"},
 		{"variableDeclaration", NodeRule({
 			{"modifiers", "modifiers", true},
 			{nullopt, TokenRule("keywordVar")},
@@ -677,6 +676,6 @@ namespace Grammar {
 			})},
 			{nullopt, TokenRule("operator.*", "\\.\\.\\.")}
 		})},
-		{"whileStatement", RuleRef()}
+		{"whileStatement", "[placeholder]"}
 	};
 };

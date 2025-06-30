@@ -37,8 +37,7 @@ struct Parser {
 			  dirtyTokens = 0,
 			  applications = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
-			 isInitialized = false,
-			 inProgress = false;
+			 isInitialized = false;
 
 		usize size() const {
 			return cleanTokens+dirtyTokens;
@@ -106,27 +105,6 @@ struct Parser {
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
 	// ----------------------------------------------------------------
-
-	optional<Frame> parseReference(Frame& refFrame) {
-		RuleRef& ruleRef = get<0>(refFrame.key.rule);
-
-		if(!Grammar::rules.contains(ruleRef)) {
-			return nullopt;
-		}
-
-		Rule& rule = Grammar::rules[ruleRef];
-		Frame& ruleFrame = parse({rule, refFrame.start()});
-
-		if(ruleFrame.value.type() == 5) {
-			Node& node = ruleFrame.value;
-
-			if(!node.contains("type")) {
-				node["type"] = ruleRef;
-			}
-		}
-
-		return ruleFrame;
-	}
 
 	optional<Frame> parseNode(Frame& nodeFrame) {
 		NodeRule& nodeRule = get<1>(nodeFrame.key.rule).get();
@@ -394,7 +372,6 @@ struct Parser {
 		frame.clearResult();
 
 		switch(frame.key.rule.index()) {
-			case 0:  return parseReference(frame);
 			case 1:  return parseNode(frame);
 			case 2:  return parseToken(frame);
 			case 3:  return parseVariant(frame);
@@ -404,54 +381,62 @@ struct Parser {
 	}
 
 	Frame& parse(const Frame& templateFrame) {
-		Frame& frame = cache[templateFrame.key];
-		bool isInitialized = frame.isInitialized;
-		string title;
+		if(templateFrame.key.rule.index() == 0) {
+			const RuleRef& ruleRef = get<0>(templateFrame.key.rule);
 
-		switch(frame.key.rule.index()) {
-			case 0: title = get<0>(frame.key.rule); break;
-			case 1: title = "[node]"; break;
-			case 2: title = "[token]"; break;
-			case 3: title = "[variant]"; break;
-			case 4: title = "[sequence]"; break;
+			if(!Grammar::rules.contains(ruleRef)) {
+				return cache[{ruleRef, templateFrame.start()}];
+			}
+
+			Rule& rule = Grammar::rules[ruleRef];
+			Key key = {rule, templateFrame.start()};
+			Frame& ruleFrame = parse({rule, templateFrame.start()});
+
+			if(ruleFrame.value.type() == 5) {
+				Node& node = ruleFrame.value;
+
+				if(!node.contains("type")) {
+					node["type"] = ruleRef;
+				}
+			}
+
+			return ruleFrame;
 		}
+
+		Frame& frame = cache[templateFrame.key];
 
 		if(!frame.isInitialized) {
 			frame.key = templateFrame.key;
 			frame.isInitialized = true;
 			frame.apply(templateFrame);
-		} else
-		if(frame.inProgress) {
-			println("[Parser] # ", repeat("| ", titledCalls), title, " at ", frame.key.start, ", in progress: ", frame.inProgress ? "true" : "false", " => applications: ", frame.applications, ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
 
-			return frame;
-		}
+			string title = frame.key.rule.index() == 0 ? get<0>(frame.key.rule) : "";
+			usize pass = frame.applications;
 
-		println("[Parser] # ", repeat("| ", titledCalls++), title, " at ", frame.key.start, ", pass ", frame.applications, ", in progress: ", frame.inProgress ? "true" : "false", " {");
-
-		frame.inProgress = true;
-
-		while(optional<Frame> newFrame = dispatch(frame)) {
-			if(!newFrame->greater(frame)) {
-				break;
+			if(!title.empty()) {
+				println("[Parser] # Start ", repeat("| ", titledCalls++), title, " at ", frame.key.start, ", pass ", pass);
 			}
 
-			frame.apply(*newFrame);
-			frame.applications++;
+			while(optional<Frame> newFrame = dispatch(frame)) {
+				if(!newFrame->greater(frame)) {
+					break;
+				}
 
-			println("[Parser] # ", repeat("| ", titledCalls), "- clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+				frame.apply(*newFrame);
+				frame.applications++;
 
-			Interface::sendToClients({
-				{"type", "notification"},
-				{"source", "parser"},
-				{"action", "parsed"},
-				{"tree", frame.value}
-			});
+				Interface::sendToClients({
+					{"type", "notification"},
+					{"source", "parser"},
+					{"action", "parsed"},
+					{"tree", frame.value}
+				});
+			}
+
+			if(!title.empty()) {
+				println("[Parser] #   End ", repeat("| ", --titledCalls), title, " at ", frame.key.start, ", pass ", pass, " => clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", applications: ", frame.applications, ", value: ", to_string(frame.value));
+			}
 		}
-
-		frame.inProgress = false;
-
-		println("[Parser] # ", repeat("| ", --titledCalls), "} => applications: ", frame.applications);
 
 		return frame;
 	}

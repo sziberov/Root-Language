@@ -113,6 +113,11 @@ bool contains(const Container& container, const T& value) {
 	return find(container.begin(), container.end(), value) != container.end();
 }
 
+template <typename Container, typename T>
+bool count(const Container& container, const T& value) {
+	return count(container.begin(), container.end(), value);
+}
+
 template <typename Container, typename UnaryPredicate>
 Container filter(const Container& container, UnaryPredicate predicate) {
 	Container result;

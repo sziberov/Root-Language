@@ -438,8 +438,9 @@ int main(int argc, char* argv[]) {
 			break;
 		}
 		case Interface::Preferences::Mode::Dashboard: {
-			thread serverThread(&startServer),
-				   clientThread(&startClient);
+			thread serverThread(&startServer);
+			this_thread::sleep_for(125ms);
+			thread clientThread(&startClient);
 
 			clientThread.join();
 			serverThread.join();
