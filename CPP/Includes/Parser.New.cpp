@@ -35,7 +35,7 @@ struct Parser {
 		NodeValue value;
 		usize cleanTokens = 0,
 			  dirtyTokens = 0,
-			  applications = 0;
+			  generations = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
 			 isInitialized = false,
 			 inProgress = false;
@@ -101,7 +101,8 @@ struct Parser {
 
 	deque<Token> tokens;
 	unordered_map<Key, Frame, Hasher> cache;
-	usize titledCalls = 0;
+	unordered_map<usize, usize> generations;  // [Position : Applications]
+	usize calls = 0;
 
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
 
@@ -408,12 +409,12 @@ struct Parser {
 		bool isInitialized = frame.isInitialized;
 		string title;
 
-		switch(frame.key.rule.index()) {
-			case 0: title = get<0>(frame.key.rule); break;
-			case 1: title = "[node]"; break;
-			case 2: title = "[token]"; break;
-			case 3: title = "[variant]"; break;
-			case 4: title = "[sequence]"; break;
+		switch(templateFrame.key.rule.index()) {
+			case 0: title = get<0>(templateFrame.key.rule);	break;
+			case 1: title = "[node]";						break;
+			case 2: title = "[token]";						break;
+			case 3: title = "[variant]";					break;
+			case 4: title = "[sequence]";					break;
 		}
 
 		if(!frame.isInitialized) {
@@ -421,13 +422,13 @@ struct Parser {
 			frame.isInitialized = true;
 			frame.apply(templateFrame);
 		} else
-		if(frame.inProgress) {
-			println("[Parser] # ", repeat("| ", titledCalls), title, " at ", frame.key.start, ", in progress: ", frame.inProgress ? "true" : "false", " => applications: ", frame.applications, ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+		if(frame.inProgress || frame.generations == generations[frame.start()]) {
+			println("[Parser] # ", repeat("| ", calls), title, " at ", frame.key.start, ", in progress: ", frame.inProgress ? "true" : "false", " => generations: ", frame.generations, ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
 
 			return frame;
 		}
 
-		println("[Parser] # ", repeat("| ", titledCalls++), title, " at ", frame.key.start, ", pass ", frame.applications, ", in progress: ", frame.inProgress ? "true" : "false", " {");
+		println("[Parser] # ", repeat("| ", calls++), title, " at ", frame.key.start, ", pass ", frame.generations, ", in progress: ", frame.inProgress ? "true" : "false", " {");
 
 		frame.inProgress = true;
 
@@ -437,9 +438,9 @@ struct Parser {
 			}
 
 			frame.apply(*newFrame);
-			frame.applications++;
+			generations[frame.start()]++;
 
-			println("[Parser] # ", repeat("| ", titledCalls), "- clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+			println("[Parser] # ", repeat("| ", calls), "- clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
 
 			Interface::sendToClients({
 				{"type", "notification"},
@@ -450,8 +451,9 @@ struct Parser {
 		}
 
 		frame.inProgress = false;
+		frame.generations = generations[frame.start()];
 
-		println("[Parser] # ", repeat("| ", --titledCalls), "} => applications: ", frame.applications);
+		println("[Parser] # ", repeat("| ", --calls), "} => generations: ", frame.generations);
 
 		return frame;
 	}

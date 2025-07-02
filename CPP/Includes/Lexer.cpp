@@ -9,7 +9,7 @@ struct Lexer {
 	};
 
 	struct Token {
-		int position;
+		usize position;
 		Location location;
 		string type,
 			   value;
@@ -19,7 +19,7 @@ struct Lexer {
 	};
 
 	string_view code;
-	int position = 0;
+	usize position = 0;
 	deque<Token> tokens;
 	deque<string> states;  // angle - used to distinguish between common operator and generic type's closing >
 						   // brace - used in statements
@@ -697,7 +697,7 @@ struct Lexer {
 	}
 
 	struct Save {
-		int position;
+		usize position;
 		deque<Token> tokens;
 		deque<string> states;
 	};
