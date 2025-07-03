@@ -112,7 +112,7 @@ namespace Grammar {
 		{"arrayType", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"value", "type"},
-			{nullopt, TokenRule("bracketClosed")}
+			{nullopt, TokenRule("bracketClosed|endOfFile")}
 		})},
 		{"asExpression", NodeRule({
 			{"value", "expression"},
@@ -170,12 +170,15 @@ namespace Grammar {
 				"stringLiteral"
 			})}
 		})},
-		{"chainIdentifier", NodeRule({
-			{"supervalue", "postfixExpression"},
+		{"chainStatements", "[placeholder]"},
+		{"chainedIdentifier", NodeRule({
+			{"supervalue", VariantRule({
+				"chainedIdentifier",
+				"identifier"
+			})},
 			{nullopt, TokenRule("operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"chainStatements", "[placeholder]"},
 		{"classBody", "[placeholder]"},
 		{"classDeclaration", "[placeholder]"},
 		{"classExpression", "[placeholder]"},
@@ -243,8 +246,29 @@ namespace Grammar {
 			{nullopt, TokenRule("identifier", "delete")},
 			{"value", "expression"}
 		})},
-		{"dictionaryLiteral", "[placeholder]"},
-		{"dictionaryType", "[placeholder]"},
+		{"dictionaryLiteral", VariantRule({
+			NodeRule({
+				{nullopt, TokenRule("bracketOpen")},
+				{"entries", SequenceRule {
+					.rule = "entry",
+					.delimiter = TokenRule("operator.*", ","),
+					.innerDelimitRange = {1, usize(-1)}
+				}},
+				{nullopt, TokenRule("bracketClosed|endOfFile")}
+			}),
+			NodeRule({
+				{nullopt, TokenRule("bracketOpen")},
+				{nullopt, TokenRule("operator.*", ":")},
+				{nullopt, TokenRule("bracketClosed|endOfFile")}
+			}),
+		})},
+		{"dictionaryType", NodeRule({
+			{nullopt, TokenRule("bracketOpen")},
+			{"key", "type"},
+			{nullopt, TokenRule("operator.*", ":")},
+			{"value", "type"},
+			{nullopt, TokenRule("bracketClosed|endOfFile")}
+		})},
 		{"doStatement", "[placeholder]"},
 		{"elseClause", "[placeholder]"},
 		{"entry", NodeRule({
@@ -374,7 +398,13 @@ namespace Grammar {
 			{nullopt, TokenRule("operator|operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"importDeclaration", "[placeholder]"},
+		{"importDeclaration", NodeRule({
+			{nullopt, TokenRule("keywordImport")},
+			{"value", VariantRule({
+				"chainedIdentifier",
+				"identifier"
+			}), true}
+		})},
 		{"infixExpression", VariantRule({
 			"conditionalOperator",
 			"inOperator",
@@ -411,7 +441,17 @@ namespace Grammar {
 		{"integerLiteral", NodeRule({
 			{"value", TokenRule("numberInteger")}
 		})},
-		{"intersectionType", "[placeholder]"},
+		{"intersectionType", VariantRule({
+			NodeRule({
+				{"subtypes", SequenceRule {
+					.rule = "postfixType",
+					.delimiter = TokenRule("operator.*", "&"),
+					.range = {2, usize(-1)},
+					.innerDelimitRange = {1, usize(-1)}
+				}}
+			}),
+			"postfixType"
+		})},
 		{"isExpression", NodeRule({
 			{"value", "expression"},
 			{"inverted", TokenRule("operatorPrefix", "!"), true},
@@ -466,11 +506,11 @@ namespace Grammar {
 			{"value", "postfixType"},
 			{nullopt, TokenRule("operatorPostfix", "\\?")}
 		})},
-		{"nilLiteral", "[placeholder]"},
+		{"nilLiteral", TokenRule("keywordNil")},
 		{"observerDeclaration", "[placeholder]"},
 		{"observersBody", "[placeholder]"},
 		{"observersStatements", "[placeholder]"},
-		{"operator", "[placeholder]"},
+		{"operator", TokenRule("operator.*")},
 		{"operatorBody", "[placeholder]"},
 		{"operatorDeclaration", "[placeholder]"},
 		{"operatorStatements", "[placeholder]"},
@@ -517,7 +557,11 @@ namespace Grammar {
 			}},
 			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
 		})},
-		{"parenthesizedType", "[placeholder]"},
+		{"parenthesizedType", NodeRule({
+			{nullopt, TokenRule("parenthesisOpen")},
+			{"value", "type"},
+			{nullopt, TokenRule("parenthesisClosed|endOfFile")}
+		})},
 		{"postfixExpression", VariantRule({
 			"callExpression",
 			"chainExpression",
@@ -538,7 +582,29 @@ namespace Grammar {
 			"nillableType",
 			"primaryType"
 		})},
-		{"predefinedType", "[placeholder]"},
+		{"predefinedType", NodeRule({
+			{"value", VariantRule({
+				TokenRule("keywordUnderscore"),
+				TokenRule("keywordVoid"),
+
+				TokenRule("keywordAny"),
+				TokenRule("keywordBool"),
+				TokenRule("keywordDict"),
+				TokenRule("keywordFloat"),
+				TokenRule("keywordInt"),
+				TokenRule("keywordString"),
+				TokenRule("keywordType"),
+
+				TokenRule("keywordCapitalAny"),
+				TokenRule("keywordCapitalClass"),
+				TokenRule("keywordCapitalEnumeration"),
+				TokenRule("keywordCapitalFunction"),
+				TokenRule("keywordCapitalNamespace"),
+				TokenRule("keywordCapitalObject"),
+				TokenRule("keywordCapitalProtocol"),
+				TokenRule("keywordCapitalStructure")
+			})}
+		})},
 		{"prefixExpression", NodeRule({
 			{"operator", "prefixOperator", true},
 			{"value", "postfixExpression"},
@@ -656,8 +722,7 @@ namespace Grammar {
 		{"type", VariantRule({
 			"variadicType",
 			"inoutType",
-			"unionType",
-			"typeIdentifier"
+			"unionType"
 		})},
 		{"typeClause", NodeRule({
 			{nullopt, TokenRule("operator.*", ":")},
@@ -667,8 +732,24 @@ namespace Grammar {
 			{nullopt, TokenRule("keywordType")},
 			{"type_", "type"}
 		})},
-		{"typeIdentifier", RuleRef("identifier")},
-		{"unionType", "[placeholder]"},
+		{"typeIdentifier", NodeRule({
+			{"identifier", VariantRule({
+				"chainedIdentifier",
+				"identifier"
+			})},
+			{"genericArguments", "genericArgumentsClause", true}
+		})},
+		{"unionType", VariantRule({
+			NodeRule({
+				{"subtypes", SequenceRule {
+					.rule = "intersectionType",
+					.delimiter = TokenRule("operator.*", "\\|"),
+					.range = {2, usize(-1)},
+					.innerDelimitRange = {1, usize(-1)}
+				}}
+			}),
+			"intersectionType"
+		})},
 		{"variableDeclaration", NodeRule({
 			{"modifiers", "modifiers", true},
 			{nullopt, TokenRule("keywordVar")},

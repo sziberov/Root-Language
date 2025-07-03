@@ -782,8 +782,7 @@ struct Parser {
 			}
 
 			position++;
-			node["key"] = rules("type");
-
+			node["value"] = rules("type");
 
 			if(token().type != "bracketClosed") {
 				position = node.get<Node&>("range").get("start");
