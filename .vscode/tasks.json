@@ -2,9 +2,23 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Build",
+            "label": "Build - Release",
             "type": "shell",
-            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -g -o RootServer -D_GLIBCXX_DEBUG",
+            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -o RootServer -O2 -DNDEBUG",
+            "options": {
+                "cwd": "${workspaceFolder}/CPP/"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "problemMatcher": ["$gcc"],
+            "detail": "Компиляция проекта (релиз)"
+        },
+        {
+            "label": "Build - Debug",
+            "type": "shell",
+            "command": "time g++ -std=c++26 -I Includes RootServer.cpp -o RootServer -g -D_GLIBCXX_DEBUG",
             "options": {
                 "cwd": "${workspaceFolder}/CPP/"
             },
@@ -13,7 +27,7 @@
                 "isDefault": true
             },
             "problemMatcher": ["$gcc"],
-            "detail": "Компиляция проекта"
+            "detail": "Компиляция проекта (отладка)"
         },
         {
             "label": "Run",
@@ -23,7 +37,7 @@
                 "kind": "test",
                 "isDefault": true
             },
-            "dependsOn": ["Build"]
+            "dependsOn": ["Build - Debug"]
         }
     ]
 }

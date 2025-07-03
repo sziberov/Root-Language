@@ -19,8 +19,8 @@ namespace Grammar {
 
 	struct Field {
 		Field(const char* t, Rule r = "[placeholder]", bool o = false) : title(string(t)), rule(r), optional(o) {}
-		Field(const string t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
-		Field(const nullopt_t t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
+		Field(const string& t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
+		Field(const nullopt_t& t, Rule r = "[placeholder]", bool o = false) : title(t), rule(r), optional(o) {}
 
 		std::optional<string> title;  // Nil for implicit
 		Rule rule;
@@ -44,9 +44,18 @@ namespace Grammar {
 	};
 
 	struct TokenRule {
-		optional<string> type, value;
+		TokenRule() {}
+		TokenRule(const string& type) : patterns{type}, regexes{regex(type)} {}
+		TokenRule(const nullopt_t& type, const string& value) : patterns{type, value}, regexes{regex(), regex(value)} {}
+		TokenRule(const string& type, const string& value) : patterns{type, value}, regexes{regex(type), regex(value)} {}
 
-		bool operator==(const TokenRule& r) const = default;
+		optional<string> patterns[2];
+		regex regexes[2];
+
+		bool operator==(const TokenRule& r) const {
+			return patterns[0] == r.patterns[0] &&
+				   patterns[1] == r.patterns[1];
+		}
 	};
 
 	struct VariantRule : vector<Rule> {};

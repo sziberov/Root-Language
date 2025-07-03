@@ -35,10 +35,22 @@ struct Parser {
 		NodeValue value;
 		usize cleanTokens = 0,
 			  dirtyTokens = 0,
-			  generations = 0;
+			  version = 0;
 		bool permitsDirt = false,  // Allow the frame parser to add a dirt into the value
 			 isInitialized = false,
-			 inProgress = false;
+			 isCalled = false,
+			 isRecursive = false;
+
+		string title() const {
+			switch(key.rule.index()) {
+				case 0:  return get<0>(key.rule);
+				case 1:  return "[node]";
+				case 2:  return "[token]";
+				case 3:  return "[variant]";
+				case 4:  return "[sequence]";
+				default: return string();
+			}
+		}
 
 		usize size() const {
 			return cleanTokens+dirtyTokens;
@@ -101,7 +113,7 @@ struct Parser {
 
 	deque<Token> tokens;
 	unordered_map<Key, Frame, Hasher> cache;
-	unordered_map<usize, usize> generations;  // [Position : Applications]
+	unordered_map<usize, usize> versions;  // [Position : Version]
 	usize calls = 0;
 
 	Parser(deque<Token> tokens) : tokens(filter(tokens, [](auto& t) { return !t.trivia; })) {}
@@ -158,7 +170,7 @@ struct Parser {
 		}
 
 		int start = nodeFrame.start(),
-			end = start+max(usize(), nodeFrame.size() ? nodeFrame.size()-1 : 0);  // TODO: Check if max is needed
+			end = max(usize(), start+nodeFrame.size()-1);
 
 		node["range"] = {
 			{"start", start},
@@ -177,47 +189,18 @@ struct Parser {
 		static Token endOfFileToken = { .type = "endOfFile" };
 		usize position = tokenFrame.start();
 		Token& token = position < tokens.size() ? tokens[position] : endOfFileToken;
+		string operands[2] = { token.type, token.value };
 
-		println("Token at position ", position, ": ", token.type, ", value: ", token.value);
+		#ifndef NDEBUG
+			println("Token at position ", position, ": ", token.type, ", value: ", token.value);
+		#endif
 
-		if(tokenRule.type) {
-			try {
-				regex r(*tokenRule.type);
+		for(int i = 0; i < 2; i++) {
+			if(tokenRule.patterns[i] && !regex_match(operands[i], tokenRule.regexes[i])) {
+				#ifndef NDEBUG
+					println("[Parser] Token operand[", i, "] (", operands[i], ") is not matching \"", *tokenRule.patterns[i], "\"");
+				#endif
 
-				if(!regex_match(token.type, r)) {
-					println("[Parser] Token type (", token.type, ") is not matching \"", *tokenRule.type, "\"");
-					if(tokenFrame.permitsDirt) {
-						tokenFrame.value = token.value;
-						tokenFrame.dirtyTokens++;
-					}
-
-					return tokenFrame;
-				}
-			} catch(const regex_error& e) {
-				println("[Parser] Error in token type validator: ", e.what());
-				if(tokenFrame.permitsDirt) {
-					tokenFrame.value = token.value;
-					tokenFrame.dirtyTokens++;
-				}
-
-				return tokenFrame;
-			}
-		}
-		if(tokenRule.value) {
-			try {
-				regex r(*tokenRule.value);
-
-				if(!regex_match(token.value, r)) {
-					println("[Parser] Token value (", token.value, ") is not matching \"", *tokenRule.value, "\"");
-					if(tokenFrame.permitsDirt) {
-						tokenFrame.value = token.value;
-						tokenFrame.dirtyTokens++;
-					}
-
-					return tokenFrame;
-				}
-			} catch(const regex_error& e) {
-				println("[Parser] Error in token value validator: ", e.what());
 				if(tokenFrame.permitsDirt) {
 					tokenFrame.value = token.value;
 					tokenFrame.dirtyTokens++;
@@ -406,31 +389,31 @@ struct Parser {
 
 	Frame& parse(const Frame& templateFrame) {
 		Frame& frame = cache[templateFrame.key];
-		bool isInitialized = frame.isInitialized;
-		string title;
-
-		switch(templateFrame.key.rule.index()) {
-			case 0: title = get<0>(templateFrame.key.rule);	break;
-			case 1: title = "[node]";						break;
-			case 2: title = "[token]";						break;
-			case 3: title = "[variant]";					break;
-			case 4: title = "[sequence]";					break;
-		}
+		usize position = templateFrame.start();
+		string title = templateFrame.title();
 
 		if(!frame.isInitialized) {
 			frame.key = templateFrame.key;
 			frame.isInitialized = true;
 			frame.apply(templateFrame);
 		} else
-		if(frame.inProgress || frame.generations == generations[frame.start()]) {
-			println("[Parser] # ", repeat("| ", calls), title, " at ", frame.key.start, ", in progress: ", frame.inProgress ? "true" : "false", " => generations: ", frame.generations, ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+		if(frame.isCalled || frame.version == versions[position]) {
+			if(frame.isCalled) {
+				frame.isRecursive = true;
+			}
+
+			#ifndef NDEBUG
+				println("[Parser] # ", repeat("| ", calls), title, " at ", position, ", recursion: ", frame.isCalled ? "yes" : "no", " => version: ", frame.version, ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+			#endif
 
 			return frame;
 		}
 
-		println("[Parser] # ", repeat("| ", calls++), title, " at ", frame.key.start, ", pass ", frame.generations, ", in progress: ", frame.inProgress ? "true" : "false", " {");
+		#ifndef NDEBUG
+			println("[Parser] # ", repeat("| ", calls++), title, " at ", position, " => old version: ", frame.version, " {");
+		#endif
 
-		frame.inProgress = true;
+		frame.isCalled = true;
 
 		while(optional<Frame> newFrame = dispatch(frame)) {
 			if(!newFrame->greater(frame)) {
@@ -438,22 +421,30 @@ struct Parser {
 			}
 
 			frame.apply(*newFrame);
-			generations[frame.start()]++;
+			versions[position]++;
 
-			println("[Parser] # ", repeat("| ", calls), "- clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
+			#ifndef NDEBUG
+				println("[Parser] # ", repeat("| ", calls), "- version: ", versions[position], ", clean: ", frame.cleanTokens, ", dirty: ", frame.dirtyTokens, ", value: ", to_string(frame.value));
 
-			Interface::sendToClients({
-				{"type", "notification"},
-				{"source", "parser"},
-				{"action", "parsed"},
-				{"tree", frame.value}
-			});
+				Interface::sendToClients({
+					{"type", "notification"},
+					{"source", "parser"},
+					{"action", "parsed"},
+					{"tree", frame.value}
+				});
+			#endif
+
+			if(!frame.isRecursive) {
+				break;
+			}
 		}
 
-		frame.inProgress = false;
-		frame.generations = generations[frame.start()];
+		frame.version = versions[position];
+		frame.isCalled = false;
 
-		println("[Parser] # ", repeat("| ", --calls), "} => generations: ", frame.generations);
+		#ifndef NDEBUG
+			println("[Parser] # ", repeat("| ", --calls), "} => new version: ", frame.version);
+		#endif
 
 		return frame;
 	}
