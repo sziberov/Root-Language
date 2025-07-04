@@ -179,10 +179,43 @@ namespace Grammar {
 			{nullopt, TokenRule("operatorPrefix|operatorInfix", "\\.")},
 			{"value", "identifier"}
 		})},
-		{"classBody", "[placeholder]"},
-		{"classDeclaration", "[placeholder]"},
-		{"classExpression", "[placeholder]"},
-		{"classStatements", "[placeholder]"},
+		{"classBody", NodeRule({
+			{nullopt, TokenRule("braceOpen")},
+			{"statements", "classStatements"},
+			{nullopt, TokenRule("braceClosed|endOfFile")}
+		})},
+		{"classDeclaration", NodeRule({
+			{"modifiers", "modifiers", true},
+			{nullopt, TokenRule("keywordClass")},
+			{"identifier", "identifier"},
+			{"genericParameters", "genericParametersClause", true},
+			{"inheritedTypes", "inheritedTypesClause", true},
+			{"body", "classBody", true}
+		})},
+		{"classExpression", NodeRule({
+			{nullopt, TokenRule("keywordClass")},
+			{"genericParameters", "genericParametersClause", true},
+			{"inheritedTypes", "inheritedTypesClause", true},
+			{"body", "classBody", true}
+		})},
+		{"classStatements", SequenceRule {
+			.rule = VariantRule({
+				"chainDeclaration",
+				"classDeclaration",
+				"deinitializerDeclaration",
+				"enumerationDeclaration",
+				"functionDeclaration",
+				"initializerDeclaration",
+				"namespaceDeclaration",
+				"protocolDeclaration",
+				"structureDeclaration",
+				"subscriptDeclaration",
+				"variableDeclaration"
+			}),
+			.ascender = TokenRule("braceOpen"),
+			.delimiter = TokenRule("delimiter"),
+			.descender = TokenRule("braceClosed")
+		}},
 		{"closureExpression", NodeRule({
 			{nullopt, TokenRule("braceOpen")},
 			{"signature", "closureSignature", true},
@@ -676,7 +709,11 @@ namespace Grammar {
 		{"stringSegment", NodeRule({
 			{"value", TokenRule("stringSegment")}
 		})},
-		{"structureBody", "[placeholder]"},
+		{"structureBody", NodeRule({
+			{nullopt, TokenRule("braceOpen")},
+			{"statements", "structureStatements"},
+			{nullopt, TokenRule("braceClosed|endOfFile")}
+		})},
 		{"structureDeclaration", NodeRule({
 			{"modifiers", "modifiers", true},
 			{nullopt, TokenRule("keywordStruct")},
@@ -691,7 +728,24 @@ namespace Grammar {
 			{"inheritedTypes", "inheritedTypesClause", true},
 			{"body", "structureBody", true}
 		})},
-		{"structureStatements", "[placeholder]"},
+		{"structureStatements", SequenceRule {
+			.rule = VariantRule({
+				"chainDeclaration",
+				"classDeclaration",
+				"deinitializerDeclaration",
+				"enumerationDeclaration",
+				"functionDeclaration",
+				"initializerDeclaration",
+				"namespaceDeclaration",
+				"protocolDeclaration",
+				"structureDeclaration",
+				"subscriptDeclaration",
+				"variableDeclaration"
+			}),
+			.ascender = TokenRule("braceOpen"),
+			.delimiter = TokenRule("delimiter"),
+			.descender = TokenRule("braceClosed")
+		}},
 		{"subscriptArgumentsClause", NodeRule({
 			{nullopt, TokenRule("bracketOpen")},
 			{"arguments", SequenceRule {

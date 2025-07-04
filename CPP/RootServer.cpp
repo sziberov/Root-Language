@@ -164,6 +164,7 @@ namespace RootServer {
 							println(sharedServer->getLogPrefix(), "Heartbeat from ", senderFD);
 						}
 
+						// TODO: Replace with explicit registration (tokens should be opaque most of the time and only owned by a server)
 						if(NodeArraySP senderTokens = message->get("senderTokens")) {
 							sender.tokens = {};
 

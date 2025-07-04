@@ -99,7 +99,9 @@ struct Parser {
 		}
 
 		bool empty() const {
-			return value.empty() || cleanTokens == 0 && (!permitsDirt || dirtyTokens == 0);
+			bool filled = cleanTokens > 0 || permitsDirt && dirtyTokens > 0 || cleanTokens == 0 && dirtyTokens == 0 && !value.empty();
+
+			return !filled;
 		}
 
 		bool greater(const Frame& other) const {
