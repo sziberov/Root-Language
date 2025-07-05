@@ -40,7 +40,10 @@ public:
 		memcpy(&packet[0], &size, 4);
 		memcpy(&packet[4], message.data(), message.size());
 		::send(clientFD, packet.data(), packet.size(), 0);
-		println(getLogPrefix(), "Sent", (mode == Mode::Server ? " to "+to_string(clientFD) : ""), ": ", message);
+
+		#ifndef NDEBUG
+			println(getLogPrefix(), "Sent", (mode == Mode::Server ? " to "+to_string(clientFD) : ""), ": ", message);
+		#endif
 	}
 
 	void send(const string& message) {
@@ -247,7 +250,9 @@ private:
 
 				string message = readBuffer.substr(4, size);
 
-				println(getLogPrefix(), "Received", (mode == Mode::Server ? " from "+to_string(FD) : ""), ": ", message);
+				#ifndef NDEBUG
+					println(getLogPrefix(), "Received", (mode == Mode::Server ? " from "+to_string(FD) : ""), ": ", message);
+				#endif
 
 				if(messageHandler) {
 					messageHandler(FD, message);

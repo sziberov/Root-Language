@@ -149,7 +149,9 @@ namespace RootServer {
 				   type = message->get("type");
 
 			if(receiver == "server") {
-				println(sharedServer->getLogPrefix(), "Handling server-side message from ", senderFD, ": ", rawMessage);
+				#ifndef NDEBUG
+					println(sharedServer->getLogPrefix(), "Handling server-side message from ", senderFD, ": ", rawMessage);
+				#endif
 
 				string action = message->get("action");
 
@@ -161,7 +163,9 @@ namespace RootServer {
 							sender.state = Client::State::Connected;
 							println(sharedServer->getLogPrefix(), "Late heartbeat from ", senderFD);
 						} else {
-							println(sharedServer->getLogPrefix(), "Heartbeat from ", senderFD);
+							#ifndef NDEBUG
+								println(sharedServer->getLogPrefix(), "Heartbeat from ", senderFD);
+							#endif
 						}
 
 						// TODO: Replace with explicit registration (tokens should be opaque most of the time and only owned by a server)
@@ -174,7 +178,9 @@ namespace RootServer {
 								}
 							}
 
-							println(sharedServer->getLogPrefix(), "Tokens set for ", senderFD, ": ", join(sender.tokens, ", "));
+							#ifndef NDEBUG
+								println(sharedServer->getLogPrefix(), "Tokens set for ", senderFD, ": ", join(sender.tokens, ", "));
+							#endif
 						}
 					} else
 					if(action == "cancelRequest") {
@@ -205,7 +211,9 @@ namespace RootServer {
 				}
 			} else
 			if(receiver == "client") {
-				println(sharedServer->getLogPrefix(), "Handling client-side message from ", senderFD, ": ", rawMessage);
+				#ifndef NDEBUG
+					println(sharedServer->getLogPrefix(), "Handling client-side message from ", senderFD, ": ", rawMessage);
+				#endif
 
 				unordered_set<int> receiverFDs,
 								   receiverProcessesIDs;

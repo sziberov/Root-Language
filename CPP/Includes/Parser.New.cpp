@@ -92,7 +92,7 @@ struct Parser {
 		}
 
 		void apply(const Frame& other) {
-			value = other.value;
+			value = move(other.value);
 			cleanTokens = other.cleanTokens;
 			dirtyTokens = other.dirtyTokens;
 			permitsDirt = other.permitsDirt;
@@ -161,18 +161,19 @@ struct Parser {
 			}
 		}
 
-		if(nodeRule.normalize && node.size() <= 1) {
+		if(nodeRule.normalize > 0 && node.size() <= 1) {
 			if(node.empty()) {
 				return nullopt;
 			}
+			if(nodeRule.normalize == 2) {
+				nodeFrame.value = node.begin()->second;
 
-			nodeFrame.value = node.begin()->second;
-
-			return nodeFrame;
+				return nodeFrame;
+			}
 		}
 
 		int start = nodeFrame.start(),
-			end = max(usize(), start+nodeFrame.size()-1);
+			end = start+max(usize(), nodeFrame.size() ? nodeFrame.size()-1 : 0);
 
 		node["range"] = {
 			{"start", start},
@@ -234,13 +235,34 @@ struct Parser {
 		return greatestFrame;
 	}
 
-	void rollbackSequenceFrames(Frame& sequenceFrame, vector<Frame>& frames, usize fromIndex) {
+	static void rollbackSequenceFrames(Frame& sequenceFrame, vector<Frame>& frames, usize fromIndex) {
 		for(usize i = frames.size(); i > fromIndex; i--) {
 			Frame& frame = frames.back();
 
 			sequenceFrame.removeSize(frame);
 			frames.pop_back();
 		}
+	}
+
+	static void appendToDirt(Frame& dirtFrame, const Frame& tokenFrame) {
+		NodeValue& dirtValue = dirtFrame.value;
+		int start = tokenFrame.start(),
+			end = start+max(usize(), tokenFrame.size() ? tokenFrame.size()-1 : 0);
+
+		if(dirtValue.type() != 5) {
+			dirtValue = SP<Node>({
+				{"type", "unsupported"},
+				{"range", {
+					{"start", start}
+				}},
+				{"tokens", NodeArray {}}
+			});
+		}
+
+		Node& dirtNode = dirtValue;
+
+		dirtNode.get<NodeArray&>("tokens").push_back(tokenFrame.value);
+		dirtNode.get<Node&>("range")["end"] = end;
 	}
 
 	bool parseSubsequence(Frame& sequenceFrame, vector<Frame>& frames, usize range[2], u8 mode) {
@@ -265,8 +287,9 @@ struct Parser {
 		usize count = 0,
 			  minCount = range[0],
 			  maxCount = range[1],
-			  framesSize = frames.size(),  // After last successful rule / before last delimiter(s)
+			  framesSize = frames.size(),
 			  scopeLevel = 1;
+		Frame dirtFrame;
 
 		while(sequenceFrame.end() < tokens.size() && count < maxCount) {
 			Frame& frame = parse({*rule, sequenceFrame.end()});
@@ -279,40 +302,47 @@ struct Parser {
 						break;
 					}
 
+					bool handled = false;
+
 					if(sequenceRule.ascender) {
 						Frame& openerFrame = parse({*sequenceRule.ascender, sequenceFrame.end()});
 
 						if(!openerFrame.empty()) {
 							scopeLevel++;
-							sequenceFrame.addSize(openerFrame);
-
-							continue;
+							appendToDirt(dirtFrame, openerFrame);
+							sequenceFrame.dirtyTokens += openerFrame.size();
+							handled = true;
 						}
 					}
-					if(sequenceRule.descender) {
+
+					if(!handled && sequenceRule.descender) {
 						Frame& closerFrame = parse({*sequenceRule.descender, sequenceFrame.end()});
 
 						if(!closerFrame.empty()) {
 							scopeLevel--;
-
-							if(scopeLevel > 0) {
-								sequenceFrame.addSize(closerFrame);
-
-								continue;
-							} else {
-								break;
-							}
+							if(scopeLevel == 0) { break; }
+							appendToDirt(dirtFrame, closerFrame);
+							sequenceFrame.dirtyTokens += closerFrame.size();
+							handled = true;
 						}
 					}
 
-					Frame& tokenFrame = parse({TokenRule(), sequenceFrame.end(), true});
+					if(!handled) {
+						Frame& tokenFrame = parse({TokenRule(), sequenceFrame.end(), true});
 
-					sequenceFrame.addSize(tokenFrame);
+						appendToDirt(dirtFrame, tokenFrame);
+						sequenceFrame.dirtyTokens += tokenFrame.size();
+					}
 
 					continue;
 				}
 
 				break;
+			}
+
+			if(mode == 0 && !dirtFrame.empty()) {
+				frames.push_back(move(dirtFrame));
+				dirtFrame = Frame();
 			}
 
 			sequenceFrame.addSize(frame);
@@ -330,11 +360,15 @@ struct Parser {
 			}
 		}
 
+		if(mode == 0 && !dirtFrame.empty()) {
+			frames.push_back(move(dirtFrame));
+			dirtFrame = Frame();
+		}
+
 		if(count < minCount) {
 			if(mode == 1) {
 				rollbackSequenceFrames(sequenceFrame, frames, framesSize);
 			}
-
 			return false;
 		}
 

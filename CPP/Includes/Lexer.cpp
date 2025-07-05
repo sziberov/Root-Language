@@ -405,7 +405,7 @@ struct Lexer {
 				"namespace", "nil",
 				"operator",
 				"postfix", "prefix", "private", "protected", "protocol", "public",
-				"return",
+				"repeat", "return",
 				"static", "string", "struct",
 				"throw", "throws", "true", "try", "type",
 				"var", "virtual", "void",
