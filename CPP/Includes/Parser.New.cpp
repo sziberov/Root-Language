@@ -244,25 +244,32 @@ struct Parser {
 		}
 	}
 
-	static void appendToDirt(Frame& dirtFrame, const Frame& tokenFrame) {
-		NodeValue& dirtValue = dirtFrame.value;
+	static void appendDirt(const Frame& tokenFrame, Frame& sequenceFrame, vector<Frame>& frames) {
+		sequenceFrame.dirtyTokens += tokenFrame.size();
 		int start = tokenFrame.start(),
 			end = start+max(usize(), tokenFrame.size() ? tokenFrame.size()-1 : 0);
 
-		if(dirtValue.type() != 5) {
-			dirtValue = SP<Node>({
+		if(!frames.empty() && frames.back().value.type() == 5 && frames.back().value.get<NodeSP>()->get("type", "") == "unsupported") {
+			Frame& dirtFrame = frames.back();
+			Node& dirtNode = dirtFrame.value;
+
+			dirtFrame.dirtyTokens += tokenFrame.size();
+			dirtNode.get<NodeArray&>("tokens").push_back(tokenFrame.value);
+			dirtNode.get<Node&>("range")["end"] = end;
+		} else {
+			Frame& dirtFrame = frames.emplace_back();
+			Node& dirtNode = dirtFrame.value = SP<Node>({
 				{"type", "unsupported"},
 				{"range", {
 					{"start", start}
 				}},
 				{"tokens", NodeArray {}}
 			});
+
+			dirtFrame.dirtyTokens += tokenFrame.size();
+			dirtNode.get<NodeArray&>("tokens").push_back(tokenFrame.value);
+			dirtNode.get<Node&>("range")["end"] = end;
 		}
-
-		Node& dirtNode = dirtValue;
-
-		dirtNode.get<NodeArray&>("tokens").push_back(tokenFrame.value);
-		dirtNode.get<Node&>("range")["end"] = end;
 	}
 
 	bool parseSubsequence(Frame& sequenceFrame, vector<Frame>& frames, usize range[2], u8 mode) {
@@ -287,9 +294,8 @@ struct Parser {
 		usize count = 0,
 			  minCount = range[0],
 			  maxCount = range[1],
-			  framesSize = frames.size(),
+			  framesSize = frames.size(),  // After last successful rule / before last delimiter(s)
 			  scopeLevel = 1;
-		Frame dirtFrame;
 
 		while(sequenceFrame.end() < tokens.size() && count < maxCount) {
 			Frame& frame = parse({*rule, sequenceFrame.end()});
@@ -309,8 +315,7 @@ struct Parser {
 
 						if(!openerFrame.empty()) {
 							scopeLevel++;
-							appendToDirt(dirtFrame, openerFrame);
-							sequenceFrame.dirtyTokens += openerFrame.size();
+							appendDirt(openerFrame, sequenceFrame, frames);
 							handled = true;
 						}
 					}
@@ -321,8 +326,7 @@ struct Parser {
 						if(!closerFrame.empty()) {
 							scopeLevel--;
 							if(scopeLevel == 0) { break; }
-							appendToDirt(dirtFrame, closerFrame);
-							sequenceFrame.dirtyTokens += closerFrame.size();
+							appendDirt(closerFrame, sequenceFrame, frames);
 							handled = true;
 						}
 					}
@@ -330,19 +334,18 @@ struct Parser {
 					if(!handled) {
 						Frame& tokenFrame = parse({TokenRule(), sequenceFrame.end(), true});
 
-						appendToDirt(dirtFrame, tokenFrame);
-						sequenceFrame.dirtyTokens += tokenFrame.size();
+						appendDirt(tokenFrame, sequenceFrame, frames);
+						handled = true;
+					}
+
+					if(handled) {
+						framesSize = frames.size();
 					}
 
 					continue;
 				}
 
 				break;
-			}
-
-			if(mode == 0 && !dirtFrame.empty()) {
-				frames.push_back(move(dirtFrame));
-				dirtFrame = Frame();
 			}
 
 			sequenceFrame.addSize(frame);
@@ -360,15 +363,11 @@ struct Parser {
 			}
 		}
 
-		if(mode == 0 && !dirtFrame.empty()) {
-			frames.push_back(move(dirtFrame));
-			dirtFrame = Frame();
-		}
-
 		if(count < minCount) {
 			if(mode == 1) {
 				rollbackSequenceFrames(sequenceFrame, frames, framesSize);
 			}
+
 			return false;
 		}
 
